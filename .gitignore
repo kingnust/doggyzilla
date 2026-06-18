@@ -9,6 +9,7 @@
 .xsession-errors*
 .dbus/
 .gvfs/
+.config
 
 # Keep the .gitignore itself
 !.gitignore

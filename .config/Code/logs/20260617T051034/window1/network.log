@@ -1,7 +1,0 @@
-2026-06-17 05:11:01.851 [error] #2: https://main.vscode-cdn.net/core/stable.json - error GET Fetch timeout: 20000ms
-2026-06-17 05:11:15.470 [error] #3: https://api.github.com/copilot_internal/user - error GET Failed to fetch
-2026-06-17 05:11:46.189 [error] #4: https://marketplace.visualstudio.com/_apis/public/gallery/vscode/github/copilot-chat/latest - error GET Failed to fetch
-2026-06-17 05:11:46.191 [error] #5: https://api.github.com/copilot_internal/user - error GET Failed to fetch
-2026-06-17 05:12:10.397 [error] #7: https://api.github.com/copilot_internal/user - error GET Failed to fetch
-2026-06-17 05:12:10.548 [error] #6: https://www.vscode-unpkg.net/_gallery/github/copilot-chat/latest - error GET Failed to fetch
-2026-06-18 04:05:44.531 [error] #3: https://main.vscode-cdn.net/core/stable.json - error GET Failed to fetch
