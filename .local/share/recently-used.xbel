@@ -1,0 +1,450 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xbel version="1.0"
+      xmlns:bookmark="http://www.freedesktop.org/standards/desktop-bookmarks"
+      xmlns:mime="http://www.freedesktop.org/standards/shared-mime-info"
+>
+  <bookmark href="file:///home/pi/Documents/py_install_V0.0.1/py_install/setup.py" added="2024-03-25T10:55:51.438246Z" modified="2024-03-25T10:55:53.250009Z" visited="2024-03-25T10:55:51.438247Z">
+    <desc>Language: ; Encoding: UTF-8; Cursor: 0:0;</desc>
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/plain"/>
+        <bookmark:groups>
+          <bookmark:group>Mousepad</bookmark:group>
+        </bookmark:groups>
+        <bookmark:applications>
+          <bookmark:application name="Mousepad" exec="&apos;mousepad %u&apos;" modified="2024-03-25T10:55:53.250006Z" count="2"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/Documents/cartographer_ws2/src/bringup/launch/Navigation_bringup.launch.py" added="2024-03-27T10:31:08.707772Z" modified="2024-03-27T10:31:08.707776Z" visited="2024-03-27T10:31:08.707773Z">
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/x-python"/>
+        <bookmark:applications>
+          <bookmark:application name="geany" exec="&apos;geany %u&apos;" modified="2024-03-27T10:31:08.707774Z" count="1"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/Documents/cartographer_ws2/src/yahboom_description/launch/yahboom_urdf.launch.py" added="2024-03-27T10:38:41.606743Z" modified="2024-03-27T10:38:41.606748Z" visited="2024-03-27T10:38:41.606744Z">
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/x-python"/>
+        <bookmark:applications>
+          <bookmark:application name="geany" exec="&apos;geany %u&apos;" modified="2024-03-27T10:38:41.606745Z" count="1"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/Documents/cartographer_ws2/install/xgo_description/share/xgo_description/xgo_urdf.launch.py" added="2024-03-27T10:50:27.810547Z" modified="2024-03-27T10:50:27.810551Z" visited="2024-03-27T10:50:27.810547Z">
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/x-python"/>
+        <bookmark:applications>
+          <bookmark:application name="geany" exec="&apos;geany %u&apos;" modified="2024-03-27T10:50:27.810549Z" count="1"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/Documents/cartographer_ws2/src/yahboom_base/launch/yahboom_base.launch.py" added="2024-03-27T11:22:13.971783Z" modified="2024-03-27T11:22:13.971787Z" visited="2024-03-27T11:22:13.971784Z">
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/x-python"/>
+        <bookmark:applications>
+          <bookmark:application name="geany" exec="&apos;geany %u&apos;" modified="2024-03-27T11:22:13.971785Z" count="1"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/Documents/DOGZILLALib/DOGZILLALib/DOGZILLALib.py" added="2024-03-28T01:55:20.507217Z" modified="2024-03-28T01:55:20.507221Z" visited="2024-03-28T01:55:20.507218Z">
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/x-python"/>
+        <bookmark:applications>
+          <bookmark:application name="geany" exec="&apos;geany %u&apos;" modified="2024-03-28T01:55:20.507219Z" count="1"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/Documents/cartographer_ws2/install/yahboom_dog_joint_state/share/yahboom_dog_joint_state/yahboom_dog_joint_state.launch.py" added="2024-03-28T02:02:28.332986Z" modified="2024-03-28T02:02:28.332991Z" visited="2024-03-28T02:02:28.332987Z">
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/x-python"/>
+        <bookmark:applications>
+          <bookmark:application name="geany" exec="&apos;geany %u&apos;" modified="2024-03-28T02:02:28.332988Z" count="1"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/Documents/cartographer_ws2/install/yahboom_dog_joint_state/share/colcon-core/packages/yahboom_dog_joint_state" added="2024-03-28T02:03:19.304299Z" modified="2024-03-28T02:03:21.442493Z" visited="2024-03-28T02:03:19.304300Z">
+    <desc>Language: ; Encoding: UTF-8; Cursor: 0:0;</desc>
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/plain"/>
+        <bookmark:groups>
+          <bookmark:group>Mousepad</bookmark:group>
+        </bookmark:groups>
+        <bookmark:applications>
+          <bookmark:application name="Mousepad" exec="&apos;mousepad %u&apos;" modified="2024-03-28T02:03:21.442490Z" count="2"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/Documents/cartographer_ws2/install/yahboom_dog_joint_state/share/ament_index/resource_index/packages/yahboom_dog_joint_state" added="2024-03-28T02:03:29.156520Z" modified="2024-03-28T02:03:30.828814Z" visited="2024-03-28T02:03:29.156521Z">
+    <desc>Language: ; Encoding: UTF-8; Cursor: 0:0;</desc>
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/plain"/>
+        <bookmark:groups>
+          <bookmark:group>Mousepad</bookmark:group>
+        </bookmark:groups>
+        <bookmark:applications>
+          <bookmark:application name="Mousepad" exec="&apos;mousepad %u&apos;" modified="2024-03-28T02:03:30.828810Z" count="2"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/Documents/champ_base/CMakeLists.txt" added="2024-04-01T08:48:17.581513Z" modified="2024-04-01T08:50:41.084916Z" visited="2024-04-01T08:48:17.581515Z">
+    <desc>Language: ; Encoding: UTF-8; Cursor: 32:7;</desc>
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/plain"/>
+        <bookmark:groups>
+          <bookmark:group>Mousepad</bookmark:group>
+        </bookmark:groups>
+        <bookmark:applications>
+          <bookmark:application name="Mousepad" exec="&apos;mousepad %u&apos;" modified="2024-04-01T08:50:41.084911Z" count="2"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/Documents/cartographer_ws2/src/yahboom_point/CMakeLists.txt" added="2024-04-01T11:18:14.293739Z" modified="2024-04-01T11:18:36.643553Z" visited="2024-04-01T11:18:14.293741Z">
+    <desc>Language: ; Encoding: UTF-8; Cursor: 0:0;</desc>
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/plain"/>
+        <bookmark:groups>
+          <bookmark:group>Mousepad</bookmark:group>
+        </bookmark:groups>
+        <bookmark:applications>
+          <bookmark:application name="Mousepad" exec="&apos;mousepad %u&apos;" modified="2024-04-01T11:18:36.643550Z" count="2"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/Documents/cartographer_ws2/src/yahboom_point/src/pub_point.cpp" added="2024-04-01T11:18:52.890702Z" modified="2024-04-01T11:18:52.890705Z" visited="2024-04-01T11:18:52.890702Z">
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/x-c++src"/>
+        <bookmark:applications>
+          <bookmark:application name="geany" exec="&apos;geany %u&apos;" modified="2024-04-01T11:18:52.890703Z" count="1"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/Documents/cartographer_ws2/src/yahboom_msgs/CMakeLists.txt" added="2024-04-01T11:20:06.646186Z" modified="2024-04-01T11:20:14.551903Z" visited="2024-04-01T11:20:06.646187Z">
+    <desc>Language: ; Encoding: UTF-8; Cursor: 25:23;</desc>
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/plain"/>
+        <bookmark:groups>
+          <bookmark:group>Mousepad</bookmark:group>
+        </bookmark:groups>
+        <bookmark:applications>
+          <bookmark:application name="Mousepad" exec="&apos;mousepad %u&apos;" modified="2024-04-01T11:20:14.551898Z" count="2"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/Documents/cartographer_ws2/src/oradar_lidar/launch/ms200_scan.launch" added="2024-04-12T06:58:34.660472Z" modified="2024-04-12T06:58:37.804066Z" visited="2024-04-12T06:58:34.660473Z">
+    <desc>Language: ; Encoding: UTF-8; Cursor: 0:0;</desc>
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/plain"/>
+        <bookmark:groups>
+          <bookmark:group>Mousepad</bookmark:group>
+        </bookmark:groups>
+        <bookmark:applications>
+          <bookmark:application name="Mousepad" exec="&apos;mousepad %u&apos;" modified="2024-04-12T06:58:37.804062Z" count="2"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/Documents/cartographer_ws2/src/yahboom_image_publisher_c/msg/ObjString.msg" added="2024-04-18T04:11:45.118043Z" modified="2024-04-18T04:11:48.346850Z" visited="2024-04-18T04:11:45.118044Z">
+    <desc>Language: ; Encoding: UTF-8; Cursor: 0:0;</desc>
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/plain"/>
+        <bookmark:groups>
+          <bookmark:group>Mousepad</bookmark:group>
+        </bookmark:groups>
+        <bookmark:applications>
+          <bookmark:application name="Mousepad" exec="&apos;mousepad %u&apos;" modified="2024-04-18T04:11:48.346846Z" count="2"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/Documents/cartographer_ws2/src/yahboom_image_publisher_c/src/yahboom_image_publish_c.cpp" added="2024-04-18T04:11:53.186537Z" modified="2024-04-18T04:11:53.186542Z" visited="2024-04-18T04:11:53.186538Z">
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/x-c++src"/>
+        <bookmark:applications>
+          <bookmark:application name="geany" exec="&apos;geany %u&apos;" modified="2024-04-18T04:11:53.186540Z" count="1"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/Documents/cartographer_ws2/src/yahboom_color_identify_server/yahboom_color_identify_server/yahboom_color_identify_server.py" added="2024-04-18T06:38:52.496389Z" modified="2024-04-18T06:38:52.496393Z" visited="2024-04-18T06:38:52.496389Z">
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/x-python"/>
+        <bookmark:applications>
+          <bookmark:application name="geany" exec="&apos;geany %u&apos;" modified="2024-04-18T06:38:52.496391Z" count="1"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/Pictures/%E5%A3%81%E7%BA%B8.jpg" added="2024-04-30T01:45:30.068802Z" modified="2024-04-30T01:45:30.068823Z" visited="2024-04-30T01:45:30.068809Z">
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="image/jpeg"/>
+        <bookmark:applications>
+          <bookmark:application name="pipanel" exec="&apos;pipanel %u&apos;" modified="2024-04-30T01:45:30.068818Z" count="1"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/DOGZILLA/app_dogzilla/oled_dogzilla.py" added="2024-05-10T09:24:38.834741Z" modified="2024-05-10T09:25:52.267573Z" visited="2024-05-10T09:24:38.834742Z">
+    <desc>Language: ; Encoding: UTF-8; Cursor: 245:17;</desc>
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/plain"/>
+        <bookmark:groups>
+          <bookmark:group>Mousepad</bookmark:group>
+        </bookmark:groups>
+        <bookmark:applications>
+          <bookmark:application name="Mousepad" exec="&apos;mousepad %u&apos;" modified="2024-05-10T09:25:52.267570Z" count="2"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/Version.txt" added="2024-05-10T10:24:10.841120Z" modified="2025-06-24T03:18:43.964074Z" visited="2024-05-10T10:24:10.841121Z">
+    <desc>Language: ; Encoding: UTF-8; Cursor: 0:0;</desc>
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/plain"/>
+        <bookmark:groups>
+          <bookmark:group>Mousepad</bookmark:group>
+        </bookmark:groups>
+        <bookmark:applications>
+          <bookmark:application name="Mousepad" exec="&apos;mousepad %u&apos;" modified="2025-06-24T03:18:43.964071Z" count="16"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///boot/firmware/config.txt" added="2024-08-22T10:29:49.179402Z" modified="2024-08-22T10:29:53.022428Z" visited="2024-08-22T10:29:49.179404Z">
+    <desc>Language: ; Encoding: UTF-8; Cursor: 0:0;</desc>
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/plain"/>
+        <bookmark:groups>
+          <bookmark:group>Mousepad</bookmark:group>
+        </bookmark:groups>
+        <bookmark:applications>
+          <bookmark:application name="Mousepad" exec="&apos;mousepad %u&apos;" modified="2024-08-22T10:29:53.022425Z" count="2"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/DOGZILLA/Samples/4_Big_Modle/dog_agent/dog_record.py" added="2025-05-30T09:56:52.035531Z" modified="2025-06-19T07:33:35.635435Z" visited="2025-05-30T09:56:52.035532Z">
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/x-python"/>
+        <bookmark:applications>
+          <bookmark:application name="geany" exec="&apos;geany %u&apos;" modified="2025-06-19T07:33:35.635434Z" count="2"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/mystudy/Free_QA/API_KEY.py" added="2025-06-07T07:14:19.006764Z" modified="2025-06-07T07:14:19.006768Z" visited="2025-06-07T07:14:19.006765Z">
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/x-python"/>
+        <bookmark:applications>
+          <bookmark:application name="geany" exec="&apos;geany %u&apos;" modified="2025-06-07T07:14:19.006766Z" count="1"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/DOGZILLA/Samples/4_Big_Modle/API_KEY.py" added="2025-06-07T07:24:36.466813Z" modified="2025-06-07T07:24:36.466818Z" visited="2025-06-07T07:24:36.466814Z">
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/x-python"/>
+        <bookmark:applications>
+          <bookmark:application name="geany" exec="&apos;geany %u&apos;" modified="2025-06-07T07:24:36.466816Z" count="1"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/DOGZILLA/Samples/4_Big_Modle/Free_QA/chatgpt_main_en.py" added="2025-06-07T07:25:37.407349Z" modified="2025-06-07T07:25:37.407353Z" visited="2025-06-07T07:25:37.407350Z">
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/x-python"/>
+        <bookmark:applications>
+          <bookmark:application name="geany" exec="&apos;geany %u&apos;" modified="2025-06-07T07:25:37.407351Z" count="1"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/DOGZILLA/Samples/4_Big_Modle/Free_QA/xinghou_speak_iat.py" added="2025-06-07T07:26:28.901155Z" modified="2025-06-07T07:26:28.901161Z" visited="2025-06-07T07:26:28.901156Z">
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/x-python"/>
+        <bookmark:applications>
+          <bookmark:application name="geany" exec="&apos;geany %u&apos;" modified="2025-06-07T07:26:28.901158Z" count="1"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/DOGZILLA/Samples/4_Big_Modle/Free_QA/xinghou_tts.py" added="2025-06-07T07:33:20.992638Z" modified="2025-06-07T07:33:20.992642Z" visited="2025-06-07T07:33:20.992638Z">
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/x-python"/>
+        <bookmark:applications>
+          <bookmark:application name="geany" exec="&apos;geany %u&apos;" modified="2025-06-07T07:33:20.992640Z" count="1"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/DOGZILLA/Samples/4_Big_Modle/Image_create/resized.jpg" added="2025-06-10T03:09:38.097915Z" modified="2025-06-10T03:15:04.376181Z" visited="2025-06-10T03:09:38.097917Z">
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="image/jpeg"/>
+        <bookmark:groups>
+          <bookmark:group>Graphics</bookmark:group>
+        </bookmark:groups>
+        <bookmark:applications>
+          <bookmark:application name="Eye of MATE Image Viewer" exec="&apos;eom %u&apos;" modified="2025-06-10T03:15:04.376175Z" count="3"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/DOGZILLA/Samples/4_Big_Modle/Image_create/original.jpg" added="2025-06-10T03:14:17.194376Z" modified="2025-06-10T03:18:56.831902Z" visited="2025-06-10T03:14:17.194378Z">
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="image/jpeg"/>
+        <bookmark:groups>
+          <bookmark:group>Graphics</bookmark:group>
+        </bookmark:groups>
+        <bookmark:applications>
+          <bookmark:application name="Eye of MATE Image Viewer" exec="&apos;eom %u&apos;" modified="2025-06-10T03:18:56.831894Z" count="4"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/DOGZILLA/Samples/4_Big_Modle/Free_QA/chatgpt_main.py" added="2025-06-12T08:27:47.437882Z" modified="2025-06-12T08:27:47.437886Z" visited="2025-06-12T08:27:47.437883Z">
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/x-python"/>
+        <bookmark:applications>
+          <bookmark:application name="geany" exec="&apos;geany %u&apos;" modified="2025-06-12T08:27:47.437884Z" count="1"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/DOGZILLA/Samples/4_Big_Modle/audio.py" added="2025-06-12T08:28:16.795119Z" modified="2025-06-12T08:28:16.795123Z" visited="2025-06-12T08:28:16.795119Z">
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/x-python"/>
+        <bookmark:applications>
+          <bookmark:application name="geany" exec="&apos;geany %u&apos;" modified="2025-06-12T08:28:16.795121Z" count="1"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/ros2_dog_agent.py" added="2025-06-19T04:02:38.959850Z" modified="2025-06-19T04:02:38.959854Z" visited="2025-06-19T04:02:38.959851Z">
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/x-python"/>
+        <bookmark:applications>
+          <bookmark:application name="geany" exec="&apos;geany %u&apos;" modified="2025-06-19T04:02:38.959852Z" count="1"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/dog_udp_server.py" added="2025-06-19T04:04:22.742818Z" modified="2025-06-19T04:04:22.742822Z" visited="2025-06-19T04:04:22.742819Z">
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/x-python"/>
+        <bookmark:applications>
+          <bookmark:application name="geany" exec="&apos;geany %u&apos;" modified="2025-06-19T04:04:22.742820Z" count="1"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/DOGZILLA/Samples/4_Big_Modle/dog_agent/dog_agent_Image.py" added="2025-06-19T07:10:26.148813Z" modified="2025-06-19T07:10:26.148817Z" visited="2025-06-19T07:10:26.148814Z">
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/x-python"/>
+        <bookmark:applications>
+          <bookmark:application name="geany" exec="&apos;geany %u&apos;" modified="2025-06-19T07:10:26.148815Z" count="1"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/DOGZILLA/Samples/4_Big_Modle/ros_dog_agent/dog_agent_Image.py" added="2025-06-19T07:24:13.221219Z" modified="2025-06-19T07:24:13.221222Z" visited="2025-06-19T07:24:13.221219Z">
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/x-python"/>
+        <bookmark:applications>
+          <bookmark:application name="geany" exec="&apos;geany %u&apos;" modified="2025-06-19T07:24:13.221220Z" count="1"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/DOGZILLA/Samples/4_Big_Modle/ros_dog_agent/dog_lidar_action.py" added="2025-06-19T07:31:43.116370Z" modified="2025-06-19T07:31:43.116373Z" visited="2025-06-19T07:31:43.116370Z">
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/x-python"/>
+        <bookmark:applications>
+          <bookmark:application name="geany" exec="&apos;geany %u&apos;" modified="2025-06-19T07:31:43.116372Z" count="1"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/DOGZILLA/Samples/4_Big_Modle/ros_dog_agent/rec.jpg" added="2025-06-19T07:32:29.815956Z" modified="2025-06-19T07:32:29.815973Z" visited="2025-06-19T07:32:29.815959Z">
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="image/jpeg"/>
+        <bookmark:groups>
+          <bookmark:group>Graphics</bookmark:group>
+        </bookmark:groups>
+        <bookmark:applications>
+          <bookmark:application name="Eye of MATE Image Viewer" exec="&apos;eom %u&apos;" modified="2025-06-19T07:32:29.815966Z" count="1"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi/DOGZILLA/Samples/4_Big_Modle/ros_dog_agent/dog_record.py" added="2025-06-19T07:32:45.276899Z" modified="2025-06-19T07:32:45.276903Z" visited="2025-06-19T07:32:45.276900Z">
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/x-python"/>
+        <bookmark:applications>
+          <bookmark:application name="geany" exec="&apos;geany %u&apos;" modified="2025-06-19T07:32:45.276902Z" count="1"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="file:///home/pi" added="2026-06-18T03:05:21.036124Z" modified="2026-06-18T03:15:06.260494Z" visited="2026-06-18T03:05:21.036127Z">
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="inode/directory"/>
+        <bookmark:applications>
+          <bookmark:application name="xdg-desktop-portal-gtk" exec="&apos;xdg-desktop-portal-gtk %u&apos;" modified="2026-06-18T03:15:06.260490Z" count="3"/>
+          <bookmark:application name="org.chromium.Chromium" exec="&apos;gio open %u&apos;" modified="2026-06-18T03:15:06.238017Z" count="1"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+</xbel>

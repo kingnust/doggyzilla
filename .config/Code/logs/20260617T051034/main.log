@@ -1,0 +1,18 @@
+2026-06-17 05:10:34.934 [info] StorageMainService: creating application shared storage
+2026-06-17 05:10:34.934 [info] [shared storage] Creating shared storage database at '/home/pi/.vscode-shared/sharedStorage/state.vscdb' (wasCreated: false)
+2026-06-17 05:10:34.934 [info] [shared storage] Initializing fallback application storage (path: /home/pi/.config/Code/User/globalStorage/state.vscdb)
+2026-06-17 05:10:35.067 [info] [shared storage] Fallback application storage initialized with 95 items
+2026-06-17 05:10:35.069 [info] update#setState idle
+2026-06-17 05:11:05.071 [info] update#setState checking for updates
+2026-06-17 05:11:12.399 [error] #1: https://update.code.visualstudio.com/api/update/linux-arm64/stable/6928394f91b684055b873eecb8bc281365131f1c?u=none - error undefined net::ERR_NAME_NOT_RESOLVED
+2026-06-17 05:11:12.400 [error] update#isLatestVersion(): failed to check for updates
+2026-06-17 05:11:12.401 [error] Error: net::ERR_NAME_NOT_RESOLVED
+    at SimpleURLLoaderWrapper.<anonymous> (node:electron/js2c/browser_init:2:134281)
+    at SimpleURLLoaderWrapper.emit (node:events:509:28)
+2026-06-17 05:11:12.403 [error] #2: https://update.code.visualstudio.com/api/update/linux-arm64/stable/6928394f91b684055b873eecb8bc281365131f1c?bg=true&u=none - error undefined net::ERR_NAME_NOT_RESOLVED
+2026-06-17 05:11:12.403 [error] Error: net::ERR_NAME_NOT_RESOLVED
+    at SimpleURLLoaderWrapper.<anonymous> (node:electron/js2c/browser_init:2:134281)
+    at SimpleURLLoaderWrapper.emit (node:events:509:28)
+2026-06-17 05:11:12.404 [info] update#setState idle
+2026-06-18 04:05:21.220 [info] Extension host with pid 6095 exited with code: 0, signal: unknown.
+2026-06-18 04:15:32.849 [info] Extension host with pid 38269 exited with code: 0, signal: unknown.

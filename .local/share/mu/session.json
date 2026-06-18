@@ -1,0 +1,12 @@
+{
+  "theme": "day",
+  "mode": "python",
+  "paths": [
+    "/home/pi/DOGZILLA/app_dogzilla/oled_dogzilla.py",
+    "/home/pi/DOGZILLA/app_dogzilla/app_dogzilla.py"
+  ],
+  "envars": [],
+  "minify": false,
+  "microbit_runtime": "",
+  "zoom_level": 2
+}

@@ -1,0 +1,5 @@
+2026/06/18-03:56:03.169 472b Reusing MANIFEST /home/pi/.config/chromium/Default/shared_proto_db/MANIFEST-000002
+2026/06/18-03:56:03.193 472b Recovering log #4
+2026/06/18-03:56:03.196 472b (ignoring error) /home/pi/.config/chromium/Default/shared_proto_db/000004.log: dropping 8227 bytes; Corruption: checksum mismatch
+2026/06/18-03:56:03.196 472b (ignoring error) /home/pi/.config/chromium/Default/shared_proto_db/000004.log: dropping 370 bytes; Corruption: missing start of fragmented record(2)
+2026/06/18-03:56:03.200 472b Reusing old log /home/pi/.config/chromium/Default/shared_proto_db/000004.log 

@@ -1,0 +1,51 @@
+2026-06-17 05:10:37.723 [info] Started local extension host with pid 6095.
+2026-06-17 05:10:39.413 [info] [AccountPolicyGate] apply: state=inactive, reason=undefined, isRestricted=false
+2026-06-17 05:10:40.527 [info] Settings Sync: Account status changed from uninitialized to unavailable
+2026-06-17 05:10:42.451 [error] [Extension Host] (node:6095) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `exe --trace-deprecation ...` to show where the warning was created)
+2026-06-17 05:10:44.411 [info] [AccountPolicyGate] apply: state=inactive, reason=undefined, isRestricted=false
+2026-06-17 05:11:01.852 [error] Error: Fetch timeout: 20000ms
+    at Hzo (vscode-file://vscode-app/usr/share/code/resources/app/out/vs/workbench/workbench.desktop.main.js:5086:51394)
+    at async Fft.logAndRequest (vscode-file://vscode-app/usr/share/code/resources/app/out/vs/workbench/workbench.desktop.main.js:970:11062)
+    at async c3e.doFetchAlerts (vscode-file://vscode-app/usr/share/code/resources/app/out/vs/workbench/workbench.desktop.main.js:5530:8948)
+    at async c3e.fetchAlerts (vscode-file://vscode-app/usr/share/code/resources/app/out/vs/workbench/workbench.desktop.main.js:5530:8856)
+2026-06-17 05:11:13.314 [info] [perf] Render performance baseline is 37ms
+2026-06-17 05:11:15.470 [error] [DefaultAccount] request: error TypeError: Failed to fetch https://api.github.com/copilot_internal/user
+2026-06-17 05:11:46.189 [error] Error while getting the latest version for the extension github.copilot-chat from https://marketplace.visualstudio.com/_apis/public/gallery/vscode/{publisher}/{name}/latest. Trying the fallback https://www.vscode-unpkg.net/_gallery/{publisher}/{name}/latest Failed
+2026-06-17 05:11:46.192 [error] [DefaultAccount] request: error TypeError: Failed to fetch https://api.github.com/copilot_internal/user
+2026-06-17 05:12:10.397 [error] [DefaultAccount] request: error TypeError: Failed to fetch https://api.github.com/copilot_internal/user
+2026-06-17 05:12:10.570 [error] Error while getting the latest version for the extension github.copilot-chat. TypeError: Failed to fetch
+2026-06-18 03:58:07.454 [warning] [DefaultAccount] Managed settings fetch returned non-success status 404; falling back to local-only policy
+2026-06-18 03:58:12.082 [warning] [DefaultAccount] Managed settings fetch returned non-success status 404; falling back to local-only policy
+2026-06-18 04:05:21.154 [warning] Attempted to report in-progress status for unknown chat session type 'copilot-cloud-agent'
+2026-06-18 04:05:21.156 [warning] Attempted to report in-progress status for unknown chat session type 'copilotcli'
+2026-06-18 04:05:21.156 [warning] Attempted to report in-progress status for unknown chat session type 'claude-code'
+2026-06-18 04:05:21.469 [warning] [DefaultAccount] Attempt 1 to get sessions failed: Canceled
+2026-06-18 04:05:24.466 [info] Started local extension host with pid 38269.
+2026-06-18 04:05:27.423 [info] [AccountPolicyGate] apply: state=inactive, reason=undefined, isRestricted=false
+2026-06-18 04:05:30.813 [info] Settings Sync: Account status changed from uninitialized to unavailable
+2026-06-18 04:05:30.965 [info] Extension host (LocalProcess pid: 38269) is unresponsive.
+2026-06-18 04:05:31.977 [error] [Extension Host] (node:38269) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `exe --trace-deprecation ...` to show where the warning was created)
+2026-06-18 04:05:31.978 [info] Extension host (LocalProcess pid: 38269) is responsive.
+2026-06-18 04:05:32.440 [info] [AccountPolicyGate] apply: state=inactive, reason=undefined, isRestricted=false
+2026-06-18 04:05:33.242 [info] [perf] Render performance baseline is 195ms
+2026-06-18 04:05:43.405 [error] An unknown error occurred. Please consult the log for more details.
+2026-06-18 04:05:44.532 [error] TypeError: Failed to fetch
+    at Hzo (vscode-file://vscode-app/usr/share/code/resources/app/out/vs/workbench/workbench.desktop.main.js:5086:51184)
+    at vscode-file://vscode-app/usr/share/code/resources/app/out/vs/workbench/workbench.desktop.main.js:5086:52480
+    at Fft.logAndRequest (vscode-file://vscode-app/usr/share/code/resources/app/out/vs/workbench/workbench.desktop.main.js:970:11068)
+    at Fft.request (vscode-file://vscode-app/usr/share/code/resources/app/out/vs/workbench/workbench.desktop.main.js:5086:52460)
+    at c3e.doFetchAlerts (vscode-file://vscode-app/usr/share/code/resources/app/out/vs/workbench/workbench.desktop.main.js:5530:8974)
+    at c3e.fetchAlerts (vscode-file://vscode-app/usr/share/code/resources/app/out/vs/workbench/workbench.desktop.main.js:5530:8867)
+    at new c3e (vscode-file://vscode-app/usr/share/code/resources/app/out/vs/workbench/workbench.desktop.main.js:5530:8698)
+    at a._createInstance (vscode-file://vscode-app/usr/share/code/resources/app/out/vs/workbench/workbench.desktop.main.js:1964:2000)
+    at a.createInstance (vscode-file://vscode-app/usr/share/code/resources/app/out/vs/workbench/workbench.desktop.main.js:1964:1440)
+    at a.safeCreateContribution (vscode-file://vscode-app/usr/share/code/resources/app/out/vs/workbench/workbench.desktop.main.js:955:46910)
+    at l (vscode-file://vscode-app/usr/share/code/resources/app/out/vs/workbench/workbench.desktop.main.js:955:46511)
+2026-06-18 04:05:50.841 [warning] [DefaultAccount] Managed settings fetch returned non-success status 404; falling back to local-only policy
+2026-06-18 04:06:20.476 [error] An unknown error occurred. Please consult the log for more details.
+2026-06-18 04:15:32.867 [warning] [DefaultAccount] Attempt 1 to get sessions failed: Canceled
+2026-06-18 04:15:32.876 [warning] Attempted to report in-progress status for unknown chat session type 'copilot-cloud-agent'
+2026-06-18 04:15:32.877 [warning] Attempted to report in-progress status for unknown chat session type 'copilotcli'
+2026-06-18 04:15:32.878 [warning] Attempted to report in-progress status for unknown chat session type 'claude-code'

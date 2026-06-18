@@ -1,0 +1,320 @@
+Xsession: X session started for pi at Tue Jun 16 10:50:30 AM BST 2026
+dbus-update-activation-environment: setting DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+xrdb: Can't open display ''
+xhost:  unable to open display ""
+dbus-update-activation-environment: setting USER=pi
+dbus-update-activation-environment: setting LANGUAGE=en_US.UTF-8
+dbus-update-activation-environment: setting TEXTDOMAIN=Linux-PAM
+dbus-update-activation-environment: setting XDG_SESSION_TYPE=wayland
+dbus-update-activation-environment: setting HOME=/home/pi
+dbus-update-activation-environment: setting DESKTOP_SESSION=LXDE-pi-wayfire
+dbus-update-activation-environment: setting XDG_SEAT_PATH=/org/freedesktop/DisplayManager/Seat0
+dbus-update-activation-environment: setting DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+dbus-update-activation-environment: setting LOGNAME=pi
+dbus-update-activation-environment: setting XDG_SESSION_CLASS=user
+dbus-update-activation-environment: setting PATH=/home/pi/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/games:/usr/games
+dbus-update-activation-environment: setting XDG_SESSION_PATH=/org/freedesktop/DisplayManager/Session0
+dbus-update-activation-environment: setting XDG_RUNTIME_DIR=/run/user/1000
+dbus-update-activation-environment: setting LANG=en_US.UTF-8
+dbus-update-activation-environment: setting XDG_SESSION_DESKTOP=LXDE-pi-wayfire
+dbus-update-activation-environment: setting XDG_GREETER_DATA_DIR=/var/lib/lightdm/data/pi
+dbus-update-activation-environment: setting SHELL=/bin/bash
+dbus-update-activation-environment: setting GDMSESSION=LXDE-pi-wayfire
+dbus-update-activation-environment: setting NO_AT_BRIDGE=1
+dbus-update-activation-environment: setting GPG_AGENT_INFO=/run/user/1000/gnupg/S.gpg-agent:0:1
+dbus-update-activation-environment: setting LC_ALL=en_US.UTF-8
+dbus-update-activation-environment: setting PWD=/home/pi
+II 16-06-26 10:50:31.703 - [src/main.cpp:280] Starting wayfire version 0.7.5
+II 16-06-26 10:50:31.708 - [libseat] [libseat/backend/seatd.c:64] Could not connect to socket /run/seatd.sock: No such file or directory
+II 16-06-26 10:50:31.708 - [libseat] [libseat/libseat.c:76] Backend 'seatd' failed to open seat, skipping
+II 16-06-26 10:50:31.745 - [libseat] [libseat/libseat.c:73] Seat opened with backend 'logind'
+II 16-06-26 10:50:31.745 - [backend/session/session.c:109] Successfully loaded libseat session
+II 16-06-26 10:50:31.750 - [backend/backend.c:220] Found 1 GPUs
+II 16-06-26 10:50:31.750 - [backend/drm/backend.c:186] Initializing DRM backend for /dev/dri/card1 (vc4)
+II 16-06-26 10:50:31.750 - [backend/drm/drm.c:242] Found 4 DRM CRTCs
+II 16-06-26 10:50:31.750 - [backend/drm/drm.c:200] Found 56 DRM planes
+II 16-06-26 10:50:31.767 - [render/egl.c:201] Supported EGL client extensions: EGL_EXT_device_base EGL_EXT_device_enumeration EGL_EXT_device_query EGL_EXT_platform_base EGL_KHR_client_get_all_proc_addresses EGL_EXT_client_extensions EGL_KHR_debug EGL_EXT_platform_device EGL_EXT_explicit_device EGL_EXT_platform_wayland EGL_KHR_platform_wayland EGL_EXT_platform_x11 EGL_KHR_platform_x11 EGL_EXT_platform_xcb EGL_MESA_platform_gbm EGL_KHR_platform_gbm EGL_MESA_platform_surfaceless
+EE 16-06-26 10:50:31.767 - [EGL] command: eglQueryDeviceStringEXT, error: EGL_BAD_PARAMETER (0x300c), message: "eglQueryDeviceStringEXT"
+EE 16-06-26 10:50:31.767 - [EGL] command: eglQueryDeviceStringEXT, error: EGL_BAD_PARAMETER (0x300c), message: "eglQueryDeviceStringEXT"
+II 16-06-26 10:50:31.838 - [render/egl.c:347] Using EGL 1.4
+II 16-06-26 10:50:31.838 - [render/egl.c:348] Supported EGL display extensions: EGL_ANDROID_blob_cache EGL_ANDROID_native_fence_sync EGL_EXT_buffer_age EGL_EXT_config_select_group EGL_EXT_image_dma_buf_import EGL_EXT_image_dma_buf_import_modifiers EGL_EXT_surface_compression EGL_KHR_cl_event2 EGL_KHR_config_attribs EGL_KHR_context_flush_control EGL_KHR_create_context EGL_KHR_create_context_no_error EGL_KHR_fence_sync EGL_KHR_get_all_proc_addresses EGL_KHR_gl_colorspace EGL_KHR_gl_renderbuffer_image EGL_KHR_gl_texture_2D_image EGL_KHR_gl_texture_3D_image EGL_KHR_gl_texture_cubemap_image EGL_KHR_image EGL_KHR_image_base EGL_KHR_image_pixmap EGL_KHR_no_config_context EGL_KHR_reusable_sync EGL_KHR_surfaceless_context EGL_EXT_pixel_format_float EGL_KHR_wait_sync EGL_MESA_configless_context EGL_MESA_drm_image EGL_MESA_gl_interop EGL_MESA_image_dma_buf_export EGL_MESA_query_driver EGL_MESA_x11_native_visual_id EGL_WL_bind_wayland_display 
+II 16-06-26 10:50:31.838 - [render/egl.c:350] Supported EGL device extensions: EGL_EXT_device_drm EGL_EXT_device_drm_render_node
+II 16-06-26 10:50:31.838 - [render/egl.c:352] EGL vendor: Mesa Project
+II 16-06-26 10:50:31.893 - [render/gles2/renderer.c:727] Creating GLES2 renderer
+II 16-06-26 10:50:31.893 - [render/gles2/renderer.c:728] Using OpenGL ES 3.1 Mesa 24.2.8-1~bpo12+rpt4
+II 16-06-26 10:50:31.893 - [render/gles2/renderer.c:729] GL vendor: Broadcom
+II 16-06-26 10:50:31.893 - [render/gles2/renderer.c:730] GL renderer: V3D 7.1.7.0
+II 16-06-26 10:50:31.893 - [render/gles2/renderer.c:731] Supported GLES2 extensions: GL_EXT_blend_minmax GL_EXT_multi_draw_arrays GL_EXT_texture_filter_anisotropic GL_EXT_texture_compression_s3tc GL_EXT_texture_compression_dxt1 GL_EXT_texture_compression_rgtc GL_EXT_texture_format_BGRA8888 GL_OES_compressed_ETC1_RGB8_texture GL_OES_depth24 GL_OES_element_index_uint GL_OES_fbo_render_mipmap GL_OES_mapbuffer GL_OES_rgb8_rgba8 GL_OES_standard_derivatives GL_OES_stencil8 GL_OES_texture_3D GL_OES_texture_float GL_OES_texture_half_float GL_OES_texture_half_float_linear GL_OES_texture_npot GL_OES_vertex_half_float GL_EXT_draw_instanced GL_EXT_texture_sRGB_decode GL_OES_EGL_image GL_OES_depth_texture GL_AMD_performance_monitor GL_OES_packed_depth_stencil GL_EXT_texture_type_2_10_10_10_REV GL_NV_conditional_render GL_OES_get_program_binary GL_APPLE_texture_max_level GL_EXT_discard_framebuffer GL_EXT_read_format_bgra GL_EXT_texture_storage GL_NV_pack_subimage GL_NV_texture_barrier GL_EXT_frag_depth GL_NV_fbo_color_attachments GL_OES_EGL_image_external GL_OES_EGL_sync GL_OES_vertex_array_object GL_ANGLE_pack_reverse_row_order GL_ANGLE_texture_compression_dxt3 GL_ANGLE_texture_compression_dxt5 GL_EXT_occlusion_query_boolean GL_EXT_texture_rg GL_EXT_unpack_subimage GL_NV_draw_buffers GL_NV_read_buffer GL_NV_read_depth GL_NV_read_depth_stencil GL_NV_read_stencil GL_APPLE_sync GL_EXT_draw_buffers GL_EXT_instanced_arrays GL_EXT_map_buffer_range GL_EXT_shadow_samplers GL_KHR_debug GL_KHR_texture_compression_astc_ldr GL_NV_generate_mipmap_sRGB GL_NV_pixel_buffer_object GL_OES_depth_texture_cube_map GL_OES_required_internalformat GL_OES_surfaceless_context GL_EXT_color_buffer_float GL_EXT_debug_label GL_EXT_sRGB_write_control GL_EXT_separate_shader_objects GL_EXT_shader_implicit_conversions GL_EXT_shader_integer_mix GL_EXT_base_instance GL_EXT_compressed_ETC1_RGB8_sub_texture GL_EXT_copy_image GL_EXT_draw_buffers_indexed GL_EXT_draw_elements_base_vertex GL_EXT_polygon_offset_clamp GL_EXT_primitive_bounding_box GL_EXT_shader_io_blocks GL_EXT_texture_border_clamp GL_EXT_texture_cube_map_array GL_EXT_texture_view GL_KHR_context_flush_control GL_NV_image_formats GL_NV_shader_noperspective_interpolation GL_OES_copy_image GL_OES_draw_buffers_indexed GL_OES_draw_elements_base_vertex GL_OES_primitive_bounding_box GL_OES_shader_io_blocks GL_OES_texture_border_clamp GL_OES_texture_cube_map_array GL_OES_texture_stencil8 GL_OES_texture_storage_multisample_2d_array GL_OES_texture_view GL_EXT_buffer_storage GL_EXT_float_blend GL_EXT_geometry_point_size GL_EXT_geometry_shader GL_KHR_no_error GL_KHR_texture_compression_astc_sliced_3d GL_OES_EGL_image_external_essl3 GL_OES_geometry_point_size GL_OES_geometry_shader GL_OES_shader_image_atomic GL_EXT_clear_texture GL_EXT_texture_compression_s3tc_srgb GL_MESA_shader_integer_functions GL_EXT_color_buffer_half_float GL_EXT_texture_mirror_clamp_to_edge GL_KHR_parallel_shader_compile GL_EXT_EGL_image_storage GL_MESA_framebuffer_flip_y GL_EXT_depth_clamp GL_EXT_texture_query_lod GL_MESA_sampler_objects GL_EXT_EGL_image_storage_compression GL_EXT_texture_storage_compression GL_MESA_bgra 
+II 16-06-26 10:50:31.983 - [src/default-config-backend.cpp:101] Using config file: /home/pi/.config/wayfire.ini
+II 16-06-26 10:50:31.984 - [src/file.cpp:576] Reading XML configuration options from directory /usr/share/wayfire/metadata
+II 16-06-26 10:50:31.984 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/wm-actions.xml
+II 16-06-26 10:50:31.999 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/input.xml
+II 16-06-26 10:50:32.000 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/wobbly.xml
+II 16-06-26 10:50:32.000 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/expo.xml
+II 16-06-26 10:50:32.001 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/pixdecor.xml
+II 16-06-26 10:50:32.004 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/switcher.xml
+II 16-06-26 10:50:32.004 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/fast-switcher.xml
+II 16-06-26 10:50:32.005 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/simple-tile.xml
+II 16-06-26 10:50:32.007 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/animate.xml
+II 16-06-26 10:50:32.008 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/workarounds.xml
+II 16-06-26 10:50:32.009 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/extra-gestures.xml
+II 16-06-26 10:50:32.009 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/decoration.xml
+II 16-06-26 10:50:32.010 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/vswipe.xml
+II 16-06-26 10:50:32.011 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/place.xml
+II 16-06-26 10:50:32.011 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/oswitch.xml
+II 16-06-26 10:50:32.012 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/cube.xml
+II 16-06-26 10:50:32.012 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/input-device.xml
+II 16-06-26 10:50:32.013 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/resize.xml
+II 16-06-26 10:50:32.013 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/core.xml
+II 16-06-26 10:50:32.014 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/wrot.xml
+II 16-06-26 10:50:32.014 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/autostart.xml
+II 16-06-26 10:50:32.015 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/grid.xml
+II 16-06-26 10:50:32.015 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/idle.xml
+II 16-06-26 10:50:32.016 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/autostart-static.xml
+II 16-06-26 10:50:32.017 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/pixswitcher.xml
+II 16-06-26 10:50:32.017 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/window-rules.xml
+II 16-06-26 10:50:32.018 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/scale.xml
+II 16-06-26 10:50:32.018 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/fisheye.xml
+II 16-06-26 10:50:32.019 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/output.xml
+II 16-06-26 10:50:32.019 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/vswitch.xml
+II 16-06-26 10:50:32.020 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/winshadows.xml
+II 16-06-26 10:50:32.021 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/invert.xml
+II 16-06-26 10:50:32.022 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/blur.xml
+II 16-06-26 10:50:32.022 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/preserve-output.xml
+II 16-06-26 10:50:32.023 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/move.xml
+II 16-06-26 10:50:32.023 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/alpha.xml
+II 16-06-26 10:50:32.023 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/command.xml
+II 16-06-26 10:50:32.024 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/scale-title-filter.xml
+II 16-06-26 10:50:32.025 - [src/file.cpp:589] Reading XML configuration options from file /usr/share/wayfire/metadata/zoom.xml
+II 16-06-26 10:50:32.045 - [backend/headless/backend.c:68] Creating headless backend
+II 16-06-26 10:50:32.045 - [backend/headless/backend.c:16] Starting headless backend
+II 16-06-26 10:50:32.123 - [src/main.cpp:355] Using socket name wayland-1
+II 16-06-26 10:50:32.195 - [src/core/seat/input-manager.cpp:46] handle new input: PixArt Lenovo USB Optical Mouse
+II 16-06-26 10:50:32.196 - [src/core/seat/input-manager.cpp:46] handle new input: pwr_button
+II 16-06-26 10:50:32.227 - [src/core/seat/input-manager.cpp:46] handle new input: vc4-hdmi-0
+II 16-06-26 10:50:32.233 - [src/core/seat/input-manager.cpp:46] handle new input: vc4-hdmi-0
+II 16-06-26 10:50:32.233 - [src/core/seat/input-manager.cpp:46] handle new input: vc4-hdmi-1
+II 16-06-26 10:50:32.238 - [src/core/seat/input-manager.cpp:46] handle new input: vc4-hdmi-1
+II 16-06-26 10:50:32.238 - [backend/drm/drm.c:1502] Scanning DRM connectors on /dev/dri/card1
+II 16-06-26 10:50:32.240 - [backend/drm/drm.c:1553] Found connector 'HDMI-A-1'
+II 16-06-26 10:50:32.240 - [backend/drm/drm.c:1578] 'HDMI-A-1' connected
+II 16-06-26 10:50:32.240 - [backend/drm/drm.c:1377] Physical size: 0x0
+II 16-06-26 10:50:32.240 - [backend/drm/drm.c:1439] Detected modes:
+II 16-06-26 10:50:32.240 - [backend/drm/drm.c:1478]   1024x768 @ 60.004 Hz 
+II 16-06-26 10:50:32.240 - [backend/drm/drm.c:1478]   800x600 @ 60.317 Hz 
+II 16-06-26 10:50:32.240 - [backend/drm/drm.c:1478]   800x600 @ 56.250 Hz 
+II 16-06-26 10:50:32.241 - [backend/drm/drm.c:1478]   848x480 @ 60.000 Hz 
+II 16-06-26 10:50:32.241 - [backend/drm/drm.c:1478]   640x480 @ 59.940 Hz 
+II 16-06-26 10:50:32.241 - [backend/drm/drm.c:1553] Found connector 'HDMI-A-2'
+II 16-06-26 10:50:32.241 - [backend/drm/drm.c:1614] connector HDMI-A-1: Requesting modeset
+II 16-06-26 10:50:32.241 - [src/core/output-layout.cpp:1089] new output: HDMI-A-1
+II 16-06-26 10:50:32.241 - [src/core/output-layout.cpp:535] loaded mode auto
+II 16-06-26 10:50:32.252 - [backend/drm/drm.c:734] connector HDMI-A-1: Modesetting with 1024x768 @ 60.004 Hz
+(type equals variant: [type: string, value: toplevel] | (type equals variant: [type: string, value: x-or] & focusable equals variant: [type: bool, value: 1]))
+type equals variant: [type: string, value: overlay]
+false
+false
+false
+app_id equals variant: [type: string, value: Kodi]
+(type equals variant: [type: string, value: toplevel] & floating equals variant: [type: bool, value: 1])
+EE 16-06-26 10:50:32.569 - [types/wlr_cursor.c:875] Cannot map device "pwr_button" to output (not found in this cursor)
+EE 16-06-26 10:50:32.569 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-0" to output (not found in this cursor)
+EE 16-06-26 10:50:32.569 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-1" to output (not found in this cursor)
+II 16-06-26 10:50:33.430 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface:  app-id: lxterminal
+app_id equals variant: [type: string, value: Kodi]
+EE 16-06-26 10:50:36.109 - [src/view/view-impl.cpp:62] Setting minimize hint to unknown surface. Wayfire currentlysupports only setting hints relative to views.
+II 16-06-26 10:50:48.111 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 16-06-26 10:50:51.630 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface: wf-panel-pi app-id: wf-panel-pi
+app_id equals variant: [type: string, value: Kodi]
+II 16-06-26 10:50:53.857 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 16-06-26 10:50:54.531 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface: wf-panel-pi app-id: wf-panel-pi
+app_id equals variant: [type: string, value: Kodi]
+II 16-06-26 10:50:56.098 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 16-06-26 10:50:57.440 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:25:07.461 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:25:49.942 - [src/core/seat/input-manager.cpp:46] handle new input: wlr_virtual_keyboard_v1
+EE 17-06-26 04:25:49.947 - [types/wlr_cursor.c:875] Cannot map device "pwr_button" to output (not found in this cursor)
+EE 17-06-26 04:25:49.947 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-0" to output (not found in this cursor)
+EE 17-06-26 04:25:49.947 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-1" to output (not found in this cursor)
+EE 17-06-26 04:25:49.947 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+II 17-06-26 04:25:49.951 - [src/core/seat/input-manager.cpp:46] handle new input: wlr_virtual_pointer_v1
+EE 17-06-26 04:25:49.951 - [types/wlr_cursor.c:875] Cannot map device "pwr_button" to output (not found in this cursor)
+EE 17-06-26 04:25:49.951 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-0" to output (not found in this cursor)
+EE 17-06-26 04:25:49.951 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-1" to output (not found in this cursor)
+EE 17-06-26 04:25:49.951 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+II 17-06-26 04:25:58.503 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:26:05.604 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface:  app-id: lxterminal
+app_id equals variant: [type: string, value: Kodi]
+II 17-06-26 04:26:22.869 - [xwayland/server.c:108] Starting Xwayland on :0
+The XKEYBOARD keymap compiler (xkbcomp) reports:
+> Warning:          Unsupported maximum keycode 708, clipping.
+>                   X11 cannot support keycodes above 255.
+Errors from xkbcomp are not fatal to the X server
+xsettingsd: Loaded 19 settings from /home/pi/.config/xsettingsd/xsettingsd.conf
+EE 17-06-26 04:26:23.877 - [src/view/xwayland.cpp:818] new unmanaged xwayland surface (null) class: (null) instance: (null)
+xsettingsd: Created window 0x400001 on screen 0 with timestamp 113202
+xsettingsd: Selection _XSETTINGS_S0 is owned by 0x0
+xsettingsd: Took ownership of selection _XSETTINGS_S0
+II 17-06-26 04:26:39.031 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface: New Tab - Chromium app-id: chromium-browser
+app_id equals variant: [type: string, value: Kodi]
+II 17-06-26 04:26:40.808 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:26:42.261 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface: Available Updates app-id: wf-panel-pi
+app_id equals variant: [type: string, value: Kodi]
+II 17-06-26 04:26:53.396 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface:  app-id: lxterminal
+app_id equals variant: [type: string, value: Kodi]
+II 17-06-26 04:27:23.352 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:27:25.044 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:27:25.678 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:27:28.191 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:27:33.518 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:27:51.075 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:27:53.173 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:28:38.564 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:28:43.024 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:28:43.677 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:31:49.537 - [src/view/xdg-shell.cpp:25] New xdg popup
+EE 17-06-26 04:33:11.513 - [libinput] event5  - PixArt Lenovo USB Optical Mouse: client bug: event processing lagging behind by 45ms, your system is too slow
+
+II 17-06-26 04:33:18.892 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:33:20.186 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:36:50.469 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:37:15.702 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:37:18.274 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface:  app-id: lxterminal
+app_id equals variant: [type: string, value: Kodi]
+II 17-06-26 04:37:34.583 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:42:14.118 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:42:17.909 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:42:18.020 - [src/core/seat/input-manager.cpp:104] remove input: wlr_virtual_keyboard_v1
+II 17-06-26 04:42:18.021 - [src/core/seat/input-manager.cpp:104] remove input: wlr_virtual_pointer_v1
+The XKEYBOARD keymap compiler (xkbcomp) reports:
+> Warning:          Unsupported maximum keycode 708, clipping.
+>                   X11 cannot support keycodes above 255.
+Errors from xkbcomp are not fatal to the X server
+II 17-06-26 04:42:19.251 - [src/core/seat/input-manager.cpp:46] handle new input: wlr_virtual_keyboard_v1
+EE 17-06-26 04:42:19.256 - [types/wlr_cursor.c:875] Cannot map device "pwr_button" to output (not found in this cursor)
+EE 17-06-26 04:42:19.256 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-0" to output (not found in this cursor)
+EE 17-06-26 04:42:19.256 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-1" to output (not found in this cursor)
+EE 17-06-26 04:42:19.256 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+II 17-06-26 04:42:19.260 - [src/core/seat/input-manager.cpp:46] handle new input: wlr_virtual_pointer_v1
+EE 17-06-26 04:42:19.260 - [types/wlr_cursor.c:875] Cannot map device "pwr_button" to output (not found in this cursor)
+EE 17-06-26 04:42:19.260 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-0" to output (not found in this cursor)
+EE 17-06-26 04:42:19.261 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-1" to output (not found in this cursor)
+EE 17-06-26 04:42:19.261 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+The XKEYBOARD keymap compiler (xkbcomp) reports:
+> Warning:          Unsupported maximum keycode 708, clipping.
+>                   X11 cannot support keycodes above 255.
+Errors from xkbcomp are not fatal to the X server
+The XKEYBOARD keymap compiler (xkbcomp) reports:
+> Warning:          Unsupported maximum keycode 708, clipping.
+>                   X11 cannot support keycodes above 255.
+Errors from xkbcomp are not fatal to the X server
+II 17-06-26 04:42:19.369 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:42:21.463 - [src/view/xdg-shell.cpp:25] New xdg popup
+EE 17-06-26 04:47:43.606 - [libinput] client bug: timer event5 debounce short: scheduled expiry is in the past (-30ms), your system is too slow
+
+II 17-06-26 04:47:54.066 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:47:56.044 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface:  app-id: lxterminal
+app_id equals variant: [type: string, value: Kodi]
+II 17-06-26 04:47:57.328 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface:  app-id: lxterminal
+app_id equals variant: [type: string, value: Kodi]
+II 17-06-26 04:51:12.182 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:51:55.585 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:52:01.208 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface: wf-panel-pi app-id: wf-panel-pi
+app_id equals variant: [type: string, value: Kodi]
+II 17-06-26 04:52:03.994 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:52:10.007 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:52:11.706 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:52:17.385 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:52:45.234 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:52:45.938 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:52:58.622 - [src/core/seat/input-manager.cpp:46] handle new input: wlr_virtual_keyboard_v1
+EE 17-06-26 04:52:58.631 - [types/wlr_cursor.c:875] Cannot map device "pwr_button" to output (not found in this cursor)
+EE 17-06-26 04:52:58.631 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-0" to output (not found in this cursor)
+EE 17-06-26 04:52:58.631 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-1" to output (not found in this cursor)
+EE 17-06-26 04:52:58.631 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 17-06-26 04:52:58.631 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+II 17-06-26 04:52:58.638 - [src/core/seat/input-manager.cpp:46] handle new input: wlr_virtual_pointer_v1
+EE 17-06-26 04:52:58.638 - [types/wlr_cursor.c:875] Cannot map device "pwr_button" to output (not found in this cursor)
+EE 17-06-26 04:52:58.638 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-0" to output (not found in this cursor)
+EE 17-06-26 04:52:58.638 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-1" to output (not found in this cursor)
+EE 17-06-26 04:52:58.638 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 17-06-26 04:52:58.638 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+The XKEYBOARD keymap compiler (xkbcomp) reports:
+> Warning:          Unsupported maximum keycode 708, clipping.
+>                   X11 cannot support keycodes above 255.
+Errors from xkbcomp are not fatal to the X server
+The XKEYBOARD keymap compiler (xkbcomp) reports:
+> Warning:          Unsupported maximum keycode 708, clipping.
+>                   X11 cannot support keycodes above 255.
+Errors from xkbcomp are not fatal to the X server
+II 17-06-26 04:53:07.121 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:53:07.555 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:53:07.847 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:53:27.119 - [src/view/xdg-shell.cpp:25] New xdg popup
+EE 17-06-26 04:53:46.466 - [libinput] event5  - PixArt Lenovo USB Optical Mouse: client bug: event processing lagging behind by 90ms, your system is too slow
+
+II 17-06-26 04:55:29.221 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:55:33.295 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:55:36.177 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface: Configure Clock app-id: wf-panel-pi
+app_id equals variant: [type: string, value: Kodi]
+II 17-06-26 04:55:39.773 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:55:42.267 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface: Appearance Settings app-id: pipanel
+app_id equals variant: [type: string, value: Kodi]
+II 17-06-26 04:55:42.849 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface: Appearance Settings app-id: pipanel
+app_id equals variant: [type: string, value: Kodi]
+II 17-06-26 04:55:47.952 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface: Select a File app-id: pipanel
+app_id equals variant: [type: string, value: Kodi]
+II 17-06-26 04:55:57.515 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface: Pick a Color app-id: pipanel
+app_id equals variant: [type: string, value: Kodi]
+II 17-06-26 04:56:46.121 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:56:47.276 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:56:47.494 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:56:47.810 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:56:48.161 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:56:52.120 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:57:03.282 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:57:05.168 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:57:07.677 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:57:10.165 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:57:11.141 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:57:11.458 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:57:11.689 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:58:02.236 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:58:03.068 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:58:03.332 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:58:14.231 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface: Visual Studio Code app-id: code
+II 17-06-26 04:58:14.287 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:58:14.454 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface:  app-id: gcr-prompter
+app_id equals variant: [type: string, value: Kodi]
+II 17-06-26 04:58:14.564 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:58:14.681 - [src/view/xdg-shell.cpp:25] New xdg popup
+app_id equals variant: [type: string, value: Kodi]
+II 17-06-26 04:58:15.138 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:58:20.036 - [src/core/seat/input-method-relay.cpp:244] Inactive text input tried to commit
+app_id equals variant: [type: string, value: Kodi]
+EE 17-06-26 04:58:26.107 - [libinput] event5  - PixArt Lenovo USB Optical Mouse: client bug: event processing lagging behind by 21ms, your system is too slow
+
+II 17-06-26 04:59:01.169 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 04:59:25.472 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 05:00:06.124 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface: Visual Studio Code app-id: code
+app_id equals variant: [type: string, value: Kodi]
+II 17-06-26 05:00:37.200 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 05:00:42.121 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 05:00:53.447 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface: DOGZILLA - Chromium app-id: chromium-browser
+app_id equals variant: [type: string, value: Kodi]
+II 17-06-26 05:00:57.903 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 05:01:05.523 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface:  app-id: lxterminal
+app_id equals variant: [type: string, value: Kodi]
+II 17-06-26 05:01:08.828 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface:  app-id: lxterminal
+app_id equals variant: [type: string, value: Kodi]
+II 17-06-26 05:04:10.673 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 05:04:15.909 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface: wf-panel-pi app-id: wf-panel-pi
+app_id equals variant: [type: string, value: Kodi]
+II 17-06-26 05:04:17.808 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 05:04:34.863 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 05:04:35.432 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 05:04:36.852 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 05:04:37.939 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 17-06-26 05:06:04.083 - [src/core/seat/input-manager.cpp:104] remove input: wlr_virtual_keyboard_v1
+II 17-06-26 05:06:04.084 - [src/core/seat/input-manager.cpp:104] remove input: wlr_virtual_pointer_v1
+                                                                                                                                          

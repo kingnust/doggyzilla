@@ -1,0 +1,135 @@
+2026-06-17 05:10:43.305 [info] [GitExtensionServiceImpl] Initializing Git extension service.
+2026-06-17 05:10:43.305 [info] [GitExtensionServiceImpl] Successfully activated the vscode.git extension.
+2026-06-17 05:10:43.305 [info] [GitExtensionServiceImpl] Enablement state of the vscode.git extension: true.
+2026-06-17 05:10:43.305 [info] [GitExtensionServiceImpl] Successfully registered Git commit message provider.
+2026-06-17 05:10:43.585 [info] Logged in as kingnust
+2026-06-17 05:10:43.596 [info] Using the Electron fetcher.
+2026-06-17 05:10:53.591 [info] ConversationFeature: Waiting for copilot token or BYOK model to activate conversation feature
+2026-06-17 05:10:54.813 [info] [CopilotCLI] OpenTelemetry enabled: exporter=file, source=github.copilot
+2026-06-17 05:10:54.915 [info] [CopilotCLIChatSessionContentProvider] listSessions took 164.62513000000035ms
+2026-06-17 05:10:54.984 [info] [CopilotCLI] Cleaned up 1 stale lock file(s).
+2026-06-17 05:10:54.985 [info] [CopilotCLI] MCP server started. Lock file: /home/pi/.copilot/ide/3f8442f6-8d39-4716-a4b2-9cf73aabb758.lock
+2026-06-17 05:10:54.985 [info] [CopilotCLI] Server URI: unix:/tmp/mcp-ZUldmw/mcp.sock#%2Fmcp
+2026-06-17 05:11:05.531 [error] [CopilotCLI] Error fetching copilot user: TypeError: fetch failed
+2026-06-17 05:11:05.531 [error] [CopilotCLIModels] Failed to fetch available models: TypeError: fetch failed
+2026-06-17 05:11:15.468 [info] FetcherService: electron-fetch failed with error: net::ERR_NAME_NOT_RESOLVED
+2026-06-17 05:11:15.519 [info] FetcherService: electron-fetch failed with error: net::ERR_NAME_NOT_RESOLVED
+2026-06-17 05:11:15.570 [error] Error fetching available embedding types: Error: net::ERR_NAME_NOT_RESOLVED
+2026-06-17 05:11:26.010 [info] FetcherService: node-fetch failed with error: fetch failed
+2026-06-17 05:11:26.078 [info] FetcherService: node-fetch failed with error: fetch failed
+2026-06-17 05:11:27.758 [error] Error: net::ERR_NAME_NOT_RESOLVED
+	at SimpleURLLoaderWrapper.<anonymous> (node:electron/js2c/utility_init:2:10658)
+	at SimpleURLLoaderWrapper.emit (node:events:509:28)
+  {"is_request_error":true,"network_process_crashed":false}: Error in getAllSessions
+2026-06-17 05:11:27.760 [error] Error: net::ERR_NAME_NOT_RESOLVED
+	at SimpleURLLoaderWrapper.<anonymous> (node:electron/js2c/utility_init:2:10658)
+	at SimpleURLLoaderWrapper.emit (node:events:509:28)
+  {"is_request_error":true,"network_process_crashed":false}
+2026-06-17 05:11:58.478 [info] FetcherService: node-http failed with error: getaddrinfo EAI_AGAIN api.github.com
+2026-06-17 05:11:58.478 [warning] Failed to get copilot token due to fetch throwing: net::ERR_NAME_NOT_RESOLVED
+2026-06-17 05:11:58.486 [error] Error: Failed to get copilot token. reason: RequestFailed
+	at xie._authShowWarnings (/usr/share/code/resources/app/extensions/copilot/dist/extension.js:1743:19160)
+	at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+	at async xie.getCopilotToken (/usr/share/code/resources/app/extensions/copilot/dist/extension.js:1743:16681)
+	at async Lhe.getCopilotToken (/usr/share/code/resources/app/extensions/copilot/dist/extension.js:1400:8800)
+	at async xM.waitForChatEnabled (/usr/share/code/resources/app/extensions/copilot/dist/extension.js:1512:3336)
+	at async xM.run (/usr/share/code/resources/app/extensions/copilot/dist/extension.js:1512:3170)
+	at async Hte.askToUpgradeAuthPermissions (/usr/share/code/resources/app/extensions/copilot/dist/extension.js:1512:2647): Failed to get copilot token
+2026-06-17 05:11:58.486 [error] GitHub Copilot could not connect to server. Extension activation failed: "Failed to get copilot token. reason: RequestFailed"
+2026-06-17 05:11:58.486 [info] [context keys] Setting context key: github.copilot.offline
+2026-06-17 05:11:58.486 [warning] [LanguageModelAccess] LanguageModel/Embeddings are not available without auth token
+2026-06-17 05:11:58.486 [error] Error: Failed to get copilot token. reason: RequestFailed
+	at xie._authShowWarnings (/usr/share/code/resources/app/extensions/copilot/dist/extension.js:1743:19160)
+	at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+	at async xie.getCopilotToken (/usr/share/code/resources/app/extensions/copilot/dist/extension.js:1743:16681)
+	at async Lhe.getCopilotToken (/usr/share/code/resources/app/extensions/copilot/dist/extension.js:1400:8800)
+	at async Are._getToken (/usr/share/code/resources/app/extensions/copilot/dist/extension.js:1710:9387)
+	at async r (/usr/share/code/resources/app/extensions/copilot/dist/extension.js:1710:8668)
+	at async Are._registerEmbeddings (/usr/share/code/resources/app/extensions/copilot/dist/extension.js:1710:9165)
+	at async Promise.all (index 1)
+	at async Promise.allSettled (index 1)
+	at async X9.waitForActivationBlockers (/usr/share/code/resources/app/extensions/copilot/dist/extension.js:1166:7697)
+	at async /usr/share/code/resources/app/extensions/copilot/dist/extension.js:1166:8475
+	at async A_n (/usr/share/code/resources/app/extensions/copilot/dist/extension.js:1166:8343)
+	at async Lb._activate (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:534:16021)
+	at async Lb._waitForDepsThenActivate (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:534:15963)
+	at async Lb._initialize (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:534:15330)
+2026-06-17 05:11:58.486 [warning] [LanguageModelAccess] LanguageModel/Embeddings are not available without auth token
+2026-06-17 05:11:58.486 [error] Error: Failed to get copilot token. reason: RequestFailed
+	at xie._authShowWarnings (/usr/share/code/resources/app/extensions/copilot/dist/extension.js:1743:19160)
+	at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+	at async xie.getCopilotToken (/usr/share/code/resources/app/extensions/copilot/dist/extension.js:1743:16681)
+	at async Lhe.getCopilotToken (/usr/share/code/resources/app/extensions/copilot/dist/extension.js:1400:8800)
+	at async Are._getToken (/usr/share/code/resources/app/extensions/copilot/dist/extension.js:1710:9387)
+	at async Are._provideLanguageModelChatInfo (/usr/share/code/resources/app/extensions/copilot/dist/extension.js:1710:3246)
+	at async Od.$provideLanguageModelChatInfo (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:536:41733)
+2026-06-17 05:11:58.486 [info] activationBlocker from 'languageModelAccess' took for 65001ms
+2026-06-17 05:12:12.702 [info] FetcherService: node-http failed with error: getaddrinfo EAI_AGAIN api.github.com
+2026-06-18 03:58:04.561 [info] Logged in as kingnust
+2026-06-18 03:58:05.405 [info] Got Copilot token for kingnust
+2026-06-18 03:58:05.405 [info] Copilot Chat: 0.52.0, VS Code: 1.124.2
+2026-06-18 03:58:05.517 [info] [context keys] Setting context key: github.copilot-chat.activated
+2026-06-18 03:58:05.846 [info] AuthenticationService: firing onDidAuthenticationChange from handleAuthChangeEvent. Has token: true
+2026-06-18 03:58:05.846 [info] copilot token sku: free_limited_copilot
+2026-06-18 03:58:05.846 [info] ConversationFeature: Activating contributions
+2026-06-18 03:58:05.846 [info] GitHub.vscode-pull-request-github extension is not yet activated.
+2026-06-18 03:58:05.885 [info] Registering default platform agent...
+2026-06-18 03:58:05.898 [info] BYOK: registered 9 provider(s): ollama, anthropic, gemini, xai, openai, openrouter, azure, customoai, customendpoint
+2026-06-18 03:58:05.899 [info] BYOK: fetching known models list
+2026-06-18 03:58:05.899 [info] activationBlocker from 'conversationFeature' took for 431846ms
+2026-06-18 03:58:05.954 [info] BYOK: Copilot Chat known models list fetched successfully.
+2026-06-18 03:58:06.114 [info] [CopilotCLIChatSessionContentProvider] listSessions took 27.492182999965735ms
+2026-06-18 03:58:06.180 [info] [CopilotCLIChatSessionContentProvider] listSessions took 10.185783999972045ms
+2026-06-18 03:58:06.410 [info] ConversationFeature: BYOK models available
+2026-06-18 03:58:06.410 [info] copilot token sku: free_limited_copilot
+2026-06-18 03:58:06.635 [info] GithubAvailableEmbeddingTypesManager: Got embeddings. Primary: metis-1024-I16-Binary. Deprecated: 
+2026-06-18 03:58:06.651 [info] WorkspaceChunkSearchService: using embedding type metis-1024-I16-Binary
+2026-06-18 03:58:06.693 [info] Fetched model metadata in 763ms 0c28afe8-1672-4115-975c-2fb6ec6d2306
+2026-06-18 03:58:06.877 [info] Latest entry: ccreq:latest.copilotmd
+2026-06-18 03:58:06.879 [info] ccreq:f5f7db21.copilotmd | markdown
+2026-06-18 04:00:29.545 [info] [CopilotCLIChatSessionContentProvider] listSessions took 3.335804000031203ms
+2026-06-18 04:02:05.373 [info] [CopilotCLIChatSessionContentProvider] listSessions took 5.545716000022367ms
+2026-06-18 04:02:20.455 [info] [CopilotCLIChatSessionContentProvider] listSessions took 2.195691000088118ms
+2026-06-18 04:04:52.913 [info] [CopilotCLIChatSessionContentProvider] listSessions took 1.9450789999682456ms
+2026-06-18 04:04:54.767 [info] [CopilotCLIChatSessionContentProvider] listSessions took 2.028874999959953ms
+2026-06-18 04:05:33.802 [info] [GitExtensionServiceImpl] Initializing Git extension service.
+2026-06-18 04:05:33.802 [info] [GitExtensionServiceImpl] vscode.git extension is not yet activated.
+2026-06-18 04:05:33.993 [info] Logged in as kingnust
+2026-06-18 04:05:34.002 [info] Using the Electron fetcher.
+2026-06-18 04:05:36.207 [info] [GitExtensionServiceImpl] Successfully activated the vscode.git extension.
+2026-06-18 04:05:36.207 [info] [GitExtensionServiceImpl] Enablement state of the vscode.git extension: true.
+2026-06-18 04:05:36.207 [info] [GitExtensionServiceImpl] Successfully registered Git commit message provider.
+2026-06-18 04:05:39.391 [info] ConversationFeature: Waiting for copilot token or BYOK model to activate conversation feature
+2026-06-18 04:05:41.338 [info] [CopilotCLI] OpenTelemetry enabled: exporter=file, source=github.copilot
+2026-06-18 04:05:41.654 [info] Got Copilot token for kingnust
+2026-06-18 04:05:41.654 [info] Copilot Chat: 0.52.0, VS Code: 1.124.2
+2026-06-18 04:05:41.750 [info] [context keys] Setting context key: github.copilot-chat.activated
+2026-06-18 04:05:41.754 [info] activationBlocker from 'languageModelAccess' took for 2566ms
+2026-06-18 04:05:41.802 [info] [CopilotCLIChatSessionContentProvider] listSessions took 533.366192999998ms
+2026-06-18 04:05:41.881 [info] [CopilotCLI] MCP server started. Lock file: /home/pi/.copilot/ide/2508b4d0-fb9f-4ec2-b7d8-b7880b5009c8.lock
+2026-06-18 04:05:41.881 [info] [CopilotCLI] Server URI: unix:/tmp/mcp-mE1VjA/mcp.sock#%2Fmcp
+2026-06-18 04:05:42.261 [info] AuthenticationService: firing onDidAuthenticationChange from handleAuthChangeEvent. Has token: true
+2026-06-18 04:05:42.261 [info] copilot token sku: free_limited_copilot
+2026-06-18 04:05:42.261 [info] ConversationFeature: Activating contributions
+2026-06-18 04:05:42.261 [info] GitHub.vscode-pull-request-github extension is not yet activated.
+2026-06-18 04:05:42.312 [info] Registering default platform agent...
+2026-06-18 04:05:42.350 [info] BYOK: registered 9 provider(s): ollama, anthropic, gemini, xai, openai, openrouter, azure, customoai, customendpoint
+2026-06-18 04:05:42.350 [info] BYOK: fetching known models list
+2026-06-18 04:05:42.350 [info] activationBlocker from 'conversationFeature' took for 3164ms
+2026-06-18 04:05:42.591 [info] GithubAvailableEmbeddingTypesManager: Got embeddings. Primary: metis-1024-I16-Binary. Deprecated: 
+2026-06-18 04:05:42.598 [info] WorkspaceChunkSearchService: using embedding type metis-1024-I16-Binary
+2026-06-18 04:05:42.622 [error] Failed to create database. Falling back to in-memory db: Error: unable to open database file
+2026-06-18 04:05:42.664 [info] [CopilotCLIChatSessionContentProvider] listSessions took 37.42797900000005ms
+2026-06-18 04:05:42.703 [info] BYOK: Copilot Chat known models list fetched successfully.
+2026-06-18 04:05:42.758 [info] [CopilotCLIChatSessionContentProvider] listSessions took 60.6590720000022ms
+2026-06-18 04:05:42.976 [info] Fetched model metadata in 3735ms 7824eb89-443a-4e7c-9855-56cd02c114b7
+2026-06-18 04:05:43.319 [info] Latest entry: ccreq:latest.copilotmd
+2026-06-18 04:05:43.321 [info] ccreq:bd218b21.copilotmd | markdown
+2026-06-18 04:05:49.976 [info] ConversationFeature: BYOK models available
+2026-06-18 04:05:49.976 [info] copilot token sku: free_limited_copilot
+2026-06-18 04:06:07.131 [info] [CopilotCLIChatSessionContentProvider] listSessions took 1.299299999998766ms
+2026-06-18 04:06:40.129 [info] ccreq:571fb5d6.copilotmd | success | gpt-5-mini | 18688ms | [debugCommandIdentifier]
+2026-06-18 04:07:30.235 [info] [CopilotCLIChatSessionContentProvider] listSessions took 612.7495329999947ms
+2026-06-18 04:08:49.374 [info] [CopilotCLIChatSessionContentProvider] listSessions took 63.46015300002182ms
+2026-06-18 04:10:50.040 [info] [CopilotCLIChatSessionContentProvider] listSessions took 89.95606900000712ms
+2026-06-18 04:15:29.648 [info] [CopilotCLIChatSessionContentProvider] listSessions took 12.375474000000395ms

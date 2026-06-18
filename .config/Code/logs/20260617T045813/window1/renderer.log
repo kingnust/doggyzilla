@@ -1,0 +1,12 @@
+2026-06-17 04:58:20.828 [info] Started local extension host with pid 124243.
+2026-06-17 04:58:21.363 [info] Started initializing default profile extensions in extensions installation folder. file:///home/pi/.vscode/extensions
+2026-06-17 04:58:22.206 [info] [AccountPolicyGate] apply: state=inactive, reason=undefined, isRestricted=false
+2026-06-17 04:58:22.383 [info] Completed initializing default profile extensions in extensions installation folder. file:///home/pi/.vscode/extensions
+2026-06-17 04:58:25.745 [info] Settings Sync: Account status changed from uninitialized to unavailable
+2026-06-17 04:58:27.214 [info] [AccountPolicyGate] apply: state=inactive, reason=undefined, isRestricted=false
+2026-06-17 04:58:28.063 [info] [perf] Render performance baseline is 77ms
+2026-06-17 05:00:23.055 [warning] [DefaultAccount] Managed settings fetch returned non-success status 404; falling back to local-only policy
+2026-06-17 05:00:29.752 [error] [Extension Host] (node:124243) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `exe --trace-deprecation ...` to show where the warning was created)
+2026-06-17 05:00:33.159 [warning] [DefaultAccount] Managed settings fetch returned non-success status 404; falling back to local-only policy
+2026-06-17 05:00:39.119 [warning] [DefaultAccount] Managed settings fetch returned non-success status 404; falling back to local-only policy

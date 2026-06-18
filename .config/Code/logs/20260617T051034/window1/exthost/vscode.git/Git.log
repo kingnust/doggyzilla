@@ -1,0 +1,263 @@
+2026-06-17 05:10:43.346 [info] [main] Log level: Info
+2026-06-17 05:10:43.346 [info] [main] Validating found git in: "git"
+2026-06-17 05:10:43.346 [info] [main] Using git "2.39.5" from "git"
+2026-06-17 05:10:43.346 [info] [Model][doInitialScan] Initial repository scan started
+2026-06-17 05:10:43.346 [info] [Model][doInitialScan] Initial repository scan completed - repositories (0), closed repositories (0), parent repositories (0), unsafe repositories (0)
+2026-06-18 04:05:36.250 [info] [main] Log level: Info
+2026-06-18 04:05:36.251 [info] [main] Validating found git in: "git"
+2026-06-18 04:05:36.251 [info] [main] Using git "2.39.5" from "git"
+2026-06-18 04:05:36.251 [info] [Model][doInitialScan] Initial repository scan started
+2026-06-18 04:05:36.251 [info] > git rev-parse --show-toplevel [19ms]
+2026-06-18 04:05:36.251 [info] fatal: not a git repository (or any of the parent directories): .git
+2026-06-18 04:05:36.278 [info] > git rev-parse --show-toplevel [3ms]
+2026-06-18 04:05:36.278 [info] fatal: not a git repository (or any of the parent directories): .git
+2026-06-18 04:05:36.293 [info] > git rev-parse --show-toplevel [6ms]
+2026-06-18 04:05:36.294 [info] fatal: not a git repository (or any of the parent directories): .git
+2026-06-18 04:05:36.315 [info] > git rev-parse --show-toplevel [7ms]
+2026-06-18 04:05:36.315 [info] fatal: not a git repository (or any of the parent directories): .git
+2026-06-18 04:05:36.340 [info] > git rev-parse --show-toplevel [10ms]
+2026-06-18 04:05:36.340 [info] fatal: not a git repository (or any of the parent directories): .git
+2026-06-18 04:05:36.354 [info] > git rev-parse --show-toplevel [4ms]
+2026-06-18 04:05:36.354 [info] fatal: not a git repository (or any of the parent directories): .git
+2026-06-18 04:05:36.370 [info] > git rev-parse --show-toplevel [6ms]
+2026-06-18 04:05:36.370 [info] fatal: not a git repository (or any of the parent directories): .git
+2026-06-18 04:05:36.382 [info] > git rev-parse --show-toplevel [3ms]
+2026-06-18 04:05:36.382 [info] fatal: not a git repository (or any of the parent directories): .git
+2026-06-18 04:05:36.393 [info] > git rev-parse --show-toplevel [3ms]
+2026-06-18 04:05:36.393 [info] fatal: not a git repository (or any of the parent directories): .git
+2026-06-18 04:05:36.404 [info] > git rev-parse --show-toplevel [2ms]
+2026-06-18 04:05:36.404 [info] fatal: not a git repository (or any of the parent directories): .git
+2026-06-18 04:05:36.413 [info] > git rev-parse --show-toplevel [2ms]
+2026-06-18 04:05:36.414 [info] fatal: not a git repository (or any of the parent directories): .git
+2026-06-18 04:05:36.422 [info] > git rev-parse --show-toplevel [1ms]
+2026-06-18 04:05:36.422 [info] fatal: not a git repository (or any of the parent directories): .git
+2026-06-18 04:05:36.432 [info] > git rev-parse --show-toplevel [2ms]
+2026-06-18 04:05:36.432 [info] fatal: not a git repository (or any of the parent directories): .git
+2026-06-18 04:05:36.441 [info] > git rev-parse --show-toplevel [2ms]
+2026-06-18 04:05:36.441 [info] fatal: not a git repository (or any of the parent directories): .git
+2026-06-18 04:05:36.451 [info] > git rev-parse --show-toplevel [2ms]
+2026-06-18 04:05:36.451 [info] fatal: not a git repository (or any of the parent directories): .git
+2026-06-18 04:05:36.466 [info] > git rev-parse --show-toplevel [4ms]
+2026-06-18 04:05:36.466 [info] fatal: not a git repository (or any of the parent directories): .git
+2026-06-18 04:05:36.481 [info] > git rev-parse --show-toplevel [2ms]
+2026-06-18 04:05:36.481 [info] fatal: not a git repository (or any of the parent directories): .git
+2026-06-18 04:05:36.500 [info] > git rev-parse --show-toplevel [8ms]
+2026-06-18 04:05:36.500 [info] fatal: not a git repository (or any of the parent directories): .git
+2026-06-18 04:05:36.512 [info] > git rev-parse --show-toplevel [1ms]
+2026-06-18 04:05:36.512 [info] fatal: not a git repository (or any of the parent directories): .git
+2026-06-18 04:05:36.526 [info] > git rev-parse --show-toplevel [1ms]
+2026-06-18 04:05:36.526 [info] fatal: not a git repository (or any of the parent directories): .git
+2026-06-18 04:05:36.544 [info] > git rev-parse --show-toplevel [6ms]
+2026-06-18 04:05:36.548 [info] fatal: not a git repository (or any of the parent directories): .git
+2026-06-18 04:05:36.558 [info] > git rev-parse --show-toplevel [2ms]
+2026-06-18 04:05:36.558 [info] fatal: not a git repository (or any of the parent directories): .git
+2026-06-18 04:05:36.570 [info] > git rev-parse --show-toplevel [3ms]
+2026-06-18 04:05:36.570 [info] fatal: not a git repository (or any of the parent directories): .git
+2026-06-18 04:05:36.579 [info] > git rev-parse --show-toplevel [1ms]
+2026-06-18 04:05:36.579 [info] fatal: not a git repository (or any of the parent directories): .git
+2026-06-18 04:05:36.588 [info] > git rev-parse --show-toplevel [1ms]
+2026-06-18 04:05:36.588 [info] fatal: not a git repository (or any of the parent directories): .git
+2026-06-18 04:05:36.597 [info] > git rev-parse --show-toplevel [2ms]
+2026-06-18 04:05:36.597 [info] fatal: not a git repository (or any of the parent directories): .git
+2026-06-18 04:05:36.606 [info] > git rev-parse --show-toplevel [2ms]
+2026-06-18 04:05:36.606 [info] fatal: not a git repository (or any of the parent directories): .git
+2026-06-18 04:05:36.609 [info] [Model][doInitialScan] Initial repository scan completed - repositories (0), closed repositories (0), parent repositories (0), unsafe repositories (0)
+2026-06-18 04:05:41.827 [info] > git rev-parse --show-toplevel [48ms]
+2026-06-18 04:05:41.828 [info] fatal: not a git repository (or any of the parent directories): .git
+2026-06-18 04:05:42.722 [info] > git init -b main [75ms]
+2026-06-18 04:05:42.811 [info] > git rev-parse --show-toplevel [55ms]
+2026-06-18 04:05:42.956 [info] > git rev-parse --git-dir --git-common-dir --show-superproject-working-tree [99ms]
+2026-06-18 04:05:43.068 [info] [Model][openRepository] Opened repository (path): /home/pi
+2026-06-18 04:05:43.068 [info] [Model][openRepository] Opened repository (real path): /home/pi
+2026-06-18 04:05:43.068 [info] [Model][openRepository] Opened repository (kind): repository
+2026-06-18 04:05:43.118 [info] > git config --get --local core.virtualfilesystem [30ms]
+2026-06-18 04:05:43.118 [warning] [Git][config] git config failed: Failed to execute git
+2026-06-18 04:05:43.143 [info] > git config --get commit.template [39ms]
+2026-06-18 04:05:43.194 [info] [Git][getRemotes] No remotes found in the git config file
+2026-06-18 04:05:43.212 [info] > git for-each-ref --format=%(refname)%00%(upstream:short)%00%(objectname)%00%(upstream:track)%00%(upstream:remotename)%00%(upstream:remoteref) refs/heads/main refs/remotes/main [20ms]
+2026-06-18 04:05:43.213 [warning] [Git][getBranch] No such branch: main
+2026-06-18 04:05:43.298 [info] > git for-each-ref --sort -committerdate --format %(refname)%00%(objectname)%00%(*objectname) [55ms]
+2026-06-18 04:05:43.512 [info] > git status -z -uall [287ms] (cancelled)
+2026-06-18 04:05:46.411 [info] > git for-each-ref --format=%(refname)%00%(upstream:short)%00%(objectname)%00%(upstream:track)%00%(upstream:remotename)%00%(upstream:remoteref) refs/heads/main refs/remotes/main [2563ms]
+2026-06-18 04:05:46.411 [warning] [Git][getBranch] No such branch: main
+2026-06-18 04:05:46.412 [error] [GitHistoryProvider][resolveHEADMergeBase] Failed to resolve merge base for main: Error: No such branch: main.
+2026-06-18 04:05:46.659 [info] > git config --get commit.template [277ms]
+2026-06-18 04:05:46.685 [info] [Git][getRemotes] No remotes found in the git config file
+2026-06-18 04:05:46.870 [info] > git for-each-ref --format=%(refname)%00%(upstream:short)%00%(objectname)%00%(upstream:track)%00%(upstream:remotename)%00%(upstream:remoteref) refs/heads/main refs/remotes/main [186ms]
+2026-06-18 04:05:46.870 [warning] [Git][getBranch] No such branch: main
+2026-06-18 04:05:47.103 [info] > git for-each-ref --sort -committerdate --format %(refname)%00%(objectname)%00%(*objectname) [182ms]
+2026-06-18 04:05:49.899 [info] > git status -z -uall [2996ms] (cancelled)
+2026-06-18 04:05:50.133 [info] > git log --format=%H%n%aN%n%aE%n%at%n%ct%n%P%n%D%n%B -z --shortstat --diff-merges=first-parent -n50 --skip=0 --topo-order --decorate=full --stdin [189ms]
+2026-06-18 04:05:50.134 [info] fatal: bad revision 'refs/heads/main'
+2026-06-18 04:05:50.135 [error] [GitHistoryProvider][provideHistoryItems] Failed to get history items with options '{"historyItemRefs":["refs/heads/main"],"limit":50,"skip":0}': Failed to execute git {
+  "exitCode": 128,
+  "gitCommand": "log",
+  "stdout": "",
+  "stderr": "fatal: bad revision 'refs/heads/main'\n"
+}
+2026-06-18 04:05:50.441 [info] > git check-ignore -v -z --stdin [2ms]
+2026-06-18 04:06:12.759 [info] > git for-each-ref --sort -committerdate --format %(refname)%00%(objectname)%00%(*objectname)%00%(parent)%00%(*parent)%00%(authorname)%00%(*authorname)%00%(committerdate:unix)%00%(*committerdate:unix)%00%(subject)%00%(*subject)%00%(upstream:track) [2ms]
+2026-06-18 04:06:36.483 [info] > git config --get commit.template [1ms]
+2026-06-18 04:06:36.497 [info] [Git][getRemotes] No remotes found in the git config file
+2026-06-18 04:06:36.498 [info] > git for-each-ref --format=%(refname)%00%(upstream:short)%00%(objectname)%00%(upstream:track)%00%(upstream:remotename)%00%(upstream:remoteref) refs/heads/main refs/remotes/main [1ms]
+2026-06-18 04:06:36.499 [warning] [Git][getBranch] No such branch: main
+2026-06-18 04:06:36.544 [info] > git for-each-ref --sort -committerdate --format %(refname)%00%(objectname)%00%(*objectname) [3ms]
+2026-06-18 04:06:39.150 [info] > git status -z -uall [2636ms] (cancelled)
+2026-06-18 04:07:07.968 [info] > git check-ignore -v -z --stdin [19ms]
+2026-06-18 04:07:09.155 [info] > git check-ignore -v -z --stdin [6ms]
+2026-06-18 04:07:09.758 [info] > git check-ignore -v -z --stdin [3ms]
+2026-06-18 04:07:28.659 [info] > git add -A -- . [10ms]
+2026-06-18 04:07:28.663 [info] fatal: Unable to create '/home/pi/.git/index.lock': File exists.
+
+Another git process seems to be running in this repository, e.g.
+an editor opened by 'git commit'. Please make sure all processes
+are terminated then try again. If it still fails, a git process
+may have crashed in this repository earlier:
+remove the file manually to continue.
+2026-06-18 04:07:28.742 [info] > git add -A -- . [4ms]
+2026-06-18 04:07:28.743 [info] fatal: Unable to create '/home/pi/.git/index.lock': File exists.
+
+Another git process seems to be running in this repository, e.g.
+an editor opened by 'git commit'. Please make sure all processes
+are terminated then try again. If it still fails, a git process
+may have crashed in this repository earlier:
+remove the file manually to continue.
+2026-06-18 04:07:28.955 [info] > git add -A -- . [2ms]
+2026-06-18 04:07:28.955 [info] fatal: Unable to create '/home/pi/.git/index.lock': File exists.
+
+Another git process seems to be running in this repository, e.g.
+an editor opened by 'git commit'. Please make sure all processes
+are terminated then try again. If it still fails, a git process
+may have crashed in this repository earlier:
+remove the file manually to continue.
+2026-06-18 04:07:29.433 [info] > git add -A -- . [3ms]
+2026-06-18 04:07:29.433 [info] fatal: Unable to create '/home/pi/.git/index.lock': File exists.
+
+Another git process seems to be running in this repository, e.g.
+an editor opened by 'git commit'. Please make sure all processes
+are terminated then try again. If it still fails, a git process
+may have crashed in this repository earlier:
+remove the file manually to continue.
+2026-06-18 04:07:30.320 [info] > git add -A -- . [9ms]
+2026-06-18 04:07:30.320 [info] fatal: Unable to create '/home/pi/.git/index.lock': File exists.
+
+Another git process seems to be running in this repository, e.g.
+an editor opened by 'git commit'. Please make sure all processes
+are terminated then try again. If it still fails, a git process
+may have crashed in this repository earlier:
+remove the file manually to continue.
+2026-06-18 04:07:31.599 [info] > git add -A -- . [3ms]
+2026-06-18 04:07:31.599 [info] fatal: Unable to create '/home/pi/.git/index.lock': File exists.
+
+Another git process seems to be running in this repository, e.g.
+an editor opened by 'git commit'. Please make sure all processes
+are terminated then try again. If it still fails, a git process
+may have crashed in this repository earlier:
+remove the file manually to continue.
+2026-06-18 04:07:33.441 [info] > git add -A -- . [16ms]
+2026-06-18 04:07:33.442 [info] fatal: Unable to create '/home/pi/.git/index.lock': File exists.
+
+Another git process seems to be running in this repository, e.g.
+an editor opened by 'git commit'. Please make sure all processes
+are terminated then try again. If it still fails, a git process
+may have crashed in this repository earlier:
+remove the file manually to continue.
+2026-06-18 04:07:35.919 [info] > git add -A -- . [11ms]
+2026-06-18 04:07:35.919 [info] fatal: Unable to create '/home/pi/.git/index.lock': File exists.
+
+Another git process seems to be running in this repository, e.g.
+an editor opened by 'git commit'. Please make sure all processes
+are terminated then try again. If it still fails, a git process
+may have crashed in this repository earlier:
+remove the file manually to continue.
+2026-06-18 04:07:39.145 [info] > git add -A -- . [5ms]
+2026-06-18 04:07:39.145 [info] fatal: Unable to create '/home/pi/.git/index.lock': File exists.
+
+Another git process seems to be running in this repository, e.g.
+an editor opened by 'git commit'. Please make sure all processes
+are terminated then try again. If it still fails, a git process
+may have crashed in this repository earlier:
+remove the file manually to continue.
+2026-06-18 04:07:43.237 [info] > git add -A -- . [6ms]
+2026-06-18 04:07:43.237 [info] fatal: Unable to create '/home/pi/.git/index.lock': File exists.
+
+Another git process seems to be running in this repository, e.g.
+an editor opened by 'git commit'. Please make sure all processes
+are terminated then try again. If it still fails, a git process
+may have crashed in this repository earlier:
+remove the file manually to continue.
+2026-06-18 04:07:48.375 [info] > git add -A -- . [8ms]
+2026-06-18 04:07:48.376 [info] fatal: Unable to create '/home/pi/.git/index.lock': File exists.
+
+Another git process seems to be running in this repository, e.g.
+an editor opened by 'git commit'. Please make sure all processes
+are terminated then try again. If it still fails, a git process
+may have crashed in this repository earlier:
+remove the file manually to continue.
+2026-06-18 04:07:48.437 [info] [Git][getRemotes] No remotes found in the git config file
+2026-06-18 04:07:48.444 [info] > git config --get commit.template [32ms]
+2026-06-18 04:07:48.451 [info] > git for-each-ref --format=%(refname)%00%(upstream:short)%00%(objectname)%00%(upstream:track)%00%(upstream:remotename)%00%(upstream:remoteref) refs/heads/main refs/remotes/main [17ms]
+2026-06-18 04:07:48.451 [warning] [Git][getBranch] No such branch: main
+2026-06-18 04:07:48.499 [info] > git for-each-ref --sort -committerdate --format %(refname)%00%(objectname)%00%(*objectname) [7ms]
+2026-06-18 04:07:49.108 [info] > git check-ignore -v -z --stdin [762ms]
+2026-06-18 04:07:49.215 [info] > git check-ignore -v -z --stdin [70ms]
+2026-06-18 04:08:10.767 [info] > git status -z -uall [22295ms] (cancelled)
+2026-06-18 04:08:54.410 [info] > git check-ignore -v -z --stdin [27ms]
+2026-06-18 04:09:00.701 [info] > git check-ignore -v -z --stdin [7ms]
+2026-06-18 04:09:01.382 [info] > git log --format=%H%n%aN%n%aE%n%at%n%ct%n%P%n%D%n%B -z --shortstat --diff-merges=first-parent -n50 --skip=0 --topo-order --decorate=full --stdin [531ms]
+2026-06-18 04:09:01.382 [info] fatal: bad revision 'refs/heads/main'
+2026-06-18 04:09:01.384 [error] [GitHistoryProvider][provideHistoryItems] Failed to get history items with options '{"historyItemRefs":["refs/heads/main"],"limit":50,"skip":0}': Failed to execute git {
+  "exitCode": 128,
+  "gitCommand": "log",
+  "stdout": "",
+  "stderr": "fatal: bad revision 'refs/heads/main'\n"
+}
+2026-06-18 04:09:16.116 [info] > git check-ignore -v -z --stdin [415ms]
+2026-06-18 04:09:17.807 [info] > git check-ignore -v -z --stdin [367ms]
+2026-06-18 04:09:18.994 [info] > git check-ignore -v -z --stdin [2ms]
+2026-06-18 04:09:20.059 [info] > git check-ignore -v -z --stdin [18ms]
+2026-06-18 04:09:25.392 [info] > git check-ignore -v -z --stdin [1430ms]
+2026-06-18 04:10:45.850 [info] [Git][getRemotes] No remotes found in the git config file
+2026-06-18 04:10:45.858 [info] > git for-each-ref --format=%(refname)%00%(upstream:short)%00%(objectname)%00%(upstream:track)%00%(upstream:remotename)%00%(upstream:remoteref) refs/heads/main refs/remotes/main [21ms]
+2026-06-18 04:10:45.859 [warning] [Git][getBranch] No such branch: main
+2026-06-18 04:10:45.860 [info] > git config --get commit.template [38ms]
+2026-06-18 04:10:45.911 [info] > git for-each-ref --sort -committerdate --format %(refname)%00%(objectname)%00%(*objectname) [17ms]
+2026-06-18 04:10:49.884 [info] > git status -z -uall [4005ms] (cancelled)
+2026-06-18 04:10:55.529 [info] > git log --format=%H%n%aN%n%aE%n%at%n%ct%n%P%n%D%n%B -z --shortstat --diff-merges=first-parent -n50 --skip=0 --topo-order --decorate=full --stdin [9ms]
+2026-06-18 04:10:55.529 [info] fatal: bad revision 'refs/heads/main'
+2026-06-18 04:10:55.530 [error] [GitHistoryProvider][provideHistoryItems] Failed to get history items with options '{"historyItemRefs":["refs/heads/main"],"limit":50,"skip":0}': Failed to execute git {
+  "exitCode": 128,
+  "gitCommand": "log",
+  "stdout": "",
+  "stderr": "fatal: bad revision 'refs/heads/main'\n"
+}
+2026-06-18 04:10:55.810 [info] > git check-ignore -v -z --stdin [110ms]
+2026-06-18 04:10:57.058 [info] > git check-ignore -v -z --stdin [19ms]
+2026-06-18 04:11:00.908 [info] > git check-ignore -v -z --stdin [104ms]
+2026-06-18 04:11:03.671 [info] > git check-ignore -v -z --stdin [242ms]
+2026-06-18 04:11:08.388 [info] > git check-ignore -v -z --stdin [7ms]
+2026-06-18 04:11:10.539 [info] > git check-ignore -v -z --stdin [22ms]
+2026-06-18 04:11:12.346 [info] > git check-ignore -v -z --stdin [12ms]
+2026-06-18 04:11:16.196 [info] > git check-ignore -v -z --stdin [9ms]
+2026-06-18 04:11:21.169 [info] > git check-ignore -v -z --stdin [34ms]
+2026-06-18 04:11:35.358 [info] > git check-ignore -v -z --stdin [15ms]
+2026-06-18 04:11:43.423 [info] > git check-ignore -v -z --stdin [111ms]
+2026-06-18 04:11:52.861 [info] > git check-ignore -v -z --stdin [103ms]
+2026-06-18 04:11:54.945 [info] > git check-ignore -v -z --stdin [20ms]
+2026-06-18 04:12:03.716 [info] > git check-ignore -v -z --stdin [30ms]
+2026-06-18 04:12:17.407 [info] > git check-ignore -v -z --stdin [8ms]
+2026-06-18 04:12:28.278 [info] > git log --format=%H%n%aN%n%aE%n%at%n%ct%n%P%n%D%n%B -z --shortstat --diff-merges=first-parent -n50 --skip=0 --topo-order --decorate=full --stdin [3ms]
+2026-06-18 04:12:28.279 [info] fatal: bad revision 'refs/heads/main'
+2026-06-18 04:12:28.280 [error] [GitHistoryProvider][provideHistoryItems] Failed to get history items with options '{"historyItemRefs":["refs/heads/main"],"limit":50,"skip":0}': Failed to execute git {
+  "exitCode": 128,
+  "gitCommand": "log",
+  "stdout": "",
+  "stderr": "fatal: bad revision 'refs/heads/main'\n"
+}
+2026-06-18 04:12:32.000 [info] > git check-ignore -v -z --stdin [44ms]
+2026-06-18 04:12:33.704 [info] > git check-ignore -v -z --stdin [288ms]
+2026-06-18 04:12:41.125 [info] > git check-ignore -v -z --stdin [6ms]
+2026-06-18 04:12:42.343 [info] > git check-ignore -v -z --stdin [11ms]
+2026-06-18 04:12:43.522 [info] > git check-ignore -v -z --stdin [6ms]
+2026-06-18 04:12:45.820 [info] > git check-ignore -v -z --stdin [5ms]
+2026-06-18 04:12:47.939 [info] > git check-ignore -v -z --stdin [11ms]

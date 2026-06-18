@@ -1,0 +1,7 @@
+[Desktop Entry]
+Encoding=UTF-8
+Type=Application
+Name=myprogram
+Exec=lxterminal -e bash -c "python3 /home/pi/DOGZILLA/app_dogzilla/app_dogzilla.py;$SHELL"
+Terminal=true
+

@@ -1,0 +1,61 @@
+2026-06-18 04:16:00.734 [info] [GitExtensionServiceImpl] Initializing Git extension service.
+2026-06-18 04:16:02.835 [info] [GitExtensionServiceImpl] Successfully activated the vscode.git extension.
+2026-06-18 04:16:02.835 [info] [GitExtensionServiceImpl] Enablement state of the vscode.git extension: true.
+2026-06-18 04:16:02.836 [info] [GitExtensionServiceImpl] Successfully registered Git commit message provider.
+2026-06-18 04:16:03.510 [info] Using the Electron fetcher.
+2026-06-18 04:16:06.168 [info] ConversationFeature: Waiting for copilot token or BYOK model to activate conversation feature
+2026-06-18 04:16:10.396 [info] [CopilotCLI] OpenTelemetry enabled: exporter=file, source=github.copilot
+2026-06-18 04:16:11.117 [info] [CopilotCLIChatSessionContentProvider] listSessions took 2291.1117840000006ms
+2026-06-18 04:16:11.698 [warning] ConversationFeature: failed to query language models: Canceled: Canceled
+2026-06-18 04:16:11.698 [warning] [ByokUtilityModelNotification] Failed to query language models: Canceled: Canceled
+2026-06-18 04:16:11.703 [warning] ConversationFeature: failed to query language models: Canceled: Canceled
+2026-06-18 04:16:11.710 [error] Canceled: Canceled
+	at na (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:411:1546)
+	at file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:435:153551
+	at Array.forEach (<anonymous>)
+	at i.dispose (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:435:153459)
+	at SP.terminate (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:538:12328)
+	at i.terminate (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:540:1072)
+	at Js (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:837:11733)
+	at pp.value (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:837:9880)
+	at E._deliver (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:431:3244)
+	at E.fire (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:431:3562)
+	at ls.fire (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:433:8505)
+	at MessagePortMain.<anonymous> (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:837:8115)
+	at MessagePortMain.emit (node:events:509:28)
+	at MessagePortMain._internalPort.emit (node:electron/js2c/utility_init:2:2934)
+2026-06-18 04:16:11.711 [error] [CopilotCLIAgents] Failed to fetch custom agents: Canceled: Canceled
+2026-06-18 04:16:11.711 [error] [CopilotCLIAgents] Failed to fetch custom agents: Canceled: Canceled
+2026-06-18 04:16:11.724 [error] Canceled: Canceled
+	at na (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:411:1546)
+	at file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:435:153551
+	at Array.forEach (<anonymous>)
+	at i.dispose (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:435:153459)
+	at SP.terminate (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:538:12328)
+	at i.terminate (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:540:1072)
+	at Js (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:837:11733)
+	at pp.value (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:837:9880)
+	at E._deliver (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:431:3244)
+	at E.fire (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:431:3562)
+	at ls.fire (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:433:8505)
+	at MessagePortMain.<anonymous> (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:837:8115)
+	at MessagePortMain.emit (node:events:509:28)
+	at MessagePortMain._internalPort.emit (node:electron/js2c/utility_init:2:2934): Failed to get copilot token
+2026-06-18 04:16:11.725 [error] GitHub Copilot could not connect to server. Extension activation failed: "Canceled"
+2026-06-18 04:16:11.725 [info] [context keys] Setting context key: github.copilot.offline
+2026-06-18 04:16:11.725 [warning] [LanguageModelAccess] LanguageModel/Embeddings are not available without auth token
+2026-06-18 04:16:11.725 [error] Canceled: Canceled
+	at na (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:411:1546)
+	at file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:435:153551
+	at Array.forEach (<anonymous>)
+	at i.dispose (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:435:153459)
+	at SP.terminate (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:538:12328)
+	at i.terminate (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:540:1072)
+	at Js (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:837:11733)
+	at pp.value (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:837:9880)
+	at E._deliver (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:431:3244)
+	at E.fire (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:431:3562)
+	at ls.fire (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:433:8505)
+	at MessagePortMain.<anonymous> (file:///usr/share/code/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:837:8115)
+	at MessagePortMain.emit (node:events:509:28)
+	at MessagePortMain._internalPort.emit (node:electron/js2c/utility_init:2:2934)

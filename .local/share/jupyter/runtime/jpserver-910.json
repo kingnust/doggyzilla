@@ -1,0 +1,13 @@
+{
+  "base_url": "/",
+  "hostname": "0.0.0.0",
+  "password": false,
+  "pid": 910,
+  "port": 8888,
+  "root_dir": "/home/pi",
+  "secure": false,
+  "sock": "",
+  "token": "",
+  "url": "http://raspberrypi:8888/",
+  "version": "2.13.0"
+}

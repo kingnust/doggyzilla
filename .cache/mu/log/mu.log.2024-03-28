@@ -1,0 +1,358 @@
+2024-03-28 01:35:58,599 - root:112(run) INFO: 
+
+-----------------
+
+Starting Mu 1.0.3
+2024-03-28 01:35:58,600 - root:113(run) INFO: uname_result(system='Linux', node='raspberrypi', release='6.6.20+rpt-rpi-2712', version='#1 SMP PREEMPT Debian 1:6.6.20-1+rpt1 (2024-03-07)', machine='aarch64')
+2024-03-28 01:35:58,600 - root:114(run) INFO: Python path: ['/usr/share/mu-editor', '/usr/lib/python311.zip', '/usr/lib/python3.11', '/usr/lib/python3.11/lib-dynload', '/usr/local/lib/python3.11/dist-packages', '/usr/lib/python3/dist-packages', '/usr/lib/python3.11/dist-packages']
+2024-03-28 01:35:58,600 - root:115(run) INFO: Language code: en_US
+2024-03-28 01:35:59,295 - mu.logic:543(__init__) INFO: Setting up editor.
+2024-03-28 01:35:59,296 - mu.logic:562(__init__) INFO: Settings path: /home/pi/.local/share/mu/settings.json
+2024-03-28 01:35:59,296 - mu.logic:563(__init__) INFO: Session path: /home/pi/.local/share/mu/session.json
+2024-03-28 01:35:59,296 - mu.logic:564(__init__) INFO: Log directory: /home/pi/.cache/mu/log
+2024-03-28 01:35:59,296 - mu.logic:565(__init__) INFO: Data directory: /home/pi/.local/share/mu
+2024-03-28 01:35:59,319 - mu.logic:578(setup) INFO: Available modes: python, adafruit, microbit, debugger, pygamezero
+2024-03-28 01:35:59,770 - mu.logic:1147(change_mode) INFO: Workspace directory: /home/pi/mu_code
+2024-03-28 01:35:59,771 - mu.logic:625(restore_session) INFO: Restoring session from: /home/pi/.local/share/mu/session.json
+2024-03-28 01:35:59,771 - mu.logic:626(restore_session) DEBUG: {'theme': 'day', 'mode': 'python', 'paths': ['/home/pi/Documents/cartographer_ws2/src/oradar_lidar/launch/ms200_scan.launch.py'], 'envars': [], 'minify': False, 'microbit_runtime': '', 'zoom_level': 2}
+2024-03-28 01:35:59,771 - mu.logic:647(restore_session) INFO: Loaded files.
+2024-03-28 01:35:59,771 - mu.logic:650(restore_session) INFO: User defined environment variables: []
+2024-03-28 01:35:59,771 - mu.logic:654(restore_session) INFO: Minify scripts on micro:bit? False
+2024-03-28 01:35:59,771 - mu.logic:843(load_cli) INFO: Passed-in filename: /home/pi/Documents/cartographer_ws2/src/oradar_lidar/launch/ms200_scan.launch.py
+2024-03-28 01:35:59,771 - mu.logic:713(_load) INFO: Loading script from: /home/pi/Documents/cartographer_ws2/src/oradar_lidar/launch/ms200_scan.launch.py
+2024-03-28 01:35:59,771 - mu.logic:274(read_and_decode) DEBUG: Trying to decode with utf-8
+2024-03-28 01:35:59,771 - mu.logic:277(read_and_decode) INFO: Decoded with utf-8
+2024-03-28 01:35:59,771 - mu.logic:290(read_and_decode) DEBUG: Detected newline '\n'
+2024-03-28 01:35:59,771 - mu.logic:787(_load) DEBUG: #!/usr/bin/env python3
+from launch import LaunchDescription
+from launch_ros.actions import Node
+
+'''
+parameters=[
+        {'device_model': 'MS200'},
+        {'frame_id': 'laser_frame'},
+        {'scan_topic': 'MS200/scan'},
+        {'port_name': '/dev/ttyAMA1 '},
+        {'baudrate': 230400},
+        {'angle_min': 0.0},
+        {'angle_max': 360.0},
+        {'range_min': 0.05},
+        {'range_max': 20.0},
+        {'clockwise': False},
+        {'motor_speed': 10}
+      ]
+'''
+
+def generate_launch_description():
+  # LiDAR publisher node
+  ordlidar_node = Node(
+      package='oradar_lidar',
+      node_executable='oradar_scan',
+      node_name='MS200',
+      output='screen',
+      parameters=[
+        {'device_model': 'MS200'},
+        {'frame_id': 'laser_frame'},
+        {'scan_topic': '/scan'},
+        {'port_name': '/dev/ttyAMA1 '},
+        {'baudrate': 230400},
+        {'angle_min': 0.0},
+        {'angle_max': 360.0},
+        {'range_min': 0.05},
+        {'range_max': 20.0},
+        {'clockwise': False},
+        {'motor_speed': 10}
+      ]
+  )
+
+  # base_link to laser_frame tf node
+  base_link_to_laser_tf_node = Node(
+    package='tf2_ros',
+    node_executable='static_transform_publisher',
+    node_name='base_link_to_base_laser',
+    arguments=['0','0','0.18','0','0','0','base_link','laser_frame']
+  )
+
+
+  # Define LaunchDescription variable
+  ord = LaunchDescription()
+
+  ord.add_action(ordlidar_node)
+  ord.add_action(base_link_to_laser_tf_node)
+
+  return ord
+
+2024-03-28 01:35:59,839 - mu.logic:1147(change_mode) INFO: Workspace directory: /home/pi/mu_code
+2024-03-28 01:36:00,035 - root:112(run) INFO: 
+
+-----------------
+
+Starting Mu 1.0.3
+2024-03-28 01:36:00,035 - root:113(run) INFO: uname_result(system='Linux', node='raspberrypi', release='6.6.20+rpt-rpi-2712', version='#1 SMP PREEMPT Debian 1:6.6.20-1+rpt1 (2024-03-07)', machine='aarch64')
+2024-03-28 01:36:00,035 - root:114(run) INFO: Python path: ['/usr/share/mu-editor', '/usr/lib/python311.zip', '/usr/lib/python3.11', '/usr/lib/python3.11/lib-dynload', '/usr/local/lib/python3.11/dist-packages', '/usr/lib/python3/dist-packages', '/usr/lib/python3.11/dist-packages']
+2024-03-28 01:36:00,035 - root:115(run) INFO: Language code: en_US
+2024-03-28 01:36:00,196 - mu.logic:543(__init__) INFO: Setting up editor.
+2024-03-28 01:36:00,197 - mu.logic:562(__init__) INFO: Settings path: /home/pi/.local/share/mu/settings.json
+2024-03-28 01:36:00,198 - mu.logic:563(__init__) INFO: Session path: /home/pi/.local/share/mu/session.json
+2024-03-28 01:36:00,198 - mu.logic:564(__init__) INFO: Log directory: /home/pi/.cache/mu/log
+2024-03-28 01:36:00,198 - mu.logic:565(__init__) INFO: Data directory: /home/pi/.local/share/mu
+2024-03-28 01:36:00,224 - mu.logic:578(setup) INFO: Available modes: python, adafruit, microbit, debugger, pygamezero
+2024-03-28 01:36:00,626 - mu.logic:1147(change_mode) INFO: Workspace directory: /home/pi/mu_code
+2024-03-28 01:36:00,626 - mu.logic:625(restore_session) INFO: Restoring session from: /home/pi/.local/share/mu/session.json
+2024-03-28 01:36:00,626 - mu.logic:626(restore_session) DEBUG: {'theme': 'day', 'mode': 'python', 'paths': ['/home/pi/Documents/cartographer_ws2/src/oradar_lidar/launch/ms200_scan.launch.py'], 'envars': [], 'minify': False, 'microbit_runtime': '', 'zoom_level': 2}
+2024-03-28 01:36:00,626 - mu.logic:647(restore_session) INFO: Loaded files.
+2024-03-28 01:36:00,626 - mu.logic:650(restore_session) INFO: User defined environment variables: []
+2024-03-28 01:36:00,626 - mu.logic:654(restore_session) INFO: Minify scripts on micro:bit? False
+2024-03-28 01:36:00,626 - mu.logic:843(load_cli) INFO: Passed-in filename: /home/pi/Documents/cartographer_ws2/src/oradar_lidar/launch/ms200_scan.launch.py
+2024-03-28 01:36:00,626 - mu.logic:713(_load) INFO: Loading script from: /home/pi/Documents/cartographer_ws2/src/oradar_lidar/launch/ms200_scan.launch.py
+2024-03-28 01:36:00,627 - mu.logic:274(read_and_decode) DEBUG: Trying to decode with utf-8
+2024-03-28 01:36:00,627 - mu.logic:277(read_and_decode) INFO: Decoded with utf-8
+2024-03-28 01:36:00,627 - mu.logic:290(read_and_decode) DEBUG: Detected newline '\n'
+2024-03-28 01:36:00,627 - mu.logic:787(_load) DEBUG: #!/usr/bin/env python3
+from launch import LaunchDescription
+from launch_ros.actions import Node
+
+'''
+parameters=[
+        {'device_model': 'MS200'},
+        {'frame_id': 'laser_frame'},
+        {'scan_topic': 'MS200/scan'},
+        {'port_name': '/dev/ttyAMA1 '},
+        {'baudrate': 230400},
+        {'angle_min': 0.0},
+        {'angle_max': 360.0},
+        {'range_min': 0.05},
+        {'range_max': 20.0},
+        {'clockwise': False},
+        {'motor_speed': 10}
+      ]
+'''
+
+def generate_launch_description():
+  # LiDAR publisher node
+  ordlidar_node = Node(
+      package='oradar_lidar',
+      node_executable='oradar_scan',
+      node_name='MS200',
+      output='screen',
+      parameters=[
+        {'device_model': 'MS200'},
+        {'frame_id': 'laser_frame'},
+        {'scan_topic': '/scan'},
+        {'port_name': '/dev/ttyAMA1 '},
+        {'baudrate': 230400},
+        {'angle_min': 0.0},
+        {'angle_max': 360.0},
+        {'range_min': 0.05},
+        {'range_max': 20.0},
+        {'clockwise': False},
+        {'motor_speed': 10}
+      ]
+  )
+
+  # base_link to laser_frame tf node
+  base_link_to_laser_tf_node = Node(
+    package='tf2_ros',
+    node_executable='static_transform_publisher',
+    node_name='base_link_to_base_laser',
+    arguments=['0','0','0.18','0','0','0','base_link','laser_frame']
+  )
+
+
+  # Define LaunchDescription variable
+  ord = LaunchDescription()
+
+  ord.add_action(ordlidar_node)
+  ord.add_action(base_link_to_laser_tf_node)
+
+  return ord
+
+2024-03-28 01:36:00,668 - mu.logic:1147(change_mode) INFO: Workspace directory: /home/pi/mu_code
+2024-03-28 01:36:05,455 - mu.logic:1051(quit) DEBUG: Session: {'theme': 'day', 'mode': 'python', 'paths': ['/home/pi/Documents/cartographer_ws2/src/oradar_lidar/launch/ms200_scan.launch.py'], 'envars': [], 'minify': False, 'microbit_runtime': '', 'zoom_level': 2}
+2024-03-28 01:36:05,455 - mu.logic:1052(quit) DEBUG: Saving session to: /home/pi/.local/share/mu/session.json
+2024-03-28 01:36:05,455 - mu.logic:1066(quit) INFO: Quitting.
+
+
+2024-03-28 01:36:07,656 - mu.logic:1051(quit) DEBUG: Session: {'theme': 'day', 'mode': 'python', 'paths': ['/home/pi/Documents/cartographer_ws2/src/oradar_lidar/launch/ms200_scan.launch.py'], 'envars': [], 'minify': False, 'microbit_runtime': '', 'zoom_level': 2}
+2024-03-28 01:36:07,656 - mu.logic:1052(quit) DEBUG: Saving session to: /home/pi/.local/share/mu/session.json
+2024-03-28 01:36:07,656 - mu.logic:1066(quit) INFO: Quitting.
+
+
+2024-03-28 01:36:11,888 - root:112(run) INFO: 
+
+-----------------
+
+Starting Mu 1.0.3
+2024-03-28 01:36:11,888 - root:113(run) INFO: uname_result(system='Linux', node='raspberrypi', release='6.6.20+rpt-rpi-2712', version='#1 SMP PREEMPT Debian 1:6.6.20-1+rpt1 (2024-03-07)', machine='aarch64')
+2024-03-28 01:36:11,888 - root:114(run) INFO: Python path: ['/usr/share/mu-editor', '/usr/lib/python311.zip', '/usr/lib/python3.11', '/usr/lib/python3.11/lib-dynload', '/usr/local/lib/python3.11/dist-packages', '/usr/lib/python3/dist-packages', '/usr/lib/python3.11/dist-packages']
+2024-03-28 01:36:11,888 - root:115(run) INFO: Language code: en_US
+2024-03-28 01:36:11,940 - mu.logic:543(__init__) INFO: Setting up editor.
+2024-03-28 01:36:11,940 - mu.logic:562(__init__) INFO: Settings path: /home/pi/.local/share/mu/settings.json
+2024-03-28 01:36:11,941 - mu.logic:563(__init__) INFO: Session path: /home/pi/.local/share/mu/session.json
+2024-03-28 01:36:11,941 - mu.logic:564(__init__) INFO: Log directory: /home/pi/.cache/mu/log
+2024-03-28 01:36:11,941 - mu.logic:565(__init__) INFO: Data directory: /home/pi/.local/share/mu
+2024-03-28 01:36:11,962 - mu.logic:578(setup) INFO: Available modes: python, adafruit, microbit, debugger, pygamezero
+2024-03-28 01:36:12,263 - mu.logic:1147(change_mode) INFO: Workspace directory: /home/pi/mu_code
+2024-03-28 01:36:12,263 - mu.logic:625(restore_session) INFO: Restoring session from: /home/pi/.local/share/mu/session.json
+2024-03-28 01:36:12,263 - mu.logic:626(restore_session) DEBUG: {'theme': 'day', 'mode': 'python', 'paths': ['/home/pi/Documents/cartographer_ws2/src/oradar_lidar/launch/ms200_scan.launch.py'], 'envars': [], 'minify': False, 'microbit_runtime': '', 'zoom_level': 2}
+2024-03-28 01:36:12,263 - mu.logic:647(restore_session) INFO: Loaded files.
+2024-03-28 01:36:12,263 - mu.logic:650(restore_session) INFO: User defined environment variables: []
+2024-03-28 01:36:12,263 - mu.logic:654(restore_session) INFO: Minify scripts on micro:bit? False
+2024-03-28 01:36:12,263 - mu.logic:843(load_cli) INFO: Passed-in filename: /home/pi/Documents/cartographer_ws2/src/oradar_lidar/launch/ms200_scan.launch.py
+2024-03-28 01:36:12,263 - mu.logic:713(_load) INFO: Loading script from: /home/pi/Documents/cartographer_ws2/src/oradar_lidar/launch/ms200_scan.launch.py
+2024-03-28 01:36:12,263 - mu.logic:274(read_and_decode) DEBUG: Trying to decode with utf-8
+2024-03-28 01:36:12,264 - mu.logic:277(read_and_decode) INFO: Decoded with utf-8
+2024-03-28 01:36:12,264 - mu.logic:290(read_and_decode) DEBUG: Detected newline '\n'
+2024-03-28 01:36:12,264 - mu.logic:787(_load) DEBUG: #!/usr/bin/env python3
+from launch import LaunchDescription
+from launch_ros.actions import Node
+
+'''
+parameters=[
+        {'device_model': 'MS200'},
+        {'frame_id': 'laser_frame'},
+        {'scan_topic': 'MS200/scan'},
+        {'port_name': '/dev/ttyAMA1 '},
+        {'baudrate': 230400},
+        {'angle_min': 0.0},
+        {'angle_max': 360.0},
+        {'range_min': 0.05},
+        {'range_max': 20.0},
+        {'clockwise': False},
+        {'motor_speed': 10}
+      ]
+'''
+
+def generate_launch_description():
+  # LiDAR publisher node
+  ordlidar_node = Node(
+      package='oradar_lidar',
+      node_executable='oradar_scan',
+      node_name='MS200',
+      output='screen',
+      parameters=[
+        {'device_model': 'MS200'},
+        {'frame_id': 'laser_frame'},
+        {'scan_topic': '/scan'},
+        {'port_name': '/dev/ttyAMA1 '},
+        {'baudrate': 230400},
+        {'angle_min': 0.0},
+        {'angle_max': 360.0},
+        {'range_min': 0.05},
+        {'range_max': 20.0},
+        {'clockwise': False},
+        {'motor_speed': 10}
+      ]
+  )
+
+  # base_link to laser_frame tf node
+  base_link_to_laser_tf_node = Node(
+    package='tf2_ros',
+    node_executable='static_transform_publisher',
+    node_name='base_link_to_base_laser',
+    arguments=['0','0','0.18','0','0','0','base_link','laser_frame']
+  )
+
+
+  # Define LaunchDescription variable
+  ord = LaunchDescription()
+
+  ord.add_action(ordlidar_node)
+  ord.add_action(base_link_to_laser_tf_node)
+
+  return ord
+
+2024-03-28 01:36:12,297 - mu.logic:1147(change_mode) INFO: Workspace directory: /home/pi/mu_code
+2024-03-28 02:03:39,568 - root:112(run) INFO: 
+
+-----------------
+
+Starting Mu 1.0.3
+2024-03-28 02:03:39,569 - root:113(run) INFO: uname_result(system='Linux', node='raspberrypi', release='6.6.20+rpt-rpi-2712', version='#1 SMP PREEMPT Debian 1:6.6.20-1+rpt1 (2024-03-07)', machine='aarch64')
+2024-03-28 02:03:39,569 - root:114(run) INFO: Python path: ['/usr/share/mu-editor', '/usr/lib/python311.zip', '/usr/lib/python3.11', '/usr/lib/python3.11/lib-dynload', '/usr/local/lib/python3.11/dist-packages', '/usr/lib/python3/dist-packages', '/usr/lib/python3.11/dist-packages']
+2024-03-28 02:03:39,569 - root:115(run) INFO: Language code: en_US
+2024-03-28 02:03:39,945 - mu.logic:543(__init__) INFO: Setting up editor.
+2024-03-28 02:03:39,946 - mu.logic:562(__init__) INFO: Settings path: /home/pi/.local/share/mu/settings.json
+2024-03-28 02:03:39,946 - mu.logic:563(__init__) INFO: Session path: /home/pi/.local/share/mu/session.json
+2024-03-28 02:03:39,946 - mu.logic:564(__init__) INFO: Log directory: /home/pi/.cache/mu/log
+2024-03-28 02:03:39,946 - mu.logic:565(__init__) INFO: Data directory: /home/pi/.local/share/mu
+2024-03-28 02:03:39,969 - mu.logic:578(setup) INFO: Available modes: python, adafruit, microbit, debugger, pygamezero
+2024-03-28 02:03:40,359 - mu.logic:1147(change_mode) INFO: Workspace directory: /home/pi/mu_code
+2024-03-28 02:03:40,360 - mu.logic:625(restore_session) INFO: Restoring session from: /home/pi/.local/share/mu/session.json
+2024-03-28 02:03:40,360 - mu.logic:626(restore_session) DEBUG: {'theme': 'day', 'mode': 'python', 'paths': ['/home/pi/Documents/cartographer_ws2/src/oradar_lidar/launch/ms200_scan.launch.py'], 'envars': [], 'minify': False, 'microbit_runtime': '', 'zoom_level': 2}
+2024-03-28 02:03:40,360 - mu.logic:713(_load) INFO: Loading script from: /home/pi/Documents/cartographer_ws2/src/oradar_lidar/launch/ms200_scan.launch.py
+2024-03-28 02:03:40,364 - mu.logic:274(read_and_decode) DEBUG: Trying to decode with utf-8
+2024-03-28 02:03:40,364 - mu.logic:277(read_and_decode) INFO: Decoded with utf-8
+2024-03-28 02:03:40,364 - mu.logic:290(read_and_decode) DEBUG: Detected newline '\n'
+2024-03-28 02:03:40,364 - mu.logic:787(_load) DEBUG: #!/usr/bin/env python3
+from launch import LaunchDescription
+from launch_ros.actions import Node
+
+'''
+parameters=[
+        {'device_model': 'MS200'},
+        {'frame_id': 'laser_frame'},
+        {'scan_topic': 'MS200/scan'},
+        {'port_name': '/dev/ttyAMA1 '},
+        {'baudrate': 230400},
+        {'angle_min': 0.0},
+        {'angle_max': 360.0},
+        {'range_min': 0.05},
+        {'range_max': 20.0},
+        {'clockwise': False},
+        {'motor_speed': 10}
+      ]
+'''
+
+def generate_launch_description():
+  # LiDAR publisher node
+  ordlidar_node = Node(
+      package='oradar_lidar',
+      node_executable='oradar_scan',
+      node_name='MS200',
+      output='screen',
+      parameters=[
+        {'device_model': 'MS200'},
+        {'frame_id': 'laser_frame'},
+        {'scan_topic': '/scan'},
+        {'port_name': '/dev/ttyAMA1 '},
+        {'baudrate': 230400},
+        {'angle_min': 0.0},
+        {'angle_max': 360.0},
+        {'range_min': 0.05},
+        {'range_max': 20.0},
+        {'clockwise': False},
+        {'motor_speed': 10}
+      ]
+  )
+
+  # base_link to laser_frame tf node
+  base_link_to_laser_tf_node = Node(
+    package='tf2_ros',
+    node_executable='static_transform_publisher',
+    node_name='base_link_to_base_laser',
+    arguments=['0','0','0.18','0','0','0','base_link','laser_frame']
+  )
+
+
+  # Define LaunchDescription variable
+  ord = LaunchDescription()
+
+  ord.add_action(ordlidar_node)
+  ord.add_action(base_link_to_laser_tf_node)
+
+  return ord
+
+2024-03-28 02:03:40,438 - mu.logic:647(restore_session) INFO: Loaded files.
+2024-03-28 02:03:40,438 - mu.logic:650(restore_session) INFO: User defined environment variables: []
+2024-03-28 02:03:40,438 - mu.logic:654(restore_session) INFO: Minify scripts on micro:bit? False
+2024-03-28 02:03:40,438 - mu.logic:843(load_cli) INFO: Passed-in filename: /home/pi/Documents/cartographer_ws2/install/yahboom_dog_joint_state/lib/yahboom_dog_joint_state/yahboomcar_joint_state
+2024-03-28 02:03:40,438 - mu.logic:713(_load) INFO: Loading script from: /home/pi/Documents/cartographer_ws2/install/yahboom_dog_joint_state/lib/yahboom_dog_joint_state/yahboomcar_joint_state
+2024-03-28 02:03:40,518 - mu.interface.main:722(show_message) DEBUG: Mu was not able to open this file
+2024-03-28 02:03:40,518 - mu.interface.main:723(show_message) DEBUG: Currently Mu only works with Python source files or hex files created with embedded MicroPython code.
+2024-03-28 02:03:45,742 - mu.logic:1147(change_mode) INFO: Workspace directory: /home/pi/mu_code
+2024-03-28 02:03:50,081 - mu.logic:1051(quit) DEBUG: Session: {'theme': 'day', 'mode': 'python', 'paths': ['/home/pi/Documents/cartographer_ws2/src/oradar_lidar/launch/ms200_scan.launch.py'], 'envars': [], 'minify': False, 'microbit_runtime': '', 'zoom_level': 2}
+2024-03-28 02:03:50,081 - mu.logic:1052(quit) DEBUG: Saving session to: /home/pi/.local/share/mu/session.json
+2024-03-28 02:03:50,082 - mu.logic:1066(quit) INFO: Quitting.
+
+
