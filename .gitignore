@@ -1,10 +1,14 @@
+# Ignore all heavy browser data
+.config/chromium/
+.config/Code/
+
+# Ignore system/desktop environment junk
 .cache/
 .local/
-.cache/
-.local/
-.cache/
-.local/
-.cache/
-.local/
-.cache/
-.local/
+.Xauthority
+.xsession-errors*
+.dbus/
+.gvfs/
+
+# Keep the .gitignore itself
+!.gitignore

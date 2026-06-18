@@ -138,3 +138,7 @@ alias rosenter="docker exec -it \$(docker ps -lq) bash -c 'source /opt/ros/humbl
 alias rosenter="docker exec -it \$(docker ps -lq) bash -c 'source /opt/ros/humble/setup.bash && bash'"
 alias rosenter="docker exec -it \$(docker ps -lq) bash -c 'source /opt/ros/humble/setup.bash && bash'"
 alias rosenter="docker exec -it \$(docker ps -lq) bash -c 'source /opt/ros/humble/setup.bash && bash'"
+alias rosenter="docker exec -it \$(docker ps -lq) bash -c 'source /opt/ros/humble/setup.bash && bash'"
+alias rosenter="docker exec -it \$(docker ps -lq) bash -c 'source /opt/ros/humble/setup.bash && bash'"
+alias rosenter="docker exec -it \$(docker ps -lq) bash -c 'source /opt/ros/humble/setup.bash && bash'"
+alias rosenter="docker exec -it \$(docker ps -lq) bash -c 'source /opt/ros/humble/setup.bash && bash'"
