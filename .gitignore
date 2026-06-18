@@ -1,6 +1,7 @@
 # Ignore all heavy browser data
 .config/chromium/
 .config/Code/
+.vscode-shared/
 
 # Ignore system/desktop environment junk
 .cache/
@@ -10,6 +11,9 @@
 .dbus/
 .gvfs/
 .config
+.bash_history
+.bash_logout
+.bash_save
 
 # Keep the .gitignore itself
 !.gitignore
