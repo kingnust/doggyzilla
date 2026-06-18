@@ -1,0 +1,2 @@
+2026-06-18 05:01:43.819 [error] #24: https://main.vscode-cdn.net/extensions/marketplace.json - error GET net::ERR_NETWORK_CHANGED
+2026-06-18 05:06:43.856 [error] #25: https://main.vscode-cdn.net/extensions/marketplace.json - error GET net::ERR_INTERNET_DISCONNECTED

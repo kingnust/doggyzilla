@@ -35,3 +35,4 @@
     at vscode-file://vscode-app/usr/share/code/resources/app/out/vs/workbench/workbench.desktop.main.js:1019:57285
     at vscode-file://vscode-app/usr/share/code/resources/app/out/vs/workbench/workbench.desktop.main.js:434:74946 Failed to load custom agents
 2026-06-18 04:16:34.984 [warning] [DefaultAccount] Managed settings fetch returned non-success status 404; falling back to local-only policy
+2026-06-18 05:18:14.358 [warning] [DefaultAccount] Managed settings fetch returned non-success status 404; falling back to local-only policy

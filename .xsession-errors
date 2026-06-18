@@ -387,3 +387,370 @@ II 18-06-26 04:16:43.343 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable sur
 app_id equals variant: [type: string, value: Kodi]
 app_id equals variant: [type: string, value: Kodi]
 II 18-06-26 04:17:30.340 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 04:23:24.410 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface:  app-id: xdg-desktop-portal-gtk
+app_id equals variant: [type: string, value: Kodi]
+II 18-06-26 04:43:12.284 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 04:47:30.491 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 04:47:41.261 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface: wf-panel-pi app-id: wf-panel-pi
+app_id equals variant: [type: string, value: Kodi]
+II 18-06-26 04:47:48.352 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 04:47:49.684 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 04:47:51.777 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface: Wi-Fi Network Authentication Required app-id: wf-panel-pi
+app_id equals variant: [type: string, value: Kodi]
+II 18-06-26 04:47:59.847 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 04:48:19.817 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 04:48:20.792 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 04:48:24.916 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 04:48:26.127 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 04:48:40.795 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 04:48:41.679 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 04:48:42.972 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 04:48:44.991 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface: Wi-Fi Network Authentication Required app-id: wf-panel-pi
+app_id equals variant: [type: string, value: Kodi]
+II 18-06-26 04:48:46.636 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 04:48:53.783 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 04:49:02.652 - [src/core/seat/input-manager.cpp:46] handle new input: wlr_virtual_keyboard_v1
+EE 18-06-26 04:49:02.659 - [types/wlr_cursor.c:875] Cannot map device "pwr_button" to output (not found in this cursor)
+EE 18-06-26 04:49:02.659 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-0" to output (not found in this cursor)
+EE 18-06-26 04:49:02.659 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-1" to output (not found in this cursor)
+EE 18-06-26 04:49:02.659 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 04:49:02.659 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+II 18-06-26 04:49:02.663 - [src/core/seat/input-manager.cpp:46] handle new input: wlr_virtual_pointer_v1
+EE 18-06-26 04:49:02.664 - [types/wlr_cursor.c:875] Cannot map device "pwr_button" to output (not found in this cursor)
+EE 18-06-26 04:49:02.664 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-0" to output (not found in this cursor)
+EE 18-06-26 04:49:02.664 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-1" to output (not found in this cursor)
+EE 18-06-26 04:49:02.664 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 04:49:02.664 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+The XKEYBOARD keymap compiler (xkbcomp) reports:
+> Warning:          Unsupported maximum keycode 708, clipping.
+>                   X11 cannot support keycodes above 255.
+Errors from xkbcomp are not fatal to the X server
+The XKEYBOARD keymap compiler (xkbcomp) reports:
+> Warning:          Unsupported maximum keycode 708, clipping.
+>                   X11 cannot support keycodes above 255.
+Errors from xkbcomp are not fatal to the X server
+II 18-06-26 04:49:41.116 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 04:49:41.851 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 04:49:45.855 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 04:49:50.264 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 04:49:51.296 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface: wf-panel-pi app-id: wf-panel-pi
+app_id equals variant: [type: string, value: Kodi]
+II 18-06-26 04:49:56.822 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 04:49:57.681 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 04:50:03.866 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface: New Tab - Chromium app-id: chromium
+app_id equals variant: [type: string, value: Kodi]
+II 18-06-26 04:50:33.666 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 04:50:43.576 - [src/core/seat/input-manager.cpp:46] handle new input: wlr_virtual_keyboard_v1
+EE 18-06-26 04:50:43.584 - [types/wlr_cursor.c:875] Cannot map device "pwr_button" to output (not found in this cursor)
+EE 18-06-26 04:50:43.584 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-0" to output (not found in this cursor)
+EE 18-06-26 04:50:43.584 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-1" to output (not found in this cursor)
+EE 18-06-26 04:50:43.584 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 04:50:43.584 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 04:50:43.584 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+II 18-06-26 04:50:43.591 - [src/core/seat/input-manager.cpp:46] handle new input: wlr_virtual_pointer_v1
+EE 18-06-26 04:50:43.591 - [types/wlr_cursor.c:875] Cannot map device "pwr_button" to output (not found in this cursor)
+EE 18-06-26 04:50:43.591 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-0" to output (not found in this cursor)
+EE 18-06-26 04:50:43.591 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-1" to output (not found in this cursor)
+EE 18-06-26 04:50:43.591 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 04:50:43.591 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 04:50:43.591 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+The XKEYBOARD keymap compiler (xkbcomp) reports:
+> Warning:          Unsupported maximum keycode 708, clipping.
+>                   X11 cannot support keycodes above 255.
+Errors from xkbcomp are not fatal to the X server
+The XKEYBOARD keymap compiler (xkbcomp) reports:
+> Warning:          Unsupported maximum keycode 708, clipping.
+>                   X11 cannot support keycodes above 255.
+Errors from xkbcomp are not fatal to the X server
+II 18-06-26 04:50:48.921 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface:  app-id: lxterminal
+app_id equals variant: [type: string, value: Kodi]
+II 18-06-26 04:53:00.982 - [src/core/seat/input-manager.cpp:46] handle new input: wlr_virtual_keyboard_v1
+EE 18-06-26 04:53:01.003 - [types/wlr_cursor.c:875] Cannot map device "pwr_button" to output (not found in this cursor)
+EE 18-06-26 04:53:01.005 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-0" to output (not found in this cursor)
+EE 18-06-26 04:53:01.005 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-1" to output (not found in this cursor)
+EE 18-06-26 04:53:01.005 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 04:53:01.005 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 04:53:01.005 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 04:53:01.005 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+II 18-06-26 04:53:01.021 - [src/core/seat/input-manager.cpp:46] handle new input: wlr_virtual_pointer_v1
+EE 18-06-26 04:53:01.021 - [types/wlr_cursor.c:875] Cannot map device "pwr_button" to output (not found in this cursor)
+EE 18-06-26 04:53:01.021 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-0" to output (not found in this cursor)
+EE 18-06-26 04:53:01.021 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-1" to output (not found in this cursor)
+EE 18-06-26 04:53:01.021 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 04:53:01.021 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 04:53:01.022 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 04:53:01.022 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+The XKEYBOARD keymap compiler (xkbcomp) reports:
+> Warning:          Unsupported maximum keycode 708, clipping.
+>                   X11 cannot support keycodes above 255.
+Errors from xkbcomp are not fatal to the X server
+The XKEYBOARD keymap compiler (xkbcomp) reports:
+> Warning:          Unsupported maximum keycode 708, clipping.
+>                   X11 cannot support keycodes above 255.
+Errors from xkbcomp are not fatal to the X server
+II 18-06-26 05:00:11.129 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:00:34.688 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:00:35.257 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:00:44.130 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:00:45.689 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:00:46.689 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:00:47.300 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:00:47.707 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:00:57.208 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:01:33.302 - [src/core/seat/input-manager.cpp:104] remove input: wlr_virtual_keyboard_v1
+II 18-06-26 05:01:33.308 - [src/core/seat/input-manager.cpp:104] remove input: wlr_virtual_pointer_v1
+II 18-06-26 05:01:53.242 - [src/core/seat/input-manager.cpp:104] remove input: wlr_virtual_keyboard_v1
+II 18-06-26 05:01:53.243 - [src/core/seat/input-manager.cpp:104] remove input: wlr_virtual_pointer_v1
+II 18-06-26 05:01:53.387 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:01:55.469 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:01:57.104 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:01:57.253 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:01:58.212 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:02:15.345 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:02:19.355 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:02:20.115 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:02:30.074 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:02:36.042 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface: wf-panel-pi app-id: wf-panel-pi
+app_id equals variant: [type: string, value: Kodi]
+II 18-06-26 05:02:43.132 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:02:51.169 - [src/core/seat/input-manager.cpp:46] handle new input: wlr_virtual_keyboard_v1
+EE 18-06-26 05:02:51.178 - [types/wlr_cursor.c:875] Cannot map device "pwr_button" to output (not found in this cursor)
+EE 18-06-26 05:02:51.178 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-0" to output (not found in this cursor)
+EE 18-06-26 05:02:51.178 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-1" to output (not found in this cursor)
+EE 18-06-26 05:02:51.178 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 05:02:51.178 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 05:02:51.178 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+II 18-06-26 05:02:51.184 - [src/core/seat/input-manager.cpp:46] handle new input: wlr_virtual_pointer_v1
+EE 18-06-26 05:02:51.184 - [types/wlr_cursor.c:875] Cannot map device "pwr_button" to output (not found in this cursor)
+EE 18-06-26 05:02:51.184 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-0" to output (not found in this cursor)
+EE 18-06-26 05:02:51.184 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-1" to output (not found in this cursor)
+EE 18-06-26 05:02:51.184 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 05:02:51.184 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 05:02:51.184 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+The XKEYBOARD keymap compiler (xkbcomp) reports:
+> Warning:          Unsupported maximum keycode 708, clipping.
+>                   X11 cannot support keycodes above 255.
+Errors from xkbcomp are not fatal to the X server
+The XKEYBOARD keymap compiler (xkbcomp) reports:
+> Warning:          Unsupported maximum keycode 708, clipping.
+>                   X11 cannot support keycodes above 255.
+Errors from xkbcomp are not fatal to the X server
+II 18-06-26 05:02:56.548 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:03:08.067 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface: wf-panel-pi app-id: wf-panel-pi
+app_id equals variant: [type: string, value: Kodi]
+II 18-06-26 05:03:10.654 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:03:14.087 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:03:15.121 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface: wf-panel-pi app-id: wf-panel-pi
+app_id equals variant: [type: string, value: Kodi]
+II 18-06-26 05:03:16.991 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:03:19.198 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:03:21.519 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:03:22.766 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:03:25.630 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:03:26.188 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:03:27.350 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:03:28.461 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:03:30.336 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:03:32.532 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface: Wi-Fi Network Authentication Required app-id: wf-panel-pi
+app_id equals variant: [type: string, value: Kodi]
+II 18-06-26 05:03:35.450 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:03:38.921 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:04:18.142 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:04:35.727 - [src/core/seat/input-manager.cpp:46] handle new input: wlr_virtual_keyboard_v1
+EE 18-06-26 05:04:35.733 - [types/wlr_cursor.c:875] Cannot map device "pwr_button" to output (not found in this cursor)
+EE 18-06-26 05:04:35.733 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-0" to output (not found in this cursor)
+EE 18-06-26 05:04:35.733 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-1" to output (not found in this cursor)
+EE 18-06-26 05:04:35.733 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 05:04:35.733 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 05:04:35.733 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 05:04:35.733 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+II 18-06-26 05:04:35.737 - [src/core/seat/input-manager.cpp:46] handle new input: wlr_virtual_pointer_v1
+EE 18-06-26 05:04:35.737 - [types/wlr_cursor.c:875] Cannot map device "pwr_button" to output (not found in this cursor)
+EE 18-06-26 05:04:35.737 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-0" to output (not found in this cursor)
+EE 18-06-26 05:04:35.738 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-1" to output (not found in this cursor)
+EE 18-06-26 05:04:35.738 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 05:04:35.738 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 05:04:35.738 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 05:04:35.738 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+The XKEYBOARD keymap compiler (xkbcomp) reports:
+> Warning:          Unsupported maximum keycode 708, clipping.
+>                   X11 cannot support keycodes above 255.
+Errors from xkbcomp are not fatal to the X server
+The XKEYBOARD keymap compiler (xkbcomp) reports:
+> Warning:          Unsupported maximum keycode 708, clipping.
+>                   X11 cannot support keycodes above 255.
+Errors from xkbcomp are not fatal to the X server
+II 18-06-26 05:04:37.719 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:05:20.569 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:05:24.550 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:05:29.129 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:05:29.425 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface: Connection failure app-id: wf-panel-pi
+app_id equals variant: [type: string, value: Kodi]
+II 18-06-26 05:05:33.810 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:05:35.119 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:05:36.894 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface: wf-panel-pi app-id: wf-panel-pi
+app_id equals variant: [type: string, value: Kodi]
+II 18-06-26 05:05:40.318 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:05:41.085 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:05:41.751 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:05:42.655 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:05:43.959 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface: Wi-Fi Network Authentication Required app-id: wf-panel-pi
+app_id equals variant: [type: string, value: Kodi]
+II 18-06-26 05:05:53.448 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:06:25.491 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:06:26.828 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:06:27.704 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:06:28.090 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface: wf-panel-pi app-id: wf-panel-pi
+app_id equals variant: [type: string, value: Kodi]
+II 18-06-26 05:06:29.976 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:06:33.828 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:06:35.065 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:06:36.062 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:06:38.981 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:06:44.024 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:06:44.897 - [src/view/xdg-shell.cpp:25] New xdg popup
+EE 18-06-26 05:06:46.922 - [libinput] event5  - USB Optical Mouse: client bug: event processing lagging behind by 21ms, your system is too slow
+
+II 18-06-26 05:06:47.374 - [src/view/xdg-shell.cpp:201] new xdg_shell_stable surface: Wi-Fi Network Authentication Required app-id: wf-panel-pi
+app_id equals variant: [type: string, value: Kodi]
+II 18-06-26 05:07:07.122 - [src/core/seat/input-manager.cpp:104] remove input: wlr_virtual_keyboard_v1
+II 18-06-26 05:07:07.123 - [src/core/seat/input-manager.cpp:104] remove input: wlr_virtual_pointer_v1
+II 18-06-26 05:07:07.854 - [src/core/seat/input-manager.cpp:104] remove input: USB Optical Mouse
+II 18-06-26 05:07:26.535 - [src/core/seat/input-manager.cpp:46] handle new input: Darfon HP 125 Wired Keyboard
+EE 18-06-26 05:07:26.541 - [types/wlr_cursor.c:875] Cannot map device "pwr_button" to output (not found in this cursor)
+EE 18-06-26 05:07:26.541 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-0" to output (not found in this cursor)
+EE 18-06-26 05:07:26.541 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-1" to output (not found in this cursor)
+EE 18-06-26 05:07:26.541 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 05:07:26.541 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 05:07:26.541 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 05:07:26.541 - [types/wlr_cursor.c:875] Cannot map device "Darfon HP 125 Wired Keyboard" to output (not found in this cursor)
+The XKEYBOARD keymap compiler (xkbcomp) reports:
+> Warning:          Unsupported maximum keycode 708, clipping.
+>                   X11 cannot support keycodes above 255.
+Errors from xkbcomp are not fatal to the X server
+II 18-06-26 05:07:26.562 - [src/core/seat/input-manager.cpp:46] handle new input: Darfon HP 125 Wired Keyboard System Control
+EE 18-06-26 05:07:26.567 - [types/wlr_cursor.c:875] Cannot map device "pwr_button" to output (not found in this cursor)
+EE 18-06-26 05:07:26.567 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-0" to output (not found in this cursor)
+EE 18-06-26 05:07:26.567 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-1" to output (not found in this cursor)
+EE 18-06-26 05:07:26.567 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 05:07:26.567 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 05:07:26.567 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 05:07:26.567 - [types/wlr_cursor.c:875] Cannot map device "Darfon HP 125 Wired Keyboard" to output (not found in this cursor)
+EE 18-06-26 05:07:26.567 - [types/wlr_cursor.c:875] Cannot map device "Darfon HP 125 Wired Keyboard System Control" to output (not found in this cursor)
+The XKEYBOARD keymap compiler (xkbcomp) reports:
+> Warning:          Unsupported maximum keycode 708, clipping.
+>                   X11 cannot support keycodes above 255.
+Errors from xkbcomp are not fatal to the X server
+II 18-06-26 05:07:26.601 - [src/core/seat/input-manager.cpp:46] handle new input: Darfon HP 125 Wired Keyboard Consumer Control
+EE 18-06-26 05:07:26.607 - [types/wlr_cursor.c:875] Cannot map device "pwr_button" to output (not found in this cursor)
+EE 18-06-26 05:07:26.607 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-0" to output (not found in this cursor)
+EE 18-06-26 05:07:26.607 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-1" to output (not found in this cursor)
+EE 18-06-26 05:07:26.607 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 05:07:26.607 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 05:07:26.607 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 05:07:26.607 - [types/wlr_cursor.c:875] Cannot map device "Darfon HP 125 Wired Keyboard" to output (not found in this cursor)
+EE 18-06-26 05:07:26.607 - [types/wlr_cursor.c:875] Cannot map device "Darfon HP 125 Wired Keyboard System Control" to output (not found in this cursor)
+EE 18-06-26 05:07:26.607 - [types/wlr_cursor.c:875] Cannot map device "Darfon HP 125 Wired Keyboard Consumer Control" to output (not found in this cursor)
+II 18-06-26 05:07:26.607 - [src/core/seat/input-manager.cpp:46] handle new input: Darfon HP 125 Wired Keyboard Consumer Control
+EE 18-06-26 05:07:26.607 - [types/wlr_cursor.c:875] Cannot map device "pwr_button" to output (not found in this cursor)
+EE 18-06-26 05:07:26.607 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-0" to output (not found in this cursor)
+EE 18-06-26 05:07:26.607 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-1" to output (not found in this cursor)
+EE 18-06-26 05:07:26.607 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 05:07:26.607 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 05:07:26.607 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 05:07:26.607 - [types/wlr_cursor.c:875] Cannot map device "Darfon HP 125 Wired Keyboard" to output (not found in this cursor)
+EE 18-06-26 05:07:26.607 - [types/wlr_cursor.c:875] Cannot map device "Darfon HP 125 Wired Keyboard System Control" to output (not found in this cursor)
+EE 18-06-26 05:07:26.607 - [types/wlr_cursor.c:875] Cannot map device "Darfon HP 125 Wired Keyboard Consumer Control" to output (not found in this cursor)
+The XKEYBOARD keymap compiler (xkbcomp) reports:
+> Warning:          Unsupported maximum keycode 708, clipping.
+>                   X11 cannot support keycodes above 255.
+Errors from xkbcomp are not fatal to the X server
+The XKEYBOARD keymap compiler (xkbcomp) reports:
+> Warning:          Unsupported maximum keycode 708, clipping.
+>                   X11 cannot support keycodes above 255.
+Errors from xkbcomp are not fatal to the X server
+II 18-06-26 05:07:35.795 - [src/core/seat/input-manager.cpp:104] remove input: wlr_virtual_keyboard_v1
+II 18-06-26 05:07:35.795 - [src/core/seat/input-manager.cpp:104] remove input: wlr_virtual_pointer_v1
+The XKEYBOARD keymap compiler (xkbcomp) reports:
+> Warning:          Unsupported maximum keycode 708, clipping.
+>                   X11 cannot support keycodes above 255.
+Errors from xkbcomp are not fatal to the X server
+II 18-06-26 05:08:43.794 - [src/core/seat/input-manager.cpp:104] remove input: Darfon HP 125 Wired Keyboard
+The XKEYBOARD keymap compiler (xkbcomp) reports:
+> Warning:          Unsupported maximum keycode 708, clipping.
+>                   X11 cannot support keycodes above 255.
+Errors from xkbcomp are not fatal to the X server
+II 18-06-26 05:08:43.858 - [src/core/seat/input-manager.cpp:104] remove input: Darfon HP 125 Wired Keyboard Consumer Control
+II 18-06-26 05:08:43.858 - [src/core/seat/input-manager.cpp:104] remove input: Darfon HP 125 Wired Keyboard Consumer Control
+II 18-06-26 05:08:43.902 - [src/core/seat/input-manager.cpp:104] remove input: Darfon HP 125 Wired Keyboard System Control
+II 18-06-26 05:09:02.417 - [src/core/seat/input-manager.cpp:46] handle new input: Darfon HP 125 Wired Keyboard System Control
+EE 18-06-26 05:09:02.425 - [types/wlr_cursor.c:875] Cannot map device "pwr_button" to output (not found in this cursor)
+EE 18-06-26 05:09:02.425 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-0" to output (not found in this cursor)
+EE 18-06-26 05:09:02.425 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-1" to output (not found in this cursor)
+EE 18-06-26 05:09:02.425 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 05:09:02.425 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 05:09:02.425 - [types/wlr_cursor.c:875] Cannot map device "Darfon HP 125 Wired Keyboard System Control" to output (not found in this cursor)
+II 18-06-26 05:09:02.437 - [src/core/seat/input-manager.cpp:46] handle new input: Darfon HP 125 Wired Keyboard Consumer Control
+The XKEYBOARD keymap compiler (xkbcomp) reports:
+> Warning:          Unsupported maximum keycode 708, clipping.
+>                   X11 cannot support keycodes above 255.
+Errors from xkbcomp are not fatal to the X server
+EE 18-06-26 05:09:02.455 - [types/wlr_cursor.c:875] Cannot map device "pwr_button" to output (not found in this cursor)
+EE 18-06-26 05:09:02.455 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-0" to output (not found in this cursor)
+EE 18-06-26 05:09:02.455 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-1" to output (not found in this cursor)
+EE 18-06-26 05:09:02.455 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 05:09:02.455 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 05:09:02.455 - [types/wlr_cursor.c:875] Cannot map device "Darfon HP 125 Wired Keyboard System Control" to output (not found in this cursor)
+EE 18-06-26 05:09:02.455 - [types/wlr_cursor.c:875] Cannot map device "Darfon HP 125 Wired Keyboard Consumer Control" to output (not found in this cursor)
+II 18-06-26 05:09:02.455 - [src/core/seat/input-manager.cpp:46] handle new input: Darfon HP 125 Wired Keyboard Consumer Control
+EE 18-06-26 05:09:02.455 - [types/wlr_cursor.c:875] Cannot map device "pwr_button" to output (not found in this cursor)
+EE 18-06-26 05:09:02.455 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-0" to output (not found in this cursor)
+EE 18-06-26 05:09:02.455 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-1" to output (not found in this cursor)
+EE 18-06-26 05:09:02.455 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 05:09:02.455 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 05:09:02.455 - [types/wlr_cursor.c:875] Cannot map device "Darfon HP 125 Wired Keyboard System Control" to output (not found in this cursor)
+EE 18-06-26 05:09:02.455 - [types/wlr_cursor.c:875] Cannot map device "Darfon HP 125 Wired Keyboard Consumer Control" to output (not found in this cursor)
+II 18-06-26 05:09:02.467 - [src/core/seat/input-manager.cpp:46] handle new input: Darfon HP 125 Wired Keyboard
+The XKEYBOARD keymap compiler (xkbcomp) reports:
+> Warning:          Unsupported maximum keycode 708, clipping.
+>                   X11 cannot support keycodes above 255.
+Errors from xkbcomp are not fatal to the X server
+EE 18-06-26 05:09:02.488 - [types/wlr_cursor.c:875] Cannot map device "pwr_button" to output (not found in this cursor)
+EE 18-06-26 05:09:02.488 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-0" to output (not found in this cursor)
+EE 18-06-26 05:09:02.488 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-1" to output (not found in this cursor)
+EE 18-06-26 05:09:02.488 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 05:09:02.488 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 05:09:02.488 - [types/wlr_cursor.c:875] Cannot map device "Darfon HP 125 Wired Keyboard System Control" to output (not found in this cursor)
+EE 18-06-26 05:09:02.488 - [types/wlr_cursor.c:875] Cannot map device "Darfon HP 125 Wired Keyboard Consumer Control" to output (not found in this cursor)
+EE 18-06-26 05:09:02.488 - [types/wlr_cursor.c:875] Cannot map device "Darfon HP 125 Wired Keyboard" to output (not found in this cursor)
+The XKEYBOARD keymap compiler (xkbcomp) reports:
+> Warning:          Unsupported maximum keycode 708, clipping.
+>                   X11 cannot support keycodes above 255.
+Errors from xkbcomp are not fatal to the X server
+II 18-06-26 05:09:11.387 - [src/core/seat/input-manager.cpp:46] handle new input: USB Optical Mouse
+EE 18-06-26 05:09:11.387 - [types/wlr_cursor.c:875] Cannot map device "pwr_button" to output (not found in this cursor)
+EE 18-06-26 05:09:11.387 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-0" to output (not found in this cursor)
+EE 18-06-26 05:09:11.387 - [types/wlr_cursor.c:875] Cannot map device "vc4-hdmi-1" to output (not found in this cursor)
+EE 18-06-26 05:09:11.387 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 05:09:11.387 - [types/wlr_cursor.c:875] Cannot map device "wlr_virtual_keyboard_v1" to output (not found in this cursor)
+EE 18-06-26 05:09:11.388 - [types/wlr_cursor.c:875] Cannot map device "Darfon HP 125 Wired Keyboard System Control" to output (not found in this cursor)
+EE 18-06-26 05:09:11.388 - [types/wlr_cursor.c:875] Cannot map device "Darfon HP 125 Wired Keyboard Consumer Control" to output (not found in this cursor)
+EE 18-06-26 05:09:11.388 - [types/wlr_cursor.c:875] Cannot map device "Darfon HP 125 Wired Keyboard" to output (not found in this cursor)
+II 18-06-26 05:10:05.447 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:10:14.031 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:10:14.457 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:11:15.477 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:11:17.079 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:11:22.834 - [src/view/xdg-shell.cpp:25] New xdg popup
+EE 18-06-26 05:11:29.026 - [libinput] event8  - USB Optical Mouse: client bug: event processing lagging behind by 24ms, your system is too slow
+
+II 18-06-26 05:12:51.679 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:19:22.401 - [src/core/seat/input-manager.cpp:104] remove input: wlr_virtual_keyboard_v1
+II 18-06-26 05:19:22.409 - [src/core/seat/input-manager.cpp:104] remove input: wlr_virtual_pointer_v1
+The XKEYBOARD keymap compiler (xkbcomp) reports:
+> Warning:          Unsupported maximum keycode 708, clipping.
+>                   X11 cannot support keycodes above 255.
+Errors from xkbcomp are not fatal to the X server
+II 18-06-26 05:19:44.140 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:19:47.129 - [src/view/xdg-shell.cpp:25] New xdg popup
+II 18-06-26 05:19:47.783 - [src/view/xdg-shell.cpp:25] New xdg popup
