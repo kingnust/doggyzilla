@@ -2,6 +2,7 @@
 .config/chromium/
 .config/Code/
 .vscode-shared/
+.copilot/
 
 # Ignore system/desktop environment junk
 .cache/
