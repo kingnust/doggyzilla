@@ -5,7 +5,7 @@
 .copilot/
 .vscode/
 .dotnet/
-.vscode/extensions/
+.codex/
 
 # Ignore system/desktop environment junk
 .cache/
