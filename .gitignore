@@ -3,6 +3,9 @@
 .config/Code/
 .vscode-shared/
 .copilot/
+.vscode/
+.dotnet/
+.vscode/extensions/
 
 # Ignore system/desktop environment junk
 .cache/
