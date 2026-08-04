@@ -1,0 +1,3 @@
+[submodule "DOGZILLA"]
+	path = DOGZILLA
+	url = https://github.com/kingnust/doggyzilla.git

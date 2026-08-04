@@ -1,0 +1,46 @@
+# Git metadata for the home repository and nested repositories
+/.git/
+/.dogzilla_new.git/
+
+# Credentials, authentication material, and private application state
+/.ssh/
+/.pki/
+/.config/
+/.copilot/
+/.docker/
+/.mozilla/
+/.Xauthority
+/activationCodeFile
+
+# Installed tools, caches, and application runtime state
+/.agents/
+/.cache/
+/.codex/
+/.dotnet/
+/.ipython/
+/.jupyter/
+/.local/
+/.mplayer/
+/.sentry-native/
+/.vscode-server/
+
+# Histories and session logs
+/.bash_history
+/.lesshst
+/.sudo_as_admin_successful
+/.viminfo
+/.wget-hsts
+/.xsession-errors*
+
+# Downloaded installers and files rejected by normal GitHub pushes
+/Downloads/
+/expressvpn-installer.run
+
+# Generated artifacts
+**/__pycache__/
+**/.ipynb_checkpoints/
+*.py[cod]
+*.log
+**/build/
+**/install/
+**/log/
