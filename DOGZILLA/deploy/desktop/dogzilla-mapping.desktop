@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=DOGZILLA Mapping
+Comment=Start DOGZILLA Cartographer mapping with automatic display detection
+Exec=bash -lc 'cd /home/pi/DOGZILLA && exec ./deploy/dogzilla-map start'
+Icon=utilities-system-monitor
+Terminal=true
+Categories=Development;Science;

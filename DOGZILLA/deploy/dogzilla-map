@@ -1,0 +1,621 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+DEPLOY_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "${DEPLOY_DIR}/.." && pwd)"
+COMPOSE_FILE="${DEPLOY_DIR}/compose.yaml"
+SERVICE_NAME="mapping"
+IMAGE_NAME="dogzilla-mapping:humble"
+BASE_IMAGE_NAME="yahboomtechnology/ros-humble:3.8"
+PINNED_BASE_ALIAS="dogzilla-yahboom-base:3.8-pinned"
+EXPECTED_BASE_IMAGE_ID="sha256:7e79c61b64b81311caf297640e5c6fd70279be4cbd38c2c087e8e3395e566047"
+MINIMUM_BUILD_KB=2621440
+OLED_SERVICE="yahboom_oled.service"
+OLED_STATE_FILE="${REPO_ROOT}/logs/yahboom_oled.was-active"
+CALIBRATION_FILE="${REPO_ROOT}/calibration/imu.json"
+DESKTOP_TEMPLATE="${DEPLOY_DIR}/desktop/dogzilla-mapping.desktop"
+SHUTDOWN_UNIT="dogzilla-mapping-shutdown.service"
+SHUTDOWN_UNIT_SOURCE="${DEPLOY_DIR}/systemd/${SHUTDOWN_UNIT}"
+
+compose() {
+    docker compose \
+        --project-directory "${REPO_ROOT}" \
+        --file "${COMPOSE_FILE}" \
+        "$@"
+}
+
+usage() {
+    printf '%s\n' \
+        'Usage: ./deploy/dogzilla-map COMMAND [ARGUMENTS]' \
+        '' \
+        'Commands:' \
+        '  doctor                Check Docker, devices, display, and disk space.' \
+        '  build                 Build the pinned dogzilla-mapping image.' \
+        '  start [--rviz|--headless] [--imu]' \
+        '                        Start hardware and Cartographer together.' \
+        '  status                Show container and ROS topic status.' \
+        '  teleop                Open keyboard movement control.' \
+        '  rviz                  Open RViz on the current Pi desktop.' \
+        '  save MAP_NAME         Save MAP_NAME.pbstream/.pgm/.yaml to maps/.' \
+        '  lidar-off             Stop the MS200 motor without starting ROS.' \
+        '  imu-calibrate         Run safe guided six-pose IMU calibration.' \
+        '  imu-check [SECONDS]   Validate fused IMU rate, gravity, and stamps.' \
+        '  logs                  Follow mapping logs.' \
+        '  shell                 Open a configured ROS shell.' \
+        '  stop                  Safely stop the mapping container.' \
+        '  desktop-install       Install the optional Pi desktop shortcut.' \
+        '  shutdown-install      Install the automatic OS-shutdown guard.'
+}
+
+require_command() {
+    local command_name="$1"
+    if ! command -v "${command_name}" >/dev/null 2>&1; then
+        printf 'Required command not found: %s\n' "${command_name}" >&2
+        exit 1
+    fi
+}
+
+ensure_runtime_directories() {
+    mkdir -p \
+        "${REPO_ROOT}/maps" \
+        "${REPO_ROOT}/logs/sessions" \
+        "${REPO_ROOT}/calibration"
+}
+
+container_is_running() {
+    compose ps --status running --services 2>/dev/null \
+        | grep -qx "${SERVICE_NAME}"
+}
+
+require_running_container() {
+    if ! container_is_running; then
+        printf 'DOGZILLA mapping is not running. Start it first.\n' >&2
+        exit 1
+    fi
+}
+
+free_disk_kb() {
+    df -Pk "${REPO_ROOT}" | awk 'NR == 2 {print $4}'
+}
+
+base_image_id() {
+    docker image inspect --format '{{.Id}}' "${BASE_IMAGE_NAME}" 2>/dev/null
+}
+
+verify_base_image() {
+    local actual_image_id
+
+    if ! actual_image_id="$(base_image_id)"; then
+        printf 'Downloading the expected Yahboom 3.8 base image.\n'
+        docker pull "${BASE_IMAGE_NAME}"
+        actual_image_id="$(base_image_id)"
+    fi
+
+    if [[ "${actual_image_id}" != "${EXPECTED_BASE_IMAGE_ID}" ]]; then
+        printf 'Yahboom base-image mismatch.\n' >&2
+        printf 'Expected: %s\n' "${EXPECTED_BASE_IMAGE_ID}" >&2
+        printf 'Found:    %s\n' "${actual_image_id}" >&2
+        printf 'The mutable 3.8 tag changed; review it before updating the pin.\n' >&2
+        exit 1
+    fi
+
+    docker image tag "${BASE_IMAGE_NAME}" "${PINNED_BASE_ALIAS}"
+}
+
+run_doctor() {
+    local failure=0
+    local available_kb
+    local actual_image_id
+
+    require_command docker
+    printf 'Docker: '
+    docker --version
+    printf 'Compose: '
+    docker compose version
+
+    if actual_image_id="$(base_image_id)"; then
+        if [[ "${actual_image_id}" == "${EXPECTED_BASE_IMAGE_ID}" ]]; then
+            printf 'Yahboom base image: verified %s\n' "${actual_image_id}"
+        else
+            printf 'Yahboom base image: unexpected %s\n' \
+                "${actual_image_id}" >&2
+            failure=1
+        fi
+    else
+        printf 'Yahboom base image: not downloaded (build will download it).\n'
+    fi
+
+    for device_path in /dev/ttyAMA0 /dev/ttyAMA1; do
+        if [[ -c "${device_path}" ]]; then
+            printf 'Device OK: %s\n' "${device_path}"
+        else
+            printf 'Device missing: %s\n' "${device_path}" >&2
+            failure=1
+        fi
+    done
+
+    available_kb="$(free_disk_kb)"
+    printf 'Free disk: %d MiB\n' "$((available_kb / 1024))"
+    if ((available_kb < MINIMUM_BUILD_KB)); then
+        printf 'Build warning: at least 2560 MiB free is recommended.\n' >&2
+    fi
+
+    if [[ -n "${DISPLAY:-}" ]]; then
+        printf 'Desktop display: %s\n' "${DISPLAY}"
+    else
+        printf 'Desktop display: unavailable in this terminal (headless mode works).\n'
+    fi
+
+    return "${failure}"
+}
+
+build_image() {
+    local available_kb
+    ensure_runtime_directories
+    available_kb="$(free_disk_kb)"
+
+    if ((available_kb < MINIMUM_BUILD_KB)) \
+        && [[ "${DOGZILLA_ALLOW_LOW_DISK:-0}" != '1' ]]; then
+        printf 'Build refused: only %d MiB is free; 2560 MiB is required.\n' \
+            "$((available_kb / 1024))" >&2
+        printf 'Free or expand storage, then run the build again.\n' >&2
+        printf 'Override only at your own risk with DOGZILLA_ALLOW_LOW_DISK=1.\n' >&2
+        exit 1
+    fi
+
+    verify_base_image
+    DOGZILLA_BASE_IMAGE="${PINNED_BASE_ALIAS}" compose build "${SERVICE_NAME}"
+}
+
+ensure_image() {
+    if ! docker image inspect "${IMAGE_NAME}" >/dev/null 2>&1; then
+        printf 'The reproducible image does not exist yet; building it now.\n'
+        build_image
+    fi
+}
+
+stop_vendor_application() {
+    local kill_script="${REPO_ROOT}/app_dogzilla/kill_dogzilla.sh"
+    if [[ -f "${kill_script}" ]]; then
+        sh "${kill_script}"
+    fi
+}
+
+pause_oled_service() {
+    if ! command -v systemctl >/dev/null 2>&1; then
+        return
+    fi
+    if systemctl is-active --quiet "${OLED_SERVICE}"; then
+        printf 'Pausing %s while mapping owns /dev/ttyAMA0.\n' \
+            "${OLED_SERVICE}"
+        sudo systemctl stop "${OLED_SERVICE}"
+        : > "${OLED_STATE_FILE}"
+    fi
+}
+
+restore_oled_service() {
+    if [[ ! -f "${OLED_STATE_FILE}" ]]; then
+        return
+    fi
+
+    printf 'Restoring %s.\n' "${OLED_SERVICE}"
+    sudo systemctl start "${OLED_SERVICE}"
+    rm -f "${OLED_STATE_FILE}"
+}
+
+send_lidar_off() {
+    local helper_path="${REPO_ROOT}/ros2/dogzilla_slam/dogzilla_slam/lidar_off.py"
+
+    assert_serial_ports_free /dev/ttyAMA1
+    verify_base_image
+    docker run \
+        --rm \
+        --device /dev/ttyAMA1:/dev/ttyAMA1 \
+        --volume "${helper_path}:/opt/dogzilla/lidar_off.py:ro" \
+        "${PINNED_BASE_ALIAS}" \
+        python3 /opt/dogzilla/lidar_off.py /dev/ttyAMA1
+}
+
+assert_serial_ports_free() {
+    local device_path
+    local device_paths=("$@")
+
+    if ! command -v fuser >/dev/null 2>&1; then
+        return
+    fi
+
+    if ((${#device_paths[@]} == 0)); then
+        device_paths=(/dev/ttyAMA0 /dev/ttyAMA1)
+    fi
+
+    for device_path in "${device_paths[@]}"; do
+        if fuser "${device_path}" >/dev/null 2>&1; then
+            printf 'Serial device is already in use: %s\n' "${device_path}" >&2
+            printf 'Stop the other DOGZILLA program or ROS launch first.\n' >&2
+            return 1
+        fi
+    done
+}
+
+configure_start_options() {
+    local display_mode='auto'
+    local option
+    DOGZILLA_USE_IMU=false
+    DOGZILLA_CONFIGURATION_BASENAME='dogzilla_2d.lua'
+
+    for option in "$@"; do
+        case "${option}" in
+            --rviz)
+                display_mode='rviz'
+                ;;
+            --headless)
+                display_mode='headless'
+                ;;
+            --imu)
+                DOGZILLA_USE_IMU=true
+                DOGZILLA_CONFIGURATION_BASENAME='dogzilla_2d_imu.lua'
+                ;;
+            *)
+                printf 'Unknown start option: %s\n' "${option}" >&2
+                usage
+                exit 1
+                ;;
+        esac
+    done
+
+    if [[ "${display_mode}" == 'rviz' ]]; then
+        if [[ -z "${DISPLAY:-}" ]]; then
+            printf 'RViz requested, but this terminal has no DISPLAY.\n' >&2
+            printf 'Run start --rviz from the terminal on the Pi monitor.\n' >&2
+            exit 1
+        fi
+        DOGZILLA_RVIZ=true
+    elif [[ "${display_mode}" == 'headless' ]]; then
+        DOGZILLA_RVIZ=false
+    elif [[ -n "${DISPLAY:-}" ]]; then
+        DOGZILLA_RVIZ=true
+    else
+        DOGZILLA_RVIZ=false
+    fi
+
+    DOGZILLA_DISPLAY="${DISPLAY:-}"
+    export \
+        DOGZILLA_CONFIGURATION_BASENAME \
+        DOGZILLA_DISPLAY \
+        DOGZILLA_RVIZ \
+        DOGZILLA_USE_IMU
+}
+
+require_valid_imu_calibration() {
+    if [[ ! -f "${CALIBRATION_FILE}" ]]; then
+        printf 'IMU fusion requires %s.\n' "${CALIBRATION_FILE}" >&2
+        printf 'Run "./deploy/dogzilla-map imu-calibrate" first.\n' >&2
+        exit 1
+    fi
+
+    if ! python3 -c '
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as stream:
+    calibration = json.load(stream)
+if calibration.get("schema_version") != 1:
+    raise SystemExit("Unsupported IMU calibration schema")
+if calibration.get("axis_validated") is not True:
+    raise SystemExit("IMU axis validation is incomplete")
+' "${CALIBRATION_FILE}"; then
+        printf 'IMU calibration is invalid; repeat the guided calibration.\n' >&2
+        exit 1
+    fi
+}
+
+begin_log_session() {
+    local base_name
+    local candidate
+    local suffix=1
+
+    base_name="$(date -u '+%Y%m%dT%H%M%SZ')"
+    candidate="${base_name}"
+    while [[ -e "${REPO_ROOT}/logs/sessions/${candidate}" ]]; do
+        suffix=$((suffix + 1))
+        candidate="${base_name}-${suffix}"
+    done
+
+    mkdir -p "${REPO_ROOT}/logs/sessions/${candidate}"
+    ln -sfn "sessions/${candidate}" "${REPO_ROOT}/logs/latest"
+    printf '%s\n' "${candidate}" > "${REPO_ROOT}/logs/current-session"
+    DOGZILLA_ROS_LOG_DIR="/logs/sessions/${candidate}"
+    DOGZILLA_LOG_SESSION="${candidate}"
+    export DOGZILLA_LOG_SESSION DOGZILLA_ROS_LOG_DIR
+}
+
+enable_display_access() {
+    if [[ "${DOGZILLA_RVIZ}" != 'true' ]]; then
+        return
+    fi
+    require_command xhost
+    xhost +SI:localuser:root >/dev/null
+}
+
+start_mapping() {
+    ensure_runtime_directories
+    ensure_image
+    configure_start_options "$@"
+    if [[ "${DOGZILLA_USE_IMU}" == 'true' ]]; then
+        require_valid_imu_calibration
+    fi
+    stop_vendor_application
+
+    if container_is_running; then
+        compose stop --timeout 20 "${SERVICE_NAME}"
+    fi
+
+    pause_oled_service
+    if ! assert_serial_ports_free; then
+        restore_oled_service
+        return 1
+    fi
+    if ! enable_display_access; then
+        restore_oled_service
+        return 1
+    fi
+    begin_log_session
+
+    if ! compose up \
+        --detach \
+        --no-build \
+        --force-recreate \
+        "${SERVICE_NAME}"; then
+        restore_oled_service
+        return 1
+    fi
+
+    printf 'DOGZILLA mapping started.\n'
+    if [[ "${DOGZILLA_USE_IMU}" == 'true' ]]; then
+        printf 'Fusion profile: calibrated IMU + LiDAR scan matching.\n'
+    else
+        printf 'Fusion profile: LiDAR-only (use --imu after calibration).\n'
+    fi
+    printf 'ROS log session: logs/sessions/%s (logs/latest).\n' \
+        "${DOGZILLA_LOG_SESSION}"
+    printf 'Use "./deploy/dogzilla-map status" to check /scan and /map.\n'
+    printf 'Use "./deploy/dogzilla-map logs" to watch Cartographer.\n'
+}
+
+run_imu_calibration() {
+    local calibration_status
+
+    if container_is_running; then
+        printf 'Stop mapping before IMU calibration.\n' >&2
+        printf 'Run "./deploy/dogzilla-map stop" first.\n' >&2
+        exit 1
+    fi
+
+    ensure_image
+    pause_oled_service
+    if ! assert_serial_ports_free /dev/ttyAMA0; then
+        restore_oled_service
+        return 1
+    fi
+
+    set +e
+    docker run \
+        --rm \
+        --interactive \
+        --tty \
+        --device /dev/ttyAMA0:/dev/ttyAMA0 \
+        --volume "${REPO_ROOT}/calibration:/calibration" \
+        "${IMAGE_NAME}" \
+        ros2 run dogzilla_slam imu_calibrate \
+        --output /calibration/imu.json \
+        --owner-uid "$(id -u)" \
+        --owner-gid "$(id -g)"
+    calibration_status=$?
+    set -e
+
+    restore_oled_service
+    return "${calibration_status}"
+}
+
+check_imu() {
+    local duration="${1:-8}"
+    require_running_container
+    if [[ ! "${duration}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+        printf 'SECONDS must be a positive number.\n' >&2
+        exit 1
+    fi
+
+    compose exec --no-TTY "${SERVICE_NAME}" bash -lc '
+        source /opt/ros/humble/setup.bash
+        source /root/yahboomcar_ws/install/setup.bash
+        export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-12}"
+        exec ros2 run dogzilla_slam imu_validate --duration "$1"
+    ' _ "${duration}"
+}
+
+install_desktop_shortcut() {
+    local desktop_directory
+    if command -v xdg-user-dir >/dev/null 2>&1; then
+        desktop_directory="$(xdg-user-dir DESKTOP)"
+    else
+        desktop_directory="${REPO_ROOT}/../Desktop"
+    fi
+    mkdir -p "${desktop_directory}"
+    install -m 0755 \
+        "${DESKTOP_TEMPLATE}" \
+        "${desktop_directory}/DOGZILLA Mapping.desktop"
+    printf 'Desktop shortcut installed: %s\n' \
+        "${desktop_directory}/DOGZILLA Mapping.desktop"
+}
+
+install_shutdown_guard() {
+    sudo install -m 0644 \
+        "${SHUTDOWN_UNIT_SOURCE}" \
+        "/etc/systemd/system/${SHUTDOWN_UNIT}"
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now "${SHUTDOWN_UNIT}"
+    printf 'Automatic safe-shutdown guard installed and enabled.\n'
+}
+
+show_status() {
+    compose ps
+    if ! container_is_running; then
+        return
+    fi
+
+    compose exec --no-TTY "${SERVICE_NAME}" bash -lc '
+        source /opt/ros/humble/setup.bash
+        source /root/yahboomcar_ws/install/setup.bash
+        export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-12}"
+        printf "\nROS topics:\n"
+        ros2 topic list | sort
+    '
+}
+
+open_teleop() {
+    require_running_container
+    compose exec "${SERVICE_NAME}" bash -lc '
+        source /opt/ros/humble/setup.bash
+        source /root/yahboomcar_ws/install/setup.bash
+        export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-12}"
+        ros2 run teleop_twist_keyboard teleop_twist_keyboard
+    '
+}
+
+open_rviz() {
+    require_running_container
+    if [[ -z "${DISPLAY:-}" ]]; then
+        printf 'This terminal has no DISPLAY. Run RViz from the Pi monitor.\n' >&2
+        exit 1
+    fi
+    require_command xhost
+    xhost +SI:localuser:root >/dev/null
+
+    compose exec \
+        --env "DISPLAY=${DISPLAY}" \
+        "${SERVICE_NAME}" \
+        bash -lc '
+            source /opt/ros/humble/setup.bash
+            source /root/yahboomcar_ws/install/setup.bash
+            export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-12}"
+            rviz2 -d /root/yahboomcar_ws/install/dogzilla_slam/share/dogzilla_slam/rviz/dogzilla_mapping.rviz
+        '
+}
+
+save_map() {
+    local map_name="${1:-}"
+    require_running_container
+
+    if [[ -z "${map_name}" ]]; then
+        printf 'A map name is required. Example: save room1\n' >&2
+        exit 1
+    fi
+    if [[ ! "${map_name}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+        printf 'Map name may contain only letters, numbers, dot, underscore, and dash.\n' >&2
+        exit 1
+    fi
+
+    compose exec --no-TTY "${SERVICE_NAME}" bash -lc "
+        source /opt/ros/humble/setup.bash
+        source /root/yahboomcar_ws/install/setup.bash
+        export ROS_DOMAIN_ID=\"\${ROS_DOMAIN_ID:-12}\"
+        ros2 run dogzilla_slam save_map /maps/${map_name}
+    "
+
+    ls -lh \
+        "${REPO_ROOT}/maps/${map_name}.pbstream" \
+        "${REPO_ROOT}/maps/${map_name}.pgm" \
+        "${REPO_ROOT}/maps/${map_name}.yaml"
+}
+
+open_shell() {
+    require_running_container
+    compose exec "${SERVICE_NAME}" bash -lc '
+        source /opt/ros/humble/setup.bash
+        source /root/yahboomcar_ws/install/setup.bash
+        export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-12}"
+        exec bash
+    '
+}
+
+stop_mapping() {
+    local lidar_status=0
+
+    if container_is_running; then
+        compose stop --timeout 20 "${SERVICE_NAME}"
+    else
+        printf 'DOGZILLA mapping is already stopped.\n'
+    fi
+
+    if ! send_lidar_off; then
+        lidar_status=1
+    fi
+    restore_oled_service
+
+    if [[ -n "${DISPLAY:-}" ]] && command -v xhost >/dev/null 2>&1; then
+        xhost -SI:localuser:root >/dev/null 2>&1 || true
+    fi
+
+    return "${lidar_status}"
+}
+
+main() {
+    require_command docker
+    ensure_runtime_directories
+
+    case "${1:-}" in
+        doctor)
+            run_doctor
+            ;;
+        build)
+            build_image
+            ;;
+        start)
+            start_mapping "${@:2}"
+            ;;
+        status)
+            show_status
+            ;;
+        teleop)
+            open_teleop
+            ;;
+        rviz)
+            open_rviz
+            ;;
+        save)
+            save_map "${2:-}"
+            ;;
+        lidar-off)
+            stop_mapping
+            ;;
+        imu-calibrate)
+            run_imu_calibration
+            ;;
+        imu-check)
+            check_imu "${2:-8}"
+            ;;
+        logs)
+            compose logs --follow --tail 200 "${SERVICE_NAME}"
+            ;;
+        shell)
+            open_shell
+            ;;
+        stop)
+            stop_mapping
+            ;;
+        desktop-install)
+            install_desktop_shortcut
+            ;;
+        shutdown-install)
+            install_shutdown_guard
+            ;;
+        help|-h|--help|'')
+            usage
+            ;;
+        *)
+            printf 'Unknown command: %s\n' "$1" >&2
+            usage
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"

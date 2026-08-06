@@ -1,0 +1,14 @@
+[Unit]
+Description=DOGZILLA mapping safe-shutdown guard
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/true
+RemainAfterExit=yes
+ExecStop=/home/pi/DOGZILLA/deploy/dogzilla-map stop
+TimeoutStopSec=45
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,27 @@
+--- a/src/oradar_scan_node.cpp
++++ b/src/oradar_scan_node.cpp
+@@ -304,5 +304,12 @@ int main(int argc, char **argv)
+     std::cout << "get lidar scan data" << std::endl;
+     std::cout << "ROS topic:" << scan_topic.c_str() << std::endl;
+     
++    if (!device.Activate())
++    {
++      std::cerr << "Failed to start lidar motor after connect." << std::endl;
++      device.Disconnect();
++      return 1;
++    }
++
+ 		min_thr = (double)motor_speed - ((double)motor_speed  * 0.1);
+ 		max_thr = (double)motor_speed + ((double)motor_speed  * 0.1);
+@@ -348,6 +355,11 @@ int main(int argc, char **argv)
+       }
+     }
+ 
++    if (!device.Deactive())
++    {
++      std::cerr << "Failed to stop lidar motor before disconnect." << std::endl;
++    }
++
+     device.Disconnect();
+     
+   }

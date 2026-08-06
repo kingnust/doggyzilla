@@ -1,0 +1,31 @@
+# Python-generated files
+__pycache__/
+*.py[cod]
+*.log
+.pytest_cache/
+
+# Jupyter-generated files
+.ipynb_checkpoints/
+
+# Local environments and credentials
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+Samples/4_Big_Modle/API_KEY.py
+
+# This vendor archive duplicates Samples/ and contains the local API_KEY.py.
+Samples.zip
+
+# Desktop metadata
+.DS_Store
+
+# ROS 2 build products
+build/
+install/
+log/
+
+# Runtime deployment output
+logs/*
+!logs/.gitkeep
