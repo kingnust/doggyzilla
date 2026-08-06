@@ -1,0 +1,268 @@
+DOGZILLA S2 MAPPING COMMANDS
+============================
+
+This guide is for the reproducible ROS 2 Humble mapping deployment at:
+/home/pi/DOGZILLA
+
+The normal workflow needs only one Raspberry Pi terminal. The deployment
+starts Docker, the MS200 LiDAR, the safe DOGZILLA controller, Cartographer,
+and optionally RViz together.
+
+
+1. OPEN THE PROJECT DIRECTORY
+-----------------------------
+
+Command:
+  cd /home/pi/DOGZILLA
+
+Explanation:
+  cd means "change directory". This makes /home/pi/DOGZILLA the current
+  directory so all ./deploy/dogzilla-map commands below work.
+
+
+2. FIRST-TIME OR TROUBLESHOOTING CHECK
+--------------------------------------
+
+Command:
+  ./deploy/dogzilla-map doctor
+
+Explanation:
+  ./ means run a file from the current directory.
+  deploy/dogzilla-map is the main DOGZILLA operator script.
+  doctor checks Docker, Docker Compose, the pinned Yahboom base image,
+  /dev/ttyAMA0, /dev/ttyAMA1, free disk space, and desktop display access.
+
+
+3. BUILD THE DOCKER IMAGE (ONLY AFTER CODE CHANGES OR ON A NEW INSTALL)
+---------------------------------------------------------------------
+
+Command:
+  ./deploy/dogzilla-map build
+
+Explanation:
+  build creates or refreshes the local dogzilla-mapping:humble Docker image.
+  It uses the repository's Dockerfile and ROS package source. It does not push
+  the image or source code to GitHub.
+
+
+4. START NORMAL LIDAR-ONLY MAPPING
+----------------------------------
+
+Recommended command on the Raspberry Pi monitor:
+  ./deploy/dogzilla-map start
+
+Explanation:
+  start launches the hardware bridge, MS200 LiDAR, Cartographer, occupancy
+  grid, and RViz together. Display detection is automatic: RViz opens when
+  this terminal has a desktop DISPLAY; otherwise mapping starts headless.
+  LiDAR-only mode is the stable default and does not need IMU calibration.
+
+Force RViz to open:
+  ./deploy/dogzilla-map start --rviz
+
+Explanation:
+  --rviz explicitly requests the RViz mapping window. Run this from a terminal
+  on the Pi desktop/monitor. It will fail from an SSH terminal without DISPLAY.
+
+Start from SSH without a graphical window:
+  ./deploy/dogzilla-map start --headless
+
+Explanation:
+  --headless disables RViz but still runs LiDAR and Cartographer mapping.
+
+
+5. CHECK THAT MAPPING IS READY
+------------------------------
+
+Command:
+  ./deploy/dogzilla-map status
+
+Explanation:
+  status shows the Docker container state and its ROS topics. Wait until /scan
+  and /map appear. Docker should eventually report the container as healthy.
+
+Optional live logs:
+  ./deploy/dogzilla-map logs
+
+Explanation:
+  logs follows the latest 200 Docker log lines and continues printing new
+  lines. Press Ctrl+C to leave the log view; Ctrl+C here does not stop mapping.
+  ROS file logs are stored in /home/pi/DOGZILLA/logs/sessions/.
+  /home/pi/DOGZILLA/logs/latest points to the newest session.
+
+
+6. DRIVE THE ROBOT WHILE BUILDING THE MAP
+-----------------------------------------
+
+Command:
+  ./deploy/dogzilla-map teleop
+
+Explanation:
+  teleop opens keyboard movement control inside the running container.
+  Follow the keys displayed in the terminal. Reduce speed before moving,
+  move slowly, avoid sudden turns, keep the body level, and use k to stop.
+  The safe controller clamps speed and stops after a command timeout.
+
+To view RViz later from a Pi monitor terminal:
+  ./deploy/dogzilla-map rviz
+
+Explanation:
+  rviz opens only the RViz window and connects it to the already-running
+  mapping stack. It requires a Pi desktop terminal with DISPLAY available.
+
+
+7. SAVE THE FINISHED MAP
+------------------------
+
+Example command:
+  ./deploy/dogzilla-map save room2
+
+Explanation:
+  save finishes the active Cartographer trajectory.
+  room2 is the map name; replace it with your preferred name. Use only letters,
+  numbers, dots, underscores, and dashes. The command creates:
+
+    /home/pi/DOGZILLA/maps/room2.pbstream
+    /home/pi/DOGZILLA/maps/room2.pgm
+    /home/pi/DOGZILLA/maps/room2.yaml
+
+  .pbstream keeps Cartographer's mapping state.
+  .pgm is the occupancy-grid image.
+  .yaml describes the map image, resolution, origin, and thresholds.
+
+Important:
+  Saving finishes the current trajectory. Stop and restart mapping before
+  beginning another new map.
+
+
+8. STOP SAFELY
+--------------
+
+Command:
+  ./deploy/dogzilla-map stop
+
+Explanation:
+  stop sends ROS SIGINT and allows up to 20 seconds for orderly shutdown.
+  It stops DOGZILLA movement, stops the Docker container, sends an additional
+  LiDAR motor-off packet, releases the serial ports, and restores the Yahboom
+  OLED service. Saved maps and logs remain on the Pi.
+
+If the LiDAR is spinning while mapping is not running:
+  ./deploy/dogzilla-map lidar-off
+
+Explanation:
+  lidar-off sends only the MS200 deactivate command through /dev/ttyAMA1.
+  It does not start mapping and does not command robot movement.
+
+
+OPTIONAL: CALIBRATED IMU + LIDAR MAPPING
+========================================
+
+A. CALIBRATE THE PHYSICAL ROBOT ONCE
+------------------------------------
+
+First make sure mapping is stopped:
+  ./deploy/dogzilla-map stop
+
+Explanation:
+  stop releases /dev/ttyAMA0 before calibration. It is safe if mapping is
+  already stopped.
+
+Run guided calibration:
+  ./deploy/dogzilla-map imu-calibrate
+
+Explanation:
+  imu-calibrate does not start the LiDAR. It sends movement STOP but does not
+  unload servo torque. It guides you through six motionless robot orientations
+  and creates /home/pi/DOGZILLA/calibration/imu.json.
+
+  The calibration measures:
+    - IMU axis orientation
+    - gravity direction and acceleration scale
+    - stationary gyroscope bias
+    - angular-velocity and acceleration covariance
+    - sampling rate and timing gaps
+
+Safety:
+  Support the body securely with two hands or a padded cradle. Do not place
+  the robot's weight on the LiDAR or legs while it is tilted or upside down.
+
+
+B. START FUSED MAPPING
+----------------------
+
+On the Pi monitor:
+  ./deploy/dogzilla-map start --imu
+
+Explanation:
+  start launches the complete mapping system.
+  --imu selects the calibrated LiDAR + IMU Cartographer profile.
+  Cartographer combines corrected IMU angular/gravity information with its
+  LiDAR scan-based motion estimate. The command refuses to start --imu mode if
+  calibration/imu.json is absent or invalid.
+
+From SSH:
+  ./deploy/dogzilla-map start --imu --headless
+
+Explanation:
+  --imu enables calibrated IMU fusion.
+  --headless disables the RViz graphical window.
+
+
+C. VALIDATE THE IMU BEFORE MOVING
+---------------------------------
+
+Keep the robot level and motionless, then run:
+  ./deploy/dogzilla-map imu-check 10
+
+Explanation:
+  imu-check validates /imu/data_corrected.
+  10 is the number of seconds to collect samples.
+  It checks message rate, gravity magnitude, covariance, frame ID, timestamp
+  ordering, timestamp age, and communication gaps. Continue only if it says
+  IMU validation: PASSED.
+
+After it passes, use the same status, teleop, save, and stop commands described
+in sections 5 through 8.
+
+
+OPTIONAL ONE-TIME CONVENIENCE COMMANDS
+======================================
+
+Install the Pi desktop shortcut:
+  ./deploy/dogzilla-map desktop-install
+
+Explanation:
+  desktop-install copies a DOGZILLA Mapping shortcut to the Pi Desktop.
+  Opening it runs the normal automatic-display start command in a terminal.
+
+Install the orderly OS-shutdown guard:
+  ./deploy/dogzilla-map shutdown-install
+
+Explanation:
+  shutdown-install uses sudo to install and enable a systemd service.
+  During a normal Raspberry Pi shutdown, the service runs the safe stop path
+  before Docker exits. It cannot protect against sudden battery disconnection
+  or power loss, so use normal operating-system shutdown whenever possible.
+
+
+QUICK DAILY REFERENCE
+=====================
+
+LiDAR-only mapping:
+  cd /home/pi/DOGZILLA
+  ./deploy/dogzilla-map start
+  ./deploy/dogzilla-map status
+  ./deploy/dogzilla-map teleop
+  ./deploy/dogzilla-map save MAP_NAME
+  ./deploy/dogzilla-map stop
+
+Calibrated IMU mapping after calibration:
+  cd /home/pi/DOGZILLA
+  ./deploy/dogzilla-map start --imu
+  ./deploy/dogzilla-map imu-check 10
+  ./deploy/dogzilla-map teleop
+  ./deploy/dogzilla-map save MAP_NAME
+  ./deploy/dogzilla-map stop
+
+Replace MAP_NAME with a unique name such as room2, hallway_test, or imu_trial1.

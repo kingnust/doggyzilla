@@ -10,7 +10,6 @@
 /.docker/
 /.mozilla/
 /.Xauthority
-/activationCodeFile
 
 # Installed tools, caches, and application runtime state
 /.agents/
@@ -34,7 +33,6 @@
 
 # Downloaded installers and files rejected by normal GitHub pushes
 /Downloads/
-/expressvpn-installer.run
 
 # Generated artifacts
 **/__pycache__/
