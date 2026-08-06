@@ -23,12 +23,14 @@ def generate_launch_description():
     max_linear = LaunchConfiguration('max_linear')
     max_angular = LaunchConfiguration('max_angular')
     command_timeout = LaunchConfiguration('command_timeout')
+    speed_profile = LaunchConfiguration('speed_profile')
     use_imu = LaunchConfiguration('use_imu')
 
     return LaunchDescription([
         DeclareLaunchArgument('max_linear', default_value='0.10'),
         DeclareLaunchArgument('max_angular', default_value='0.30'),
         DeclareLaunchArgument('command_timeout', default_value='0.60'),
+        DeclareLaunchArgument('speed_profile', default_value='slow'),
         DeclareLaunchArgument(
             'use_imu',
             default_value='false',
@@ -47,6 +49,7 @@ def generate_launch_description():
                     command_timeout,
                     value_type=float,
                 ),
+                'speed_profile': speed_profile,
                 'publish_imu': ParameterValue(use_imu, value_type=bool),
             }],
             output='screen',

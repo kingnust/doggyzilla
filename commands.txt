@@ -98,10 +98,50 @@ Command:
   ./deploy/dogzilla-map teleop
 
 Explanation:
-  teleop opens keyboard movement control inside the running container.
-  Follow the keys displayed in the terminal. Reduce speed before moving,
-  move slowly, avoid sudden turns, keep the body level, and use k to stop.
-  The safe controller clamps speed and stops after a command timeout.
+  teleop opens the DOGZILLA keyboard menu inside the active container and uses
+  the normal Yahboom mobile-app speed profile. Use w/s for forward/back, a/d
+  for left/right strafing, q/e to turn, and Space or k to stop. Press 1, 2, or
+  3 while teleop is open to switch live between slow, normal, and high. The
+  safe controller clamps speed and stops within 0.6 seconds after movement
+  keypresses stop. When teleop closes, it automatically returns to slow.
+
+Choose a speed explicitly:
+  ./deploy/dogzilla-map teleop slow
+  ./deploy/dogzilla-map teleop normal
+  ./deploy/dogzilla-map teleop high
+
+Explanation:
+  slow uses the mobile app's minimum controller step 4 and prioritizes mapping.
+  normal uses the mobile app's default controller step 10 and is recommended.
+  high uses the maximum controller step 20 and high pace. High speed can reduce
+  map quality or make the robot unstable, so use it only in a clear area with
+  an immediate stop available. Each word after teleop selects the initial
+  profile; keys 1, 2, and 3 change it while the menu is open.
+
+
+TELEOP WITHOUT MAPPING OR LIDAR
+===============================
+
+Start controller-only mode:
+  ./deploy/dogzilla-map drive
+
+Explanation:
+  drive starts the dogzilla_drive container with only /dev/ttyAMA0, the motor
+  controller bridge, and its movement watchdog. It does not expose ttyAMA1 and
+  does not start the LiDAR, Cartographer, map generation, or RViz. Mapping and
+  drive cannot run together because both need the same controller serial port.
+
+Check it, drive it, and stop it:
+  ./deploy/dogzilla-map status
+  ./deploy/dogzilla-map teleop
+  ./deploy/dogzilla-map stop
+
+Explanation:
+  status should report Active mode: drive and show /cmd_vel but no /scan or
+  /map. teleop uses the same live speed menu described above. stop sends a leg
+  stop command, closes the controller container, and restores the OLED service.
+  Because drive mode never opens the LiDAR port, it does not start or stop the
+  LiDAR.
 
 To view RViz later from a Pi monitor terminal:
   ./deploy/dogzilla-map rviz
@@ -249,11 +289,18 @@ Explanation:
 QUICK DAILY REFERENCE
 =====================
 
+Teleop only, with no mapping or LiDAR:
+  cd /home/pi/DOGZILLA
+  ./deploy/dogzilla-map drive
+  ./deploy/dogzilla-map status
+  ./deploy/dogzilla-map teleop
+  ./deploy/dogzilla-map stop
+
 LiDAR-only mapping:
   cd /home/pi/DOGZILLA
   ./deploy/dogzilla-map start
   ./deploy/dogzilla-map status
-  ./deploy/dogzilla-map teleop
+  ./deploy/dogzilla-map teleop normal
   ./deploy/dogzilla-map save MAP_NAME
   ./deploy/dogzilla-map stop
 
@@ -261,7 +308,7 @@ Calibrated IMU mapping after calibration:
   cd /home/pi/DOGZILLA
   ./deploy/dogzilla-map start --imu
   ./deploy/dogzilla-map imu-check 10
-  ./deploy/dogzilla-map teleop
+  ./deploy/dogzilla-map teleop normal
   ./deploy/dogzilla-map save MAP_NAME
   ./deploy/dogzilla-map stop
 

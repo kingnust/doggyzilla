@@ -4,6 +4,7 @@ import DOGZILLALib as dog
 from geometry_msgs.msg import Twist
 import math
 import rclpy
+from rcl_interfaces.msg import SetParametersResult
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Imu
@@ -11,6 +12,15 @@ from sensor_msgs.msg import Imu
 
 class SafeBase(Node):
     """Clamp velocity commands and stop the controller after a short timeout."""
+
+    # These reproduce Yahboom's mobile-app step-width scale. The app maps
+    # slow/minimum to controller step 4, normal/default to step 10, and
+    # high/maximum to step 20. ROS values are divided by controller_scale.
+    SPEED_PROFILES = {
+        'slow': (0.10, 0.30, 'slow', 4),
+        'normal': (0.25, 1.125, 'normal', 10),
+        'high': (0.50, 1.75, 'high', 20),
+    }
 
     def __init__(self):
         super().__init__('dogzilla_safe_base')
@@ -20,6 +30,7 @@ class SafeBase(Node):
         self.declare_parameter('max_angular', 0.30)
         self.declare_parameter('command_timeout', 0.60)
         self.declare_parameter('controller_scale', 40.0)
+        self.declare_parameter('speed_profile', 'slow')
         self.declare_parameter('publish_imu', False)
         self.declare_parameter('raw_imu_topic', '/imu/data_uncalibrated')
         self.declare_parameter('raw_imu_frame', 'imu_link_raw')
@@ -45,6 +56,9 @@ class SafeBase(Node):
             float(self.get_parameter('serial_read_timeout').value)
         )
         self._dog.stop()
+        initial_speed_profile = self.get_parameter('speed_profile').value
+        self._set_speed_profile(initial_speed_profile, announce=False)
+        self.add_on_set_parameters_callback(self._parameters_changed)
         self._subscription = self.create_subscription(
             Twist,
             input_topic,
@@ -80,10 +94,47 @@ class SafeBase(Node):
 
         self.get_logger().info(
             'Safe base active: '
+            f'profile = {self._speed_profile}, '
             f'linear <= {self._max_linear:.2f}, '
             f'angular <= {self._max_angular:.2f}, '
             f'timeout = {self._command_timeout:.2f}s'
         )
+
+    def _set_speed_profile(self, profile, announce=True):
+        """Apply a Yahboom-compatible pace and velocity ceiling."""
+        if profile not in self.SPEED_PROFILES:
+            raise ValueError('speed_profile must be slow, normal, or high')
+        max_linear, max_angular, controller_pace, controller_step = (
+            self.SPEED_PROFILES[profile]
+        )
+        self._dog.pace(controller_pace)
+        self._speed_profile = profile
+        self._max_linear = max_linear
+        self._max_angular = max_angular
+        if announce:
+            self.get_logger().info(
+                f'Speed profile changed to {profile}: '
+                f'app-equivalent step {controller_step}, '
+                f'linear <= {max_linear:.3f}, '
+                f'angular <= {max_angular:.3f}'
+            )
+
+    def _parameters_changed(self, parameters):
+        """Allow the operator command to change speed without restarting ROS."""
+        for parameter in parameters:
+            if parameter.name != 'speed_profile':
+                continue
+            try:
+                # A live pace change must never leave the previous movement
+                # command latched in the controller.
+                self.stop()
+                self._set_speed_profile(str(parameter.value))
+            except ValueError as exc:
+                return SetParametersResult(
+                    successful=False,
+                    reason=str(exc),
+                )
+        return SetParametersResult(successful=True)
 
     def _bound_vendor_read_timeout(self, timeout_s):
         """Limit Yahboom's private one-second serial busy wait."""

@@ -36,6 +36,8 @@ for all commands.
   PGM, and YAML files. PBStream is written by Cartographer; PGM/YAML are saved
   from `/map` with Nav2 because Yahboom's ARM64 Cartographer converter crashes
   inside Cairo.
+- `dogzilla_slam teleop`: safety-oriented keyboard control with live
+  slow/normal/high profile selection using the `1`/`2`/`3` keys.
 
 `dogzilla_2d.lua` is LiDAR-only. `dogzilla_2d_imu.lua` keeps the same online
 correlative scan matcher and adds calibrated IMU input to Cartographer's local

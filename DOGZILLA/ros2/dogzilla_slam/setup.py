@@ -47,6 +47,7 @@ setup(
             'lidar_off = dogzilla_slam.lidar_off:main',
             'safe_base = dogzilla_slam.safe_base:main',
             'save_map = dogzilla_slam.save_map:main',
+            'teleop = dogzilla_slam.teleop:main',
         ],
     },
 )

@@ -5,6 +5,7 @@ DEPLOY_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${DEPLOY_DIR}/.." && pwd)"
 COMPOSE_FILE="${DEPLOY_DIR}/compose.yaml"
 SERVICE_NAME="mapping"
+DRIVE_SERVICE_NAME="drive"
 IMAGE_NAME="dogzilla-mapping:humble"
 BASE_IMAGE_NAME="yahboomtechnology/ros-humble:3.8"
 PINNED_BASE_ALIAS="dogzilla-yahboom-base:3.8-pinned"
@@ -33,16 +34,18 @@ usage() {
         '  build                 Build the pinned dogzilla-mapping image.' \
         '  start [--rviz|--headless] [--imu]' \
         '                        Start hardware and Cartographer together.' \
+        '  drive                 Start controller-only mode; LiDAR stays off.' \
         '  status                Show container and ROS topic status.' \
-        '  teleop                Open keyboard movement control.' \
+        '  teleop [slow|normal|high]' \
+        '                        Open keyboard control; default is normal.' \
         '  rviz                  Open RViz on the current Pi desktop.' \
         '  save MAP_NAME         Save MAP_NAME.pbstream/.pgm/.yaml to maps/.' \
         '  lidar-off             Stop the MS200 motor without starting ROS.' \
         '  imu-calibrate         Run safe guided six-pose IMU calibration.' \
         '  imu-check [SECONDS]   Validate fused IMU rate, gravity, and stamps.' \
-        '  logs                  Follow mapping logs.' \
+        '  logs                  Follow logs for the active mode.' \
         '  shell                 Open a configured ROS shell.' \
-        '  stop                  Safely stop the mapping container.' \
+        '  stop                  Safely stop mapping or controller-only mode.' \
         '  desktop-install       Install the optional Pi desktop shortcut.' \
         '  shutdown-install      Install the automatic OS-shutdown guard.'
 }
@@ -63,8 +66,27 @@ ensure_runtime_directories() {
 }
 
 container_is_running() {
+    service_is_running "${SERVICE_NAME}"
+}
+
+drive_is_running() {
+    service_is_running "${DRIVE_SERVICE_NAME}"
+}
+
+service_is_running() {
+    local service_name="$1"
     compose ps --status running --services 2>/dev/null \
-        | grep -qx "${SERVICE_NAME}"
+        | grep -qx "${service_name}"
+}
+
+active_control_service() {
+    if container_is_running; then
+        printf '%s\n' "${SERVICE_NAME}"
+    elif drive_is_running; then
+        printf '%s\n' "${DRIVE_SERVICE_NAME}"
+    else
+        return 1
+    fi
 }
 
 require_running_container() {
@@ -186,7 +208,7 @@ pause_oled_service() {
         return
     fi
     if systemctl is-active --quiet "${OLED_SERVICE}"; then
-        printf 'Pausing %s while mapping owns /dev/ttyAMA0.\n' \
+        printf 'Pausing %s while DOGZILLA ROS owns /dev/ttyAMA0.\n' \
             "${OLED_SERVICE}"
         sudo systemctl stop "${OLED_SERVICE}"
         : > "${OLED_STATE_FILE}"
@@ -338,6 +360,11 @@ enable_display_access() {
 start_mapping() {
     ensure_runtime_directories
     ensure_image
+    if drive_is_running; then
+        printf 'Controller-only mode is running. Stop it before mapping.\n' >&2
+        printf 'Run "./deploy/dogzilla-map stop" first.\n' >&2
+        exit 1
+    fi
     configure_start_options "$@"
     if [[ "${DOGZILLA_USE_IMU}" == 'true' ]]; then
         require_valid_imu_calibration
@@ -380,11 +407,48 @@ start_mapping() {
     printf 'Use "./deploy/dogzilla-map logs" to watch Cartographer.\n'
 }
 
+start_drive() {
+    ensure_runtime_directories
+    ensure_image
+    if container_is_running; then
+        printf 'Mapping is running. Stop it before controller-only mode.\n' >&2
+        printf 'Run "./deploy/dogzilla-map stop" first.\n' >&2
+        exit 1
+    fi
+    stop_vendor_application
+
+    if drive_is_running; then
+        compose stop --timeout 10 "${DRIVE_SERVICE_NAME}"
+    fi
+
+    pause_oled_service
+    if ! assert_serial_ports_free /dev/ttyAMA0; then
+        restore_oled_service
+        return 1
+    fi
+    begin_log_session
+
+    if ! compose up \
+        --detach \
+        --no-build \
+        --force-recreate \
+        "${DRIVE_SERVICE_NAME}"; then
+        restore_oled_service
+        return 1
+    fi
+
+    printf 'DOGZILLA controller-only mode started.\n'
+    printf 'LiDAR, Cartographer, map generation, and RViz are not running.\n'
+    printf 'ROS log session: logs/sessions/%s (logs/latest).\n' \
+        "${DOGZILLA_LOG_SESSION}"
+    printf 'Run "./deploy/dogzilla-map teleop" to drive.\n'
+}
+
 run_imu_calibration() {
     local calibration_status
 
-    if container_is_running; then
-        printf 'Stop mapping before IMU calibration.\n' >&2
+    if container_is_running || drive_is_running; then
+        printf 'Stop mapping or controller-only mode before IMU calibration.\n' >&2
         printf 'Run "./deploy/dogzilla-map stop" first.\n' >&2
         exit 1
     fi
@@ -456,12 +520,14 @@ install_shutdown_guard() {
 }
 
 show_status() {
+    local control_service
     compose ps
-    if ! container_is_running; then
+    if ! control_service="$(active_control_service)"; then
         return
     fi
 
-    compose exec --no-TTY "${SERVICE_NAME}" bash -lc '
+    printf '\nActive mode: %s\n' "${control_service}"
+    compose exec --no-TTY "${control_service}" bash -lc '
         source /opt/ros/humble/setup.bash
         source /root/yahboomcar_ws/install/setup.bash
         export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-12}"
@@ -470,14 +536,56 @@ show_status() {
     '
 }
 
-open_teleop() {
-    require_running_container
-    compose exec "${SERVICE_NAME}" bash -lc '
+set_speed_profile() {
+    local control_service="$1"
+    local speed_profile="$2"
+    compose exec --no-TTY "${control_service}" bash -lc '
         source /opt/ros/humble/setup.bash
         source /root/yahboomcar_ws/install/setup.bash
         export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-12}"
-        ros2 run teleop_twist_keyboard teleop_twist_keyboard
-    '
+        ros2 param set /dogzilla_safe_base speed_profile "$1"
+    ' _ "${speed_profile}"
+}
+
+open_teleop() {
+    local speed_profile="${1:-normal}"
+    local control_service
+    local teleop_status
+
+    if ! control_service="$(active_control_service)"; then
+        printf 'Neither mapping nor controller-only mode is running.\n' >&2
+        printf 'Run "./deploy/dogzilla-map start" or "./deploy/dogzilla-map drive" first.\n' >&2
+        exit 1
+    fi
+    case "${speed_profile}" in
+        slow|normal|high)
+            ;;
+        *)
+            printf 'Teleop speed must be slow, normal, or high.\n' >&2
+            exit 1
+            ;;
+    esac
+
+    printf 'Initial teleop speed profile: %s\n' "${speed_profile}"
+    printf 'Press 1, 2, or 3 in teleop to change speed live.\n'
+    printf 'The controller returns to slow when teleop closes.\n'
+
+    set +e
+    compose exec "${control_service}" bash -lc '
+        source /opt/ros/humble/setup.bash
+        source /root/yahboomcar_ws/install/setup.bash
+        export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-12}"
+        ros2 run dogzilla_slam teleop --ros-args -p "initial_profile:=$1"
+    ' _ "${speed_profile}"
+    teleop_status=$?
+    set -e
+
+    if service_is_running "${control_service}" \
+        && ! set_speed_profile "${control_service}" slow; then
+        printf 'Warning: could not restore the slow speed profile.\n' >&2
+        return 1
+    fi
+    return "${teleop_status}"
 }
 
 open_rviz() {
@@ -527,8 +635,12 @@ save_map() {
 }
 
 open_shell() {
-    require_running_container
-    compose exec "${SERVICE_NAME}" bash -lc '
+    local control_service
+    if ! control_service="$(active_control_service)"; then
+        printf 'Neither mapping nor controller-only mode is running.\n' >&2
+        exit 1
+    fi
+    compose exec "${control_service}" bash -lc '
         source /opt/ros/humble/setup.bash
         source /root/yahboomcar_ws/install/setup.bash
         export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-12}"
@@ -536,17 +648,40 @@ open_shell() {
     '
 }
 
-stop_mapping() {
+follow_logs() {
+    local control_service
+    if ! control_service="$(active_control_service)"; then
+        printf 'Neither mapping nor controller-only mode is running.\n' >&2
+        exit 1
+    fi
+    compose logs --follow --tail 200 "${control_service}"
+}
+
+stop_dogzilla() {
+    local drive_was_running=false
     local lidar_status=0
+    local mapping_was_running=false
 
     if container_is_running; then
+        mapping_was_running=true
         compose stop --timeout 20 "${SERVICE_NAME}"
-    else
-        printf 'DOGZILLA mapping is already stopped.\n'
+    fi
+    if drive_is_running; then
+        drive_was_running=true
+        compose stop --timeout 10 "${DRIVE_SERVICE_NAME}"
+    fi
+    if [[ "${mapping_was_running}" == false \
+        && "${drive_was_running}" == false ]]; then
+        printf 'DOGZILLA is already stopped.\n'
     fi
 
-    if ! send_lidar_off; then
-        lidar_status=1
+    # Mapping may leave the scanner spinning after a process failure. Drive
+    # mode never opens ttyAMA1, so it does not need or touch the LiDAR here.
+    if [[ "${mapping_was_running}" == true \
+        || "${drive_was_running}" == false ]]; then
+        if ! send_lidar_off; then
+            lidar_status=1
+        fi
     fi
     restore_oled_service
 
@@ -571,11 +706,14 @@ main() {
         start)
             start_mapping "${@:2}"
             ;;
+        drive)
+            start_drive
+            ;;
         status)
             show_status
             ;;
         teleop)
-            open_teleop
+            open_teleop "${2:-normal}"
             ;;
         rviz)
             open_rviz
@@ -584,7 +722,7 @@ main() {
             save_map "${2:-}"
             ;;
         lidar-off)
-            stop_mapping
+            send_lidar_off
             ;;
         imu-calibrate)
             run_imu_calibration
@@ -593,13 +731,13 @@ main() {
             check_imu "${2:-8}"
             ;;
         logs)
-            compose logs --follow --tail 200 "${SERVICE_NAME}"
+            follow_logs
             ;;
         shell)
             open_shell
             ;;
         stop)
-            stop_mapping
+            stop_dogzilla
             ;;
         desktop-install)
             install_desktop_shortcut

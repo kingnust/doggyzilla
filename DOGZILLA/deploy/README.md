@@ -15,7 +15,7 @@ Pi host
 ├── logs/latest                  latest timestamped ROS log session
 ├── calibration/imu.json         robot-specific IMU calibration
 └── Docker Compose
-    └── dogzilla_mapping
+    ├── dogzilla_mapping        full mapping mode
         ├── MS200 LiDAR           /dev/ttyAMA1 -> /scan
         ├── safe_base             one owner of /dev/ttyAMA0
         │   ├── movement          /cmd_vel -> controller
@@ -24,7 +24,10 @@ Pi host
         ├── Cartographer          scan matching (+ optional IMU) -> /map
         ├── occupancy grid        /map at 0.05 m/cell
         ├── RViz                  optional Pi-monitor window
-        └── patched shutdown      deactivates the MS200 motor
+    │   └── patched shutdown      deactivates the MS200 motor
+    └── dogzilla_drive          controller-only mode (mutually exclusive)
+        ├── safe_base             /dev/ttyAMA0 + movement watchdog
+        └── no ttyAMA1, LiDAR, Cartographer, map, or RViz access
 ```
 
 ## First build
@@ -86,8 +89,44 @@ Open keyboard control:
 ./deploy/dogzilla-map teleop
 ```
 
-`teleop` opens the ROS keyboard controller inside the running mapping
-container. The safety node still clamps motion and applies its watchdog.
+`teleop` opens the DOGZILLA keyboard menu with the Yahboom mobile app's
+normal/default speed: controller step 10 instead of the previous minimum step
+4. Use `w/s` to move forward/back, `a/d` to strafe, `q/e` to turn, and
+`Space` or `k` to stop. Press `1`, `2`, or `3` while it is open to switch to
+slow, normal, or high. The safety node still clamps motion and applies its
+0.6-second watchdog. When teleop closes, the operator command restores slow.
+
+The optional argument chooses the initial menu profile:
+
+```bash
+./deploy/dogzilla-map teleop slow
+./deploy/dogzilla-map teleop normal
+./deploy/dogzilla-map teleop high
+```
+
+`slow`, `normal`, and `high` use controller steps 4, 10, and 20 respectively,
+along with the matching Yahboom pace command. Use `normal` for general driving.
+Use `slow` while prioritizing map quality. `high` is the controller maximum and
+can reduce scan-matching quality or make the robot unstable; test it only in a
+clear area with an immediate stop available.
+
+### Drive without mapping
+
+For keyboard control without spinning the LiDAR or running mapping:
+
+```bash
+./deploy/dogzilla-map drive
+./deploy/dogzilla-map status
+./deploy/dogzilla-map teleop
+./deploy/dogzilla-map stop
+```
+
+`drive` starts only `dogzilla_drive`, which exposes `/dev/ttyAMA0` to the safe
+controller bridge. It does not expose `/dev/ttyAMA1` and does not start the
+LiDAR, Cartographer, occupancy grid, or RViz. Mapping and drive modes are
+mutually exclusive because both require the controller serial port. `teleop`,
+`status`, `logs`, `shell`, and `stop` automatically use whichever mode is
+active.
 
 Save a map directly to the host `maps/` directory:
 
@@ -117,12 +156,11 @@ Stop safely:
 ./deploy/dogzilla-map stop
 ```
 
-`stop` gives ROS up to 20 seconds to shut down safely, sends the fallback
-LiDAR motor-off packet, and leaves saved maps on the Pi.
-
-`stop` stops ROS, sends a second explicit MS200 motor-off command, and removes
-the temporary X11 permission. To stop only a spinning LiDAR when mapping is not
-running:
+In mapping mode, `stop` gives ROS up to 20 seconds to shut down, sends a second
+explicit MS200 motor-off command, and removes temporary X11 permission. In
+controller-only mode it stops the legs and releases `/dev/ttyAMA0` without
+touching the already-unused LiDAR port. Saved maps remain on the Pi. To stop
+only a spinning LiDAR:
 
 ```bash
 ./deploy/dogzilla-map lidar-off

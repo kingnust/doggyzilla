@@ -58,3 +58,41 @@ services:
     restart: "no"
     stdin_open: true
     tty: true
+
+  drive:
+    image: dogzilla-mapping:humble
+    platform: linux/arm64
+    container_name: dogzilla_drive
+    init: true
+    network_mode: host
+    devices:
+      - /dev/ttyAMA0:/dev/ttyAMA0
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-12}
+      ROS_LOG_DIR: ${DOGZILLA_ROS_LOG_DIR:-/logs/manual}
+    volumes:
+      - ./logs:/logs
+    command:
+      - ros2
+      - run
+      - dogzilla_slam
+      - safe_base
+      - --ros-args
+      - -p
+      - speed_profile:=slow
+    stop_signal: SIGINT
+    stop_grace_period: 10s
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          bash -lc 'source /opt/ros/humble/setup.bash &&
+          source /root/yahboomcar_ws/install/setup.bash &&
+          ros2 node list | grep -qx /dogzilla_safe_base'
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: "no"
+    stdin_open: true
+    tty: true
