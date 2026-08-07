@@ -24,6 +24,7 @@ def generate_launch_description():
     max_angular = LaunchConfiguration('max_angular')
     command_timeout = LaunchConfiguration('command_timeout')
     speed_profile = LaunchConfiguration('speed_profile')
+    posture_control_enabled = LaunchConfiguration('posture_control_enabled')
     use_imu = LaunchConfiguration('use_imu')
 
     return LaunchDescription([
@@ -31,6 +32,11 @@ def generate_launch_description():
         DeclareLaunchArgument('max_angular', default_value='0.30'),
         DeclareLaunchArgument('command_timeout', default_value='0.60'),
         DeclareLaunchArgument('speed_profile', default_value='slow'),
+        DeclareLaunchArgument(
+            'posture_control_enabled',
+            default_value='false',
+            description='Disabled when LiDAR requires a fixed body transform.',
+        ),
         DeclareLaunchArgument(
             'use_imu',
             default_value='false',
@@ -50,6 +56,10 @@ def generate_launch_description():
                     value_type=float,
                 ),
                 'speed_profile': speed_profile,
+                'posture_control_enabled': ParameterValue(
+                    posture_control_enabled,
+                    value_type=bool,
+                ),
                 'publish_imu': ParameterValue(use_imu, value_type=bool),
             }],
             output='screen',

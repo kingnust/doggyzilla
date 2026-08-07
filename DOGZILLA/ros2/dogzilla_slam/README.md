@@ -1,14 +1,14 @@
-# DOGZILLA S2 Pi-only mapping
+# DOGZILLA S2 mapping, localization, and navigation
 
 This package replaces the separate Yahboom mapping VM with Cartographer running
 inside the Raspberry Pi 5 ROS 2 Humble Docker container.
 
-It includes a focused mapping-time hardware launch. It starts the MS200 LiDAR,
-a single-owner safe controller bridge, and required static transforms. The
-bridge clamps commands and calls the controller's stop command directly at
-startup, after a 0.6-second command timeout, and during shutdown. When enabled,
-the same bridge also reads the controller IMU; it never starts Yahboom's second
-`/dev/ttyAMA0` owner.
+It includes a focused hardware launch that starts the MS200 LiDAR, a
+single-owner controller/telemetry manager, and required static transforms. The
+manager clamps commands and calls the controller's stop command directly at
+startup, after a 0.6-second command timeout, and during shutdown. The same
+process reads battery, all 12 motor angles, and optionally the raw controller
+IMU, so no second Yahboom process competes for `/dev/ttyAMA0`.
 
 ## Recommended deployment
 
@@ -32,12 +32,42 @@ for all commands.
   bridge, and required static TF without a serial-port conflict.
 - `dogzilla_slam mapping.launch.py`: Cartographer and the occupancy grid, with
   an optional calibrated IMU correction stage.
+- `dogzilla_slam localization.launch.py`: frozen-PBStream Cartographer pure
+  localization, RViz initial-pose handling, fixed-map serving, and `/odom` from
+  the scan-matched `odom -> base_link` transform.
+- `dogzilla_slam nav2.launch.py`: conservative Nav2 planner, holonomic DWB
+  controller, live LiDAR costmaps, behaviors, and velocity smoothing.
+- `dogzilla_slam full_navigation.launch.py`: hardware, localization, Twist Mux,
+  and optional Nav2 in one process group.
 - `dogzilla_slam save_map`: finishes the trajectory and writes PBStream,
   PGM, and YAML files. PBStream is written by Cartographer; PGM/YAML are saved
   from `/map` with Nav2 because Yahboom's ARM64 Cartographer converter crashes
   inside Cairo.
 - `dogzilla_slam teleop`: safety-oriented keyboard control with live
-  slow/normal/high profile selection using the `1`/`2`/`3` keys.
+  slow/normal/high profile selection using the `1`/`2`/`3` keys, plus bounded
+  body height and whole-body look controls in controller-only drive mode.
+- `dogzilla_slam servo_power`: one-shot, single-owner access to Yahboom's native
+  lie-down (action 1) and stand-up (action 2) animations for the guarded
+  host-side `rest` and `stand` commands. Rest releases all servo torque only
+  after the lie-down animation finishes. Stand cannot override Yahboom
+  low-battery rest at 25% or below or when battery telemetry fails.
+
+For normal operation use `deploy/dogzilla-map`; do not start these launch files
+independently on the hardware. The operator commands enforce mutually exclusive
+serial ownership, logs, display setup, and safe shutdown:
+
+```bash
+./deploy/dogzilla-map start
+./deploy/dogzilla-map localize test1
+./deploy/dogzilla-map navigate test1
+./deploy/dogzilla-map drive
+```
+
+Only one mode may run at a time. `localize` loads `test1.pbstream` as frozen
+Cartographer state. `navigate` adds Nav2 and treats unknown cells in the
+unfinished map as blocked. Whole-body height/pitch/yaw control is deliberately
+disabled whenever LiDAR localization is active because changing body attitude
+changes the scan plane.
 
 `dogzilla_2d.lua` is LiDAR-only. `dogzilla_2d_imu.lua` keeps the same online
 correlative scan matcher and adds calibrated IMU input to Cartographer's local

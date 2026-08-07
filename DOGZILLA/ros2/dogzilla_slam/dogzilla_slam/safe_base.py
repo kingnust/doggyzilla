@@ -7,11 +7,17 @@ import rclpy
 from rcl_interfaces.msg import SetParametersResult
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
-from sensor_msgs.msg import Imu
+from sensor_msgs.msg import BatteryState, Imu, JointState
 
 
 class SafeBase(Node):
     """Clamp velocity commands and stop the controller after a short timeout."""
+
+    JOINT_NAMES = tuple(
+        f'leg{leg}_motor{motor}_joint'
+        for leg in range(1, 5)
+        for motor in range(1, 4)
+    )
 
     # These reproduce Yahboom's mobile-app step-width scale. The app maps
     # slow/minimum to controller step 4, normal/default to step 10, and
@@ -20,6 +26,11 @@ class SafeBase(Node):
         'slow': (0.10, 0.30, 'slow', 4),
         'normal': (0.25, 1.125, 'normal', 10),
         'high': (0.50, 1.75, 'high', 20),
+    }
+    POSTURE_LIMITS = {
+        'body_height': (75.0, 110.0),
+        'head_pitch': (-15.0, 15.0),
+        'head_yaw': (-11.0, 11.0),
     }
 
     def __init__(self):
@@ -36,6 +47,17 @@ class SafeBase(Node):
         self.declare_parameter('raw_imu_frame', 'imu_link_raw')
         self.declare_parameter('imu_rate_hz', 20.0)
         self.declare_parameter('serial_read_timeout', 0.08)
+        self.declare_parameter('publish_battery', True)
+        self.declare_parameter('battery_topic', '/battery_state')
+        self.declare_parameter('battery_rate_hz', 0.20)
+        self.declare_parameter('low_battery_percent', 25)
+        self.declare_parameter('publish_joint_states', True)
+        self.declare_parameter('joint_state_topic', '/joint_states')
+        self.declare_parameter('joint_state_rate_hz', 1.0)
+        self.declare_parameter('posture_control_enabled', False)
+        self.declare_parameter('body_height', 105.0)
+        self.declare_parameter('head_pitch', 0.0)
+        self.declare_parameter('head_yaw', 0.0)
 
         input_topic = self.get_parameter('input_topic').value
         self._max_linear = float(self.get_parameter('max_linear').value)
@@ -49,6 +71,19 @@ class SafeBase(Node):
         self._publish_imu_enabled = bool(
             self.get_parameter('publish_imu').value
         )
+        self._posture_control_enabled = bool(
+            self.get_parameter('posture_control_enabled').value
+        )
+        self._body_height = float(self.get_parameter('body_height').value)
+        self._head_pitch = float(self.get_parameter('head_pitch').value)
+        self._head_yaw = float(self.get_parameter('head_yaw').value)
+        self._low_battery_percent = int(
+            self.get_parameter('low_battery_percent').value
+        )
+        self._movement_inhibited = False
+        self._battery_percent = None
+        self._battery_failures = 0
+        self._joint_failures = 0
 
         # This node is the only /dev/ttyAMA0 owner during mapping.
         self._dog = dog.DOGZILLA()
@@ -68,6 +103,46 @@ class SafeBase(Node):
         self._last_command_time = None
         self._stopped = True
         self._timer = self.create_timer(0.10, self._watchdog)
+
+        self._battery_publisher = None
+        self._battery_timer = None
+        if bool(self.get_parameter('publish_battery').value):
+            battery_rate_hz = float(
+                self.get_parameter('battery_rate_hz').value
+            )
+            if not 0.05 <= battery_rate_hz <= 2.0:
+                raise ValueError('battery_rate_hz must be between 0.05 and 2 Hz')
+            self._battery_publisher = self.create_publisher(
+                BatteryState,
+                self.get_parameter('battery_topic').value,
+                qos_profile_sensor_data,
+            )
+            self._battery_timer = self.create_timer(
+                1.0 / battery_rate_hz,
+                self._publish_battery,
+            )
+            # Check before the executor can accept its first movement command.
+            self._publish_battery()
+
+        self._joint_publisher = None
+        self._joint_timer = None
+        if bool(self.get_parameter('publish_joint_states').value):
+            joint_rate_hz = float(
+                self.get_parameter('joint_state_rate_hz').value
+            )
+            if not 0.10 <= joint_rate_hz <= 5.0:
+                raise ValueError(
+                    'joint_state_rate_hz must be between 0.10 and 5 Hz'
+                )
+            self._joint_publisher = self.create_publisher(
+                JointState,
+                self.get_parameter('joint_state_topic').value,
+                qos_profile_sensor_data,
+            )
+            self._joint_timer = self.create_timer(
+                1.0 / joint_rate_hz,
+                self._publish_joint_states,
+            )
 
         self._imu_publisher = None
         self._imu_timer = None
@@ -97,7 +172,8 @@ class SafeBase(Node):
             f'profile = {self._speed_profile}, '
             f'linear <= {self._max_linear:.2f}, '
             f'angular <= {self._max_angular:.2f}, '
-            f'timeout = {self._command_timeout:.2f}s'
+            f'timeout = {self._command_timeout:.2f}s, '
+            f'posture controls = {self._posture_control_enabled}'
         )
 
     def _set_speed_profile(self, profile, announce=True):
@@ -120,20 +196,79 @@ class SafeBase(Node):
             )
 
     def _parameters_changed(self, parameters):
-        """Allow the operator command to change speed without restarting ROS."""
+        """Apply bounded speed and posture changes through the serial owner."""
+        requested = {}
         for parameter in parameters:
-            if parameter.name != 'speed_profile':
-                continue
-            try:
-                # A live pace change must never leave the previous movement
-                # command latched in the controller.
-                self.stop()
-                self._set_speed_profile(str(parameter.value))
-            except ValueError as exc:
-                return SetParametersResult(
-                    successful=False,
-                    reason=str(exc),
-                )
+            if parameter.name == 'speed_profile':
+                profile = str(parameter.value)
+                if profile not in self.SPEED_PROFILES:
+                    return SetParametersResult(
+                        successful=False,
+                        reason='speed_profile must be slow, normal, or high',
+                    )
+                requested[parameter.name] = profile
+            elif parameter.name in self.POSTURE_LIMITS:
+                if not self._posture_control_enabled:
+                    return SetParametersResult(
+                        successful=False,
+                        reason=(
+                            'posture control is disabled while LiDAR '
+                            'mapping/localization is active'
+                        ),
+                    )
+                if self._movement_inhibited:
+                    return SetParametersResult(
+                        successful=False,
+                        reason=(
+                            'posture control is blocked by the low-battery '
+                            'movement lockout; charge the robot first'
+                        ),
+                    )
+                value = float(parameter.value)
+                lower, upper = self.POSTURE_LIMITS[parameter.name]
+                if not lower <= value <= upper:
+                    return SetParametersResult(
+                        successful=False,
+                        reason=(
+                            f'{parameter.name} must be between '
+                            f'{lower:.0f} and {upper:.0f}'
+                        ),
+                    )
+                requested[parameter.name] = value
+
+        if not requested:
+            return SetParametersResult(successful=True)
+
+        self.stop()
+        try:
+            if 'speed_profile' in requested:
+                self._set_speed_profile(requested['speed_profile'])
+            if 'body_height' in requested:
+                value = requested['body_height']
+                self._dog.translation('z', value)
+                self._body_height = value
+            if 'head_pitch' in requested:
+                value = requested['head_pitch']
+                self._dog.attitude('p', value)
+                self._head_pitch = value
+            if 'head_yaw' in requested:
+                value = requested['head_yaw']
+                self._dog.attitude('y', value)
+                self._head_yaw = value
+        except Exception as exc:
+            self.stop()
+            return SetParametersResult(
+                successful=False,
+                reason=f'controller rejected parameter change: {exc}',
+            )
+
+        if any(name in requested for name in self.POSTURE_LIMITS):
+            self.get_logger().info(
+                'Posture changed: '
+                f'height={self._body_height:.0f}, '
+                f'pitch={self._head_pitch:.0f}, '
+                f'yaw={self._head_yaw:.0f}'
+            )
         return SetParametersResult(successful=True)
 
     def _bound_vendor_read_timeout(self, timeout_s):
@@ -161,6 +296,9 @@ class SafeBase(Node):
         self._stopped = True
 
     def _apply_command(self, source):
+        if self._movement_inhibited:
+            return
+
         linear_x = self._clamp(source.linear.x, self._max_linear)
         linear_y = self._clamp(source.linear.y, self._max_linear)
         angular_z = self._clamp(source.angular.z, self._max_angular)
@@ -191,6 +329,87 @@ class SafeBase(Node):
 
         self.get_logger().warn('Command timeout: stopping DOGZILLA')
         self.stop()
+
+    def _publish_battery(self):
+        """Publish battery percentage and cooperate with firmware low power."""
+        try:
+            battery = int(self._dog.read_battery())
+        except Exception as exc:
+            battery = 0
+            if self._battery_failures == 0:
+                self.get_logger().error(f'Battery serial read error: {exc}')
+        message = BatteryState()
+        message.header.stamp = self.get_clock().now().to_msg()
+        message.header.frame_id = 'base_link'
+        message.voltage = math.nan
+        message.temperature = math.nan
+        message.current = math.nan
+        message.charge = math.nan
+        message.capacity = math.nan
+        message.design_capacity = math.nan
+        message.power_supply_status = BatteryState.POWER_SUPPLY_STATUS_UNKNOWN
+        message.power_supply_health = BatteryState.POWER_SUPPLY_HEALTH_UNKNOWN
+        message.power_supply_technology = (
+            BatteryState.POWER_SUPPLY_TECHNOLOGY_UNKNOWN
+        )
+
+        if not 1 <= battery <= 100:
+            self._battery_failures += 1
+            message.percentage = math.nan
+            message.present = False
+            if self._battery_failures == 1 or self._battery_failures % 12 == 0:
+                self.get_logger().warn(
+                    'Battery telemetry read failed '
+                    f'({self._battery_failures} failures)'
+                )
+            self._battery_publisher.publish(message)
+            return
+
+        self._battery_failures = 0
+        self._battery_percent = battery
+        message.percentage = battery / 100.0
+        message.present = True
+        self._battery_publisher.publish(message)
+
+        if battery <= self._low_battery_percent:
+            if not self._movement_inhibited:
+                self.stop()
+                self._movement_inhibited = True
+                self.get_logger().error(
+                    f'Battery {battery}% <= {self._low_battery_percent}%: '
+                    'ROS movement inhibited; Yahboom low-battery rest wins'
+                )
+        elif self._movement_inhibited and battery >= (
+            self._low_battery_percent + 3
+        ):
+            self._movement_inhibited = False
+            self.get_logger().info(
+                f'Battery recovered to {battery}%; ROS movement enabled'
+            )
+
+    def _publish_joint_states(self):
+        """Publish all motor angles reported by the controller in radians."""
+        try:
+            angles = self._dog.read_motor()
+        except Exception as exc:
+            angles = []
+            if self._joint_failures == 0:
+                self.get_logger().error(f'Motor serial read error: {exc}')
+        if len(angles) != len(self.JOINT_NAMES):
+            self._joint_failures += 1
+            if self._joint_failures == 1 or self._joint_failures % 10 == 0:
+                self.get_logger().warn(
+                    'Motor-angle telemetry read failed '
+                    f'({self._joint_failures} failures)'
+                )
+            return
+
+        self._joint_failures = 0
+        message = JointState()
+        message.header.stamp = self.get_clock().now().to_msg()
+        message.name = list(self.JOINT_NAMES)
+        message.position = [math.radians(float(angle)) for angle in angles]
+        self._joint_publisher.publish(message)
 
     def _publish_raw_imu(self):
         """Read the controller IMU without opening a second serial owner."""

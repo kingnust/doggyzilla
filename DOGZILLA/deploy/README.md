@@ -15,20 +15,26 @@ Pi host
 ├── logs/latest                  latest timestamped ROS log session
 ├── calibration/imu.json         robot-specific IMU calibration
 └── Docker Compose
-    ├── dogzilla_mapping        full mapping mode
+    ├── dogzilla_mapping          full mapping mode
+    ├── dogzilla_drive            controller-only mode
+    └── dogzilla_navigation       localization or localization + Nav2
         ├── MS200 LiDAR           /dev/ttyAMA1 -> /scan
-        ├── safe_base             one owner of /dev/ttyAMA0
-        │   ├── movement          /cmd_vel -> controller
-        │   └── raw IMU           controller -> /imu/data_uncalibrated
-        ├── IMU corrector         optional axes/bias/covariance correction
-        ├── Cartographer          scan matching (+ optional IMU) -> /map
-        ├── occupancy grid        /map at 0.05 m/cell
-        ├── RViz                  optional Pi-monitor window
-    │   └── patched shutdown      deactivates the MS200 motor
-    └── dogzilla_drive          controller-only mode (mutually exclusive)
-        ├── safe_base             /dev/ttyAMA0 + movement watchdog
-        └── no ttyAMA1, LiDAR, Cartographer, map, or RViz access
+        ├── serial manager        sole owner of /dev/ttyAMA0
+        │   ├── movement          /cmd_vel -> controller + watchdog
+        │   ├── battery           controller -> /battery_state
+        │   ├── 12 servo angles   controller -> /joint_states
+        │   ├── raw IMU           controller -> /imu/data_uncalibrated
+        │   └── posture           bounded height/pitch/yaw in drive mode
+        ├── Cartographer          mapping or frozen-PBStream localization
+        ├── TF odometry           scan-matched TF -> /odom
+        ├── Nav2                  optional planner/controller/behaviors
+        ├── Twist Mux             teleop priority over Nav2 commands
+        └── patched shutdown      deactivates the MS200 motor
 ```
+
+The three Compose services are mutually exclusive. Every mode uses the same
+serial-manager implementation, so movement, battery reads, motor-angle reads,
+raw IMU reads, and posture writes never compete for `/dev/ttyAMA0`.
 
 ## First build
 
@@ -110,6 +116,18 @@ Use `slow` while prioritizing map quality. `high` is the controller maximum and
 can reduce scan-matching quality or make the robot unstable; test it only in a
 clear area with an immediate stop available.
 
+In controller-only `drive` mode, the same menu also provides:
+
+- `r` / `f`: raise / lower body height in 5 mm steps, clamped to 75–110 mm.
+- `t` / `g`: look up / down using bounded whole-body pitch.
+- `y` / `h`: look left / right using bounded whole-body yaw.
+- `c`: center pitch/yaw and restore 105 mm body height.
+
+DOGZILLA has no separate neck; “head” control uses whole-body attitude, as in
+Yahboom's look controls. These keys are deliberately disabled during mapping,
+localization, and Nav2 because moving the body also changes the LiDAR plane and
+invalidates its fixed transform.
+
 ### Drive without mapping
 
 For keyboard control without spinning the LiDAR or running mapping:
@@ -127,6 +145,99 @@ LiDAR, Cartographer, occupancy grid, or RViz. Mapping and drive modes are
 mutually exclusive because both require the controller serial port. `teleop`,
 `status`, `logs`, `shell`, and `stop` automatically use whichever mode is
 active.
+
+### Animated rest and stand
+
+After stopping mapping or drive mode, place DOGZILLA on a clear, level floor,
+keep hands away from every joint, then run:
+
+```bash
+./deploy/dogzilla-map rest
+```
+
+`rest` requires typing `REST` before it sends anything. It stops locomotion,
+then runs Yahboom firmware action group 1, the same three-second animated
+lie-down sequence used by the vendor examples. Only after the animation has
+finished does it call Yahboom's `unload_allmotor()` command, releasing torque
+from all 12 leg servos. The body may settle slightly, so keep it on a clear,
+level floor. The Raspberry Pi and controller remain powered; use `lidar-off`
+separately if the scanner is spinning.
+
+To run the matching animated stand-up sequence:
+
+```bash
+./deploy/dogzilla-map stand
+```
+
+`stand` requires typing `STAND`. It first reads Yahboom's battery percentage,
+stops locomotion, ensures servo torque is enabled, and runs firmware action
+group 2, Yahboom's three-second animated stand-up sequence. At 25% or below—or
+if the battery read fails—`stand` exits before loading torque or starting the
+animation, allowing the controller's built-in low-battery rest to win. Support
+the body and keep hands clear because every leg moves during the animation.
+Both commands refuse to run while `mapping`, `drive`, or `navigation` is
+active, temporarily pause the OLED serial reader, claim `/dev/ttyAMA0`
+exclusively, and restore the OLED service afterward.
+
+### Localization on `test1`
+
+The default localization map is the comprehensive but unfinished `test1` map.
+Start scan-matched pure localization without autonomous planning:
+
+```bash
+./deploy/dogzilla-map localize test1
+```
+
+`localize` loads `test1.pbstream` as frozen Cartographer state and serves
+`test1.yaml` as the fixed occupancy map. Cartographer estimates local motion
+directly from the 10 Hz LiDAR because DOGZILLA has no wheel odometry. The
+deployment converts Cartographer's `odom -> base_link` transform into `/odom`
+for downstream ROS tools. Unknown cells in the unfinished map remain blocked.
+
+From SSH, append `--headless`. From a Pi monitor terminal, automatic display
+detection opens RViz; use its **2D Pose Estimate** tool to place DOGZILLA on the
+map. The localization manager safely restarts only the live trajectory against
+the frozen PBStream. Without an initial pose, Cartographer attempts global
+scan matching, which can take longer in repetitive rooms.
+
+After calibrated IMU validation, optional fused localization is:
+
+```bash
+./deploy/dogzilla-map localize test1 --imu
+```
+
+### Nav2 path planning on `test1`
+
+Start the same localization plus conservative holonomic Nav2:
+
+```bash
+./deploy/dogzilla-map navigate test1
+```
+
+Nav2 uses a Smac 2D global planner, DWB holonomic local controller, 0.32 m
+conservative robot radius, live LiDAR obstacle layers, velocity smoothing, and
+maximum commands of 0.10 m/s and 0.30 rad/s. Twist Mux gives keyboard teleop
+priority over autonomous commands, and every final command still passes through
+the serial manager's clamp, low-battery inhibit, and 0.6-second watchdog.
+
+Wait for `status` to report healthy, set the initial pose in RViz, confirm that
+the scan aligns with walls, and only then use **Nav2 Goal**. Keep the robot in a
+clear test area with immediate access to `Space`, `k`, or `dogzilla-map stop`.
+The unfinished part of `test1` is intentionally not traversable.
+
+### Serial telemetry
+
+The single serial owner publishes standard ROS messages in mapping, drive, and
+navigation modes:
+
+- `/battery_state` (`sensor_msgs/BatteryState`), with percentage in 0.0–1.0.
+- `/joint_states` (`sensor_msgs/JointState`), with 12 encoder-reported servo
+  angles converted from degrees to radians.
+- `/imu/data_uncalibrated` when the IMU option is enabled.
+
+At 25% battery or below the manager sends movement stop and ignores further ROS
+velocity commands. It does not fight the controller's built-in lying-down
+behavior and re-enables ROS movement only after a reading of at least 28%.
 
 Save a map directly to the host `maps/` directory:
 
@@ -280,21 +391,13 @@ Yahboom changes the tag, the build stops and requires a deliberate review
 instead of silently using different contents. Availability of that historical
 tag on a completely fresh machine remains an upstream limitation.
 
-## Current scope and next stage
+## Current limitations and next validation
 
-This prototype performs manual 2D mapping with a stable LiDAR-only profile and
-an opt-in calibrated LiDAR+IMU profile. It saves both a Cartographer PBStream
-and a Nav2-compatible PGM/YAML map. It does not yet run autonomous localization
-or path planning.
-
-The next development stage should:
-
-1. Record `/scan`, `/tf`, and movement trials with rosbag for repeatable tests.
-2. Compare LiDAR-only and fused rosbag trials before making IMU fusion default.
-3. Add a localization launch, using either Cartographer pure localization with
-   the PBStream or Nav2 AMCL with the PGM/YAML map.
-4. Add Nav2 only after a stable `map -> odom -> base_link` transform exists;
-   DOGZILLA has no wheel odometry, so this needs scan/IMU-based odometry or a
-   separately validated equivalent.
-5. Keep autonomous velocity output behind `safe_base` and add a physical
-   emergency-stop procedure before unattended testing.
+The system now implements mapping, pure localization, scan-derived odometry,
+and Nav2 planning/control. `test1` is explicitly unfinished, so planning is
+restricted to its known free cells. Before unattended operation, record
+repeatable rosbag trials, measure localization recovery in similar-looking
+rooms, physically measure the footprint in the widest stance, and tune DWB and
+inflation values from controlled runs. The first Nav2 tests must remain
+supervised; software cannot replace a physical emergency stop or protect
+against sudden battery disconnection.

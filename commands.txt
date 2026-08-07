@@ -143,12 +143,188 @@ Explanation:
   Because drive mode never opens the LiDAR port, it does not start or stop the
   LiDAR.
 
+Extra drive-mode teleop keys:
+  r / f        raise / lower the body by 5 mm
+  t / g        look up / down using whole-body pitch
+  y / h        look left / right using whole-body yaw
+  c            center pitch/yaw and restore 105 mm body height
+
+Explanation:
+  DOGZILLA has no separate powered neck, so the look commands use Yahboom's
+  bounded whole-body attitude controls. These keys are available only in
+  controller-only drive mode. Mapping, localization, and navigation keep them
+  disabled because tilting the body also tilts the LiDAR scan plane.
+
+
+ANIMATED REST AND STAND
+=======================
+
+First stop mapping or controller-only mode:
+  ./deploy/dogzilla-map stop
+
+Explanation:
+  stop releases the controller serial port. The rest and stand commands refuse
+  to run while either mapping or drive mode is active.
+
+Play Yahboom's animated lie-down action:
+  ./deploy/dogzilla-map rest
+
+Explanation:
+  rest displays a movement warning and requires you to type REST exactly. It
+  sends movement STOP and then Yahboom firmware action 1, the same animated
+  lie-down sequence used by the vendor examples. Allow three seconds for it to
+  finish. It then releases torque from all 12 leg servos to save power. The body
+  may settle slightly after release, so use a clear, level floor. This does not
+  shut down the Raspberry Pi, controller, or LiDAR.
+
+Play Yahboom's animated stand-up action:
+  ./deploy/dogzilla-map stand
+
+Explanation:
+  stand displays a movement warning and requires you to type STAND exactly. It
+  first reads Yahboom's battery percentage. At 25% or below, or if the reading
+  fails, it exits before sending STOP, enabling torque, or starting an action.
+  This allows Yahboom's existing low-battery lying-down behavior to remain in
+  control. Above 25%, it enables all 12 servos and runs Yahboom firmware action
+  2, the three-second animated stand-up sequence. Place DOGZILLA on a clear,
+  level floor and keep hands clear of every joint. Both commands temporarily
+  pause the OLED service while using /dev/ttyAMA0 and restore it afterward.
+
 To view RViz later from a Pi monitor terminal:
   ./deploy/dogzilla-map rviz
 
 Explanation:
   rviz opens only the RViz window and connects it to the already-running
   mapping stack. It requires a Pi desktop terminal with DISPLAY available.
+
+
+LOCALIZATION ON THE SAVED test1 MAP
+===================================
+
+Start localization from a Raspberry Pi monitor terminal:
+  ./deploy/dogzilla-map localize test1
+
+Explanation:
+  localize starts the MS200, the single serial manager, Cartographer pure
+  localization, scan-derived /odom, the test1 occupancy map, and RViz. test1 is
+  the map name. It loads maps/test1.pbstream as frozen scan-matching state and
+  maps/test1.yaml plus maps/test1.pgm as the visible occupancy map. It does not
+  start autonomous Nav2 control.
+
+Start the same localization over SSH:
+  ./deploy/dogzilla-map localize test1 --headless
+
+Explanation:
+  --headless disables the RViz graphical window. LiDAR localization and ROS
+  topics still run normally inside Docker.
+
+Optional calibrated IMU localization:
+  ./deploy/dogzilla-map localize test1 --imu
+
+Explanation:
+  --imu enables the corrected IMU stream in addition to LiDAR scan matching.
+  It requires calibration/imu.json from imu-calibrate. Do not add --imu until
+  imu-check has passed with the physical robot.
+
+Check readiness:
+  ./deploy/dogzilla-map status
+
+Explanation:
+  status should show Active mode: navigation and list /scan, /map, /odom,
+  /battery_state, and /joint_states. The Compose container becomes healthy
+  after these required topics exist.
+
+Initial localization in RViz:
+  Use the "2D Pose Estimate" tool, click DOGZILLA's position on test1, hold and
+  drag the arrow in the direction the dog is facing, then release.
+
+Explanation:
+  This publishes /initialpose. The localization manager restarts only the live
+  Cartographer trajectory against the frozen test1 map. Confirm the live LiDAR
+  scan sits on the map walls before moving. Unknown cells in unfinished parts
+  of test1 remain blocked.
+
+Drive manually while localized:
+  ./deploy/dogzilla-map teleop slow
+
+Explanation:
+  teleop opens keyboard control. slow selects the safest initial speed profile.
+  In localization mode it publishes through the manual-priority Twist Mux.
+  Body height and look keys remain disabled so the LiDAR transform stays fixed.
+
+Stop localization:
+  ./deploy/dogzilla-map stop
+
+Explanation:
+  stop halts the legs, shuts down Cartographer, stops the LiDAR motor, releases
+  both serial ports, and restores the Yahboom OLED service.
+
+
+NAV2 PATH PLANNING ON test1
+===========================
+
+Start localization and Nav2 together:
+  ./deploy/dogzilla-map navigate test1
+
+Explanation:
+  navigate starts everything from localize plus the Nav2 global planner, local
+  holonomic controller, live obstacle costmaps, recovery behaviors, velocity
+  smoother, and command multiplexer. test1 selects the saved map. Autonomous
+  movement is capped at 0.10 m/s linear and 0.30 rad/s angular.
+
+Start Nav2 over SSH without RViz:
+  ./deploy/dogzilla-map navigate test1 --headless
+
+Explanation:
+  --headless disables the graphical window. You still need an RViz client or a
+  ROS action client to set an initial pose and send goals, so use this only when
+  that client is available elsewhere.
+
+Before sending a goal:
+  1. Run ./deploy/dogzilla-map status and wait for healthy.
+  2. Set 2D Pose Estimate in RViz.
+  3. Confirm the live scan aligns with the mapped walls.
+  4. Keep DOGZILLA in a clear area and be ready to press Space or k in teleop.
+  5. Use RViz "Nav2 Goal" only after those checks pass.
+
+Explanation:
+  Nav2 plans only through known free cells and treats unfinished/unknown test1
+  cells as non-traversable. Keyboard teleop has priority over Nav2. All final
+  commands still pass through speed clamps, the 0.6-second watchdog, and the
+  low-battery movement lockout.
+
+
+CHECK BATTERY AND JOINT TELEMETRY
+=================================
+
+Open a preconfigured shell in the active container:
+  ./deploy/dogzilla-map shell
+
+Explanation:
+  shell opens Bash inside the active Docker service. ROS 2 Humble, the built
+  Yahboom workspace, and ROS_DOMAIN_ID=12 are already configured.
+
+Show one battery message:
+  ros2 topic echo /battery_state --once
+
+Explanation:
+  ros2 runs the ROS 2 command-line tool. topic selects topic operations. echo
+  prints messages from /battery_state. --once exits after the first message.
+  percentage uses ROS units from 0.0 to 1.0, so 0.64 means 64%.
+
+Show one 12-servo angle message:
+  ros2 topic echo /joint_states --once
+
+Explanation:
+  echo prints one /joint_states message because of --once. name contains the 12
+  joint identifiers and position contains the controller angles in radians.
+
+Leave the container shell:
+  exit
+
+Explanation:
+  exit closes only this interactive shell. It does not stop the running
+  DOGZILLA Docker service.
 
 
 7. SAVE THE FINISHED MAP
@@ -310,6 +486,20 @@ Calibrated IMU mapping after calibration:
   ./deploy/dogzilla-map imu-check 10
   ./deploy/dogzilla-map teleop normal
   ./deploy/dogzilla-map save MAP_NAME
+  ./deploy/dogzilla-map stop
+
+Localization on existing test1, without autonomous movement:
+  cd /home/pi/DOGZILLA
+  ./deploy/dogzilla-map localize test1
+  ./deploy/dogzilla-map status
+  ./deploy/dogzilla-map teleop slow
+  ./deploy/dogzilla-map stop
+
+Nav2 localization and supervised path planning on test1:
+  cd /home/pi/DOGZILLA
+  ./deploy/dogzilla-map navigate test1
+  ./deploy/dogzilla-map status
+  # Set 2D Pose Estimate, verify scan alignment, then set Nav2 Goal in RViz.
   ./deploy/dogzilla-map stop
 
 Replace MAP_NAME with a unique name such as room2, hallway_test, or imu_trial1.

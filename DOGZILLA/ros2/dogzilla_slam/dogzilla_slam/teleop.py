@@ -49,6 +49,35 @@ Keep pressing a movement key to continue moving. Releasing it lets the
 hardware watchdog stop the robot within 0.6 seconds.
 '''
 
+POSTURE_MENU = r'''
+Body height and look direction (controller-only drive mode)
+   r / f                body higher / lower
+   t / g                look up / down (whole-body pitch)
+   y / h                look left / right (whole-body yaw)
+   c                    center look and restore 105 mm height
+'''
+
+
+def next_posture(key, height, pitch, yaw):
+    """Return one bounded posture step for a keyboard key."""
+    if key == 'r':
+        height = min(110.0, height + 5.0)
+    elif key == 'f':
+        height = max(75.0, height - 5.0)
+    elif key == 't':
+        pitch = max(-15.0, pitch - 5.0)
+    elif key == 'g':
+        pitch = min(15.0, pitch + 5.0)
+    elif key == 'y':
+        yaw = min(11.0, yaw + 5.0)
+    elif key == 'h':
+        yaw = max(-11.0, yaw - 5.0)
+    elif key == 'c':
+        height, pitch, yaw = 105.0, 0.0, 0.0
+    else:
+        raise ValueError(f'unknown posture key: {key}')
+    return height, pitch, yaw
+
 
 class DogzillaTeleop(Node):
     """Publish bounded commands and change the safe-base speed profile."""
@@ -56,39 +85,57 @@ class DogzillaTeleop(Node):
     def __init__(self):
         super().__init__('dogzilla_teleop')
         self.declare_parameter('initial_profile', 'normal')
-        self._publisher = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.declare_parameter('output_topic', '/cmd_vel')
+        self.declare_parameter('posture_controls', False)
+        self._publisher = self.create_publisher(
+            Twist,
+            self.get_parameter('output_topic').value,
+            10,
+        )
         self._parameter_client = self.create_client(
             SetParameters,
             '/dogzilla_safe_base/set_parameters',
         )
         self._profile = 'slow'
+        self._posture_controls = bool(
+            self.get_parameter('posture_controls').value
+        )
+        self._body_height = 105.0
+        self._head_pitch = 0.0
+        self._head_yaw = 0.0
+
+    def set_remote_parameters(self, parameters, label):
+        """Apply a parameter batch to the single serial-owner node."""
+        self.stop()
+        if not self._parameter_client.wait_for_service(timeout_sec=2.0):
+            print(f'Cannot reach /dogzilla_safe_base; {label} was not changed.')
+            return False
+
+        request = SetParameters.Request()
+        request.parameters = [parameter.to_parameter_msg() for parameter in parameters]
+        future = self._parameter_client.call_async(request)
+        rclpy.spin_until_future_complete(self, future, timeout_sec=2.0)
+        if not future.done() or future.result() is None:
+            print(f'{label} request timed out.')
+            return False
+        results = future.result().results
+        if not results or not all(result.successful for result in results):
+            reason = results[0].reason if results else 'no response'
+            print(f'{label} change failed: {reason}')
+            return False
+        return True
 
     def set_profile(self, profile):
         """Apply one profile to both this publisher and the serial bridge."""
         if profile not in SPEED_PROFILES:
             raise ValueError('profile must be slow, normal, or high')
-        self.stop()
-        if not self._parameter_client.wait_for_service(timeout_sec=2.0):
-            print('Cannot reach /dogzilla_safe_base; speed was not changed.')
-            return False
-
-        request = SetParameters.Request()
-        request.parameters = [
+        if not self.set_remote_parameters([
             Parameter(
                 'speed_profile',
                 Parameter.Type.STRING,
                 profile,
-            ).to_parameter_msg(),
-        ]
-        future = self._parameter_client.call_async(request)
-        rclpy.spin_until_future_complete(self, future, timeout_sec=2.0)
-        if not future.done() or future.result() is None:
-            print('Speed-profile request timed out.')
-            return False
-        results = future.result().results
-        if not results or not all(result.successful for result in results):
-            reason = results[0].reason if results else 'no response'
-            print(f'Speed-profile change failed: {reason}')
+            ),
+        ], 'speed profile'):
             return False
 
         self._profile = profile
@@ -96,6 +143,48 @@ class DogzillaTeleop(Node):
         print(
             f'Profile: {profile} '
             f'(linear {linear:.2f} m/s, angular {angular:.3f} rad/s)'
+        )
+        return True
+
+    def change_posture(self, key):
+        """Apply one bounded height or look-direction keyboard step."""
+        if not self._posture_controls:
+            print(
+                'Posture controls are disabled during mapping/localization '
+                'because the LiDAR transform must remain fixed.'
+            )
+            return False
+
+        try:
+            height, pitch, yaw = next_posture(
+                key,
+                self._body_height,
+                self._head_pitch,
+                self._head_yaw,
+            )
+        except ValueError:
+            return False
+
+        changed = []
+        for name, previous, value in (
+            ('body_height', self._body_height, height),
+            ('head_pitch', self._head_pitch, pitch),
+            ('head_yaw', self._head_yaw, yaw),
+        ):
+            if value != previous:
+                changed.append(Parameter(name, Parameter.Type.DOUBLE, value))
+        if not changed:
+            print('Posture is already at that limit.')
+            return True
+        if not self.set_remote_parameters(changed, 'posture'):
+            return False
+
+        self._body_height = height
+        self._head_pitch = pitch
+        self._head_yaw = yaw
+        print(
+            'Posture: '
+            f'height {height:.0f} mm, pitch {pitch:.0f}°, yaw {yaw:.0f}°'
         )
         return True
 
@@ -137,6 +226,13 @@ def main(args=None):
         if not node.set_profile(initial_profile):
             raise RuntimeError('safe-base speed setup failed')
         print(MENU)
+        if node._posture_controls:
+            print(POSTURE_MENU)
+        else:
+            print(
+                'Posture keys are disabled in mapping/localization mode to '
+                'keep the LiDAR transform fixed.\n'
+            )
         tty.setcbreak(sys.stdin.fileno())
 
         while rclpy.ok():
@@ -150,6 +246,8 @@ def main(args=None):
                 print('Stopped.')
             elif key in PROFILE_KEYS:
                 node.set_profile(PROFILE_KEYS[key])
+            elif key in ('r', 'f', 't', 'g', 'y', 'h', 'c'):
+                node.change_posture(key)
             elif key == 'x':
                 break
     except KeyboardInterrupt:

@@ -23,7 +23,7 @@ setup(
         ),
         (
             os.path.join('share', package_name, 'config'),
-            glob('config/*.lua'),
+            glob('config/*.lua') + glob('config/*.yaml'),
         ),
         (
             os.path.join('share', package_name, 'rviz'),
@@ -45,9 +45,12 @@ setup(
             'imu_corrector = dogzilla_slam.imu_corrector:main',
             'imu_validate = dogzilla_slam.imu_validate:main',
             'lidar_off = dogzilla_slam.lidar_off:main',
+            'localization_manager = dogzilla_slam.localization_manager:main',
             'safe_base = dogzilla_slam.safe_base:main',
             'save_map = dogzilla_slam.save_map:main',
+            'servo_power = dogzilla_slam.servo_power:main',
             'teleop = dogzilla_slam.teleop:main',
+            'tf_odometry = dogzilla_slam.tf_odometry:main',
         ],
     },
 )

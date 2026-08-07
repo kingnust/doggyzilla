@@ -6,6 +6,7 @@ REPO_ROOT="$(cd -- "${DEPLOY_DIR}/.." && pwd)"
 COMPOSE_FILE="${DEPLOY_DIR}/compose.yaml"
 SERVICE_NAME="mapping"
 DRIVE_SERVICE_NAME="drive"
+NAVIGATION_SERVICE_NAME="navigation"
 IMAGE_NAME="dogzilla-mapping:humble"
 BASE_IMAGE_NAME="yahboomtechnology/ros-humble:3.8"
 PINNED_BASE_ALIAS="dogzilla-yahboom-base:3.8-pinned"
@@ -35,12 +36,18 @@ usage() {
         '  start [--rviz|--headless] [--imu]' \
         '                        Start hardware and Cartographer together.' \
         '  drive                 Start controller-only mode; LiDAR stays off.' \
+        '  localize [MAP] [--rviz|--headless] [--imu]' \
+        '                        Localize on MAP (default: test1), without Nav2.' \
+        '  navigate [MAP] [--rviz|--headless] [--imu]' \
+        '                        Localize and start conservative Nav2 planning.' \
         '  status                Show container and ROS topic status.' \
         '  teleop [slow|normal|high]' \
         '                        Open keyboard control; default is normal.' \
         '  rviz                  Open RViz on the current Pi desktop.' \
         '  save MAP_NAME         Save MAP_NAME.pbstream/.pgm/.yaml to maps/.' \
         '  lidar-off             Stop the MS200 motor without starting ROS.' \
+        '  rest                  Lie down, then release all servo torque.' \
+        '  stand                 Play guarded animated stand-up action.' \
         '  imu-calibrate         Run safe guided six-pose IMU calibration.' \
         '  imu-check [SECONDS]   Validate fused IMU rate, gravity, and stamps.' \
         '  logs                  Follow logs for the active mode.' \
@@ -73,6 +80,10 @@ drive_is_running() {
     service_is_running "${DRIVE_SERVICE_NAME}"
 }
 
+navigation_is_running() {
+    service_is_running "${NAVIGATION_SERVICE_NAME}"
+}
+
 service_is_running() {
     local service_name="$1"
     compose ps --status running --services 2>/dev/null \
@@ -84,6 +95,8 @@ active_control_service() {
         printf '%s\n' "${SERVICE_NAME}"
     elif drive_is_running; then
         printf '%s\n' "${DRIVE_SERVICE_NAME}"
+    elif navigation_is_running; then
+        printf '%s\n' "${NAVIGATION_SERVICE_NAME}"
     else
         return 1
     fi
@@ -93,6 +106,16 @@ require_running_container() {
     if ! container_is_running; then
         printf 'DOGZILLA mapping is not running. Start it first.\n' >&2
         exit 1
+    fi
+}
+
+active_lidar_service() {
+    if container_is_running; then
+        printf '%s\n' "${SERVICE_NAME}"
+    elif navigation_is_running; then
+        printf '%s\n' "${NAVIGATION_SERVICE_NAME}"
+    else
+        return 1
     fi
 }
 
@@ -238,6 +261,66 @@ send_lidar_off() {
         python3 /opt/dogzilla/lidar_off.py /dev/ttyAMA1
 }
 
+confirm_servo_mode() {
+    local confirmation
+    local mode="$1"
+
+    if [[ "${mode}" == 'rest' ]]; then
+        printf '%s\n' \
+            'WARNING: REST plays Yahboom animated lie-down action 1.' \
+            'After lowering its body, DOGZILLA releases all leg servos.' \
+            'Place it on a clear, level floor and keep hands away from joints.'
+        printf 'Type REST to confirm: '
+        read -r confirmation
+        [[ "${confirmation}" == 'REST' ]]
+        return
+    fi
+
+    printf '%s\n' \
+        'WARNING: STAND plays Yahboom animated stand-up action 2.' \
+        'Support DOGZILLA on a clear, level floor and keep hands clear of joints.'
+    printf 'Type STAND to confirm: '
+    read -r confirmation
+    [[ "${confirmation}" == 'STAND' ]]
+}
+
+run_servo_mode() {
+    local command_status
+    local mode="$1"
+
+    if container_is_running || drive_is_running || navigation_is_running; then
+        printf 'Stop mapping, localization, or drive mode before using %s.\n' \
+            "${mode}" >&2
+        printf 'Run "./deploy/dogzilla-map stop" first.\n' >&2
+        exit 1
+    fi
+
+    ensure_image
+    if ! confirm_servo_mode "${mode}"; then
+        printf 'Cancelled; no servo command was sent.\n'
+        return 1
+    fi
+
+    stop_vendor_application
+    pause_oled_service
+    if ! assert_serial_ports_free /dev/ttyAMA0; then
+        restore_oled_service
+        return 1
+    fi
+
+    set +e
+    docker run \
+        --rm \
+        --device /dev/ttyAMA0:/dev/ttyAMA0 \
+        "${IMAGE_NAME}" \
+        ros2 run dogzilla_slam servo_power "${mode}"
+    command_status=$?
+    set -e
+
+    restore_oled_service
+    return "${command_status}"
+}
+
 assert_serial_ports_free() {
     local device_path
     local device_paths=("$@")
@@ -360,8 +443,8 @@ enable_display_access() {
 start_mapping() {
     ensure_runtime_directories
     ensure_image
-    if drive_is_running; then
-        printf 'Controller-only mode is running. Stop it before mapping.\n' >&2
+    if drive_is_running || navigation_is_running; then
+        printf 'Another DOGZILLA mode is running. Stop it before mapping.\n' >&2
         printf 'Run "./deploy/dogzilla-map stop" first.\n' >&2
         exit 1
     fi
@@ -410,8 +493,8 @@ start_mapping() {
 start_drive() {
     ensure_runtime_directories
     ensure_image
-    if container_is_running; then
-        printf 'Mapping is running. Stop it before controller-only mode.\n' >&2
+    if container_is_running || navigation_is_running; then
+        printf 'Mapping/localization is running. Stop it before drive mode.\n' >&2
         printf 'Run "./deploy/dogzilla-map stop" first.\n' >&2
         exit 1
     fi
@@ -444,11 +527,112 @@ start_drive() {
     printf 'Run "./deploy/dogzilla-map teleop" to drive.\n'
 }
 
+configure_navigation_options() {
+    local mode="$1"
+    local map_name='test1'
+    shift
+
+    if (($# > 0)) && [[ "$1" != --* ]]; then
+        map_name="$1"
+        shift
+    fi
+    if [[ ! "${map_name}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+        printf 'Map name may contain only letters, numbers, dot, underscore, and dash.\n' >&2
+        exit 1
+    fi
+    for map_path in \
+        "${REPO_ROOT}/maps/${map_name}.pbstream" \
+        "${REPO_ROOT}/maps/${map_name}.yaml" \
+        "${REPO_ROOT}/maps/${map_name}.pgm"; do
+        if [[ ! -s "${map_path}" ]]; then
+            printf 'Required localization map file is missing: %s\n' \
+                "${map_path}" >&2
+            exit 1
+        fi
+    done
+
+    configure_start_options "$@"
+    if [[ "${DOGZILLA_USE_IMU}" == 'true' ]]; then
+        require_valid_imu_calibration
+        DOGZILLA_CONFIGURATION_BASENAME='dogzilla_localization_imu.lua'
+    else
+        DOGZILLA_CONFIGURATION_BASENAME='dogzilla_localization.lua'
+    fi
+
+    DOGZILLA_MAP_NAME="${map_name}"
+    DOGZILLA_MAP_YAML="/maps/${map_name}.yaml"
+    DOGZILLA_STATE_FILE="/maps/${map_name}.pbstream"
+    if [[ "${mode}" == 'navigate' ]]; then
+        DOGZILLA_USE_NAV2=true
+    else
+        DOGZILLA_USE_NAV2=false
+    fi
+    export \
+        DOGZILLA_CONFIGURATION_BASENAME \
+        DOGZILLA_MAP_NAME \
+        DOGZILLA_MAP_YAML \
+        DOGZILLA_STATE_FILE \
+        DOGZILLA_USE_NAV2
+}
+
+start_navigation() {
+    local mode="$1"
+    shift
+
+    ensure_runtime_directories
+    ensure_image
+    if container_is_running || drive_is_running; then
+        printf 'Mapping or drive mode is running. Stop it first.\n' >&2
+        printf 'Run "./deploy/dogzilla-map stop" first.\n' >&2
+        exit 1
+    fi
+    configure_navigation_options "${mode}" "$@"
+    stop_vendor_application
+
+    if navigation_is_running; then
+        compose stop --timeout 20 "${NAVIGATION_SERVICE_NAME}"
+    fi
+
+    pause_oled_service
+    if ! assert_serial_ports_free; then
+        restore_oled_service
+        return 1
+    fi
+    if ! enable_display_access; then
+        restore_oled_service
+        return 1
+    fi
+    begin_log_session
+
+    if ! compose up \
+        --detach \
+        --no-build \
+        --force-recreate \
+        "${NAVIGATION_SERVICE_NAME}"; then
+        restore_oled_service
+        return 1
+    fi
+
+    if [[ "${mode}" == 'navigate' ]]; then
+        printf 'DOGZILLA localization + Nav2 started on map %s.\n' \
+            "${DOGZILLA_MAP_NAME}"
+        printf 'Autonomous limits: 0.10 m/s linear, 0.30 rad/s angular.\n'
+    else
+        printf 'DOGZILLA pure localization started on map %s.\n' \
+            "${DOGZILLA_MAP_NAME}"
+        printf 'Nav2 path planning is not running in this mode.\n'
+    fi
+    printf 'Unknown/unmapped test1 cells remain non-traversable.\n'
+    printf 'ROS log session: logs/sessions/%s (logs/latest).\n' \
+        "${DOGZILLA_LOG_SESSION}"
+    printf 'Use status, then RViz 2D Pose Estimate before sending a goal.\n'
+}
+
 run_imu_calibration() {
     local calibration_status
 
-    if container_is_running || drive_is_running; then
-        printf 'Stop mapping or controller-only mode before IMU calibration.\n' >&2
+    if container_is_running || drive_is_running || navigation_is_running; then
+        printf 'Stop every DOGZILLA mode before IMU calibration.\n' >&2
         printf 'Run "./deploy/dogzilla-map stop" first.\n' >&2
         exit 1
     fi
@@ -481,13 +665,17 @@ run_imu_calibration() {
 
 check_imu() {
     local duration="${1:-8}"
-    require_running_container
+    local lidar_service
+    if ! lidar_service="$(active_lidar_service)"; then
+        printf 'Mapping or localization with IMU is not running.\n' >&2
+        exit 1
+    fi
     if [[ ! "${duration}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
         printf 'SECONDS must be a positive number.\n' >&2
         exit 1
     fi
 
-    compose exec --no-TTY "${SERVICE_NAME}" bash -lc '
+    compose exec --no-TTY "${lidar_service}" bash -lc '
         source /opt/ros/humble/setup.bash
         source /root/yahboomcar_ws/install/setup.bash
         export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-12}"
@@ -550,11 +738,13 @@ set_speed_profile() {
 open_teleop() {
     local speed_profile="${1:-normal}"
     local control_service
+    local output_topic='/cmd_vel'
+    local posture_controls=false
     local teleop_status
 
     if ! control_service="$(active_control_service)"; then
-        printf 'Neither mapping nor controller-only mode is running.\n' >&2
-        printf 'Run "./deploy/dogzilla-map start" or "./deploy/dogzilla-map drive" first.\n' >&2
+        printf 'No mapping, localization, or drive mode is running.\n' >&2
+        printf 'Start one DOGZILLA mode first.\n' >&2
         exit 1
     fi
     case "${speed_profile}" in
@@ -566,8 +756,17 @@ open_teleop() {
             ;;
     esac
 
+    if [[ "${control_service}" == "${DRIVE_SERVICE_NAME}" ]]; then
+        posture_controls=true
+    elif [[ "${control_service}" == "${NAVIGATION_SERVICE_NAME}" ]]; then
+        output_topic='/cmd_vel_teleop'
+    fi
+
     printf 'Initial teleop speed profile: %s\n' "${speed_profile}"
     printf 'Press 1, 2, or 3 in teleop to change speed live.\n'
+    if [[ "${posture_controls}" == true ]]; then
+        printf 'Body height and look controls are enabled in drive mode.\n'
+    fi
     printf 'The controller returns to slow when teleop closes.\n'
 
     set +e
@@ -575,8 +774,11 @@ open_teleop() {
         source /opt/ros/humble/setup.bash
         source /root/yahboomcar_ws/install/setup.bash
         export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-12}"
-        ros2 run dogzilla_slam teleop --ros-args -p "initial_profile:=$1"
-    ' _ "${speed_profile}"
+        ros2 run dogzilla_slam teleop --ros-args \
+            -p "initial_profile:=$1" \
+            -p "output_topic:=$2" \
+            -p "posture_controls:=$3"
+    ' _ "${speed_profile}" "${output_topic}" "${posture_controls}"
     teleop_status=$?
     set -e
 
@@ -589,7 +791,12 @@ open_teleop() {
 }
 
 open_rviz() {
-    require_running_container
+    local lidar_service
+    local rviz_config
+    if ! lidar_service="$(active_lidar_service)"; then
+        printf 'Mapping or localization is not running.\n' >&2
+        exit 1
+    fi
     if [[ -z "${DISPLAY:-}" ]]; then
         printf 'This terminal has no DISPLAY. Run RViz from the Pi monitor.\n' >&2
         exit 1
@@ -597,15 +804,21 @@ open_rviz() {
     require_command xhost
     xhost +SI:localuser:root >/dev/null
 
+    if [[ "${lidar_service}" == "${NAVIGATION_SERVICE_NAME}" ]]; then
+        rviz_config='/opt/ros/humble/share/nav2_bringup/rviz/nav2_default_view.rviz'
+    else
+        rviz_config='/root/yahboomcar_ws/install/dogzilla_slam/share/dogzilla_slam/rviz/dogzilla_mapping.rviz'
+    fi
+
     compose exec \
         --env "DISPLAY=${DISPLAY}" \
-        "${SERVICE_NAME}" \
+        "${lidar_service}" \
         bash -lc '
             source /opt/ros/humble/setup.bash
             source /root/yahboomcar_ws/install/setup.bash
             export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-12}"
-            rviz2 -d /root/yahboomcar_ws/install/dogzilla_slam/share/dogzilla_slam/rviz/dogzilla_mapping.rviz
-        '
+            rviz2 -d "$1"
+        ' _ "${rviz_config}"
 }
 
 save_map() {
@@ -637,7 +850,7 @@ save_map() {
 open_shell() {
     local control_service
     if ! control_service="$(active_control_service)"; then
-        printf 'Neither mapping nor controller-only mode is running.\n' >&2
+        printf 'No mapping, localization, or drive mode is running.\n' >&2
         exit 1
     fi
     compose exec "${control_service}" bash -lc '
@@ -651,7 +864,7 @@ open_shell() {
 follow_logs() {
     local control_service
     if ! control_service="$(active_control_service)"; then
-        printf 'Neither mapping nor controller-only mode is running.\n' >&2
+        printf 'No mapping, localization, or drive mode is running.\n' >&2
         exit 1
     fi
     compose logs --follow --tail 200 "${control_service}"
@@ -661,6 +874,7 @@ stop_dogzilla() {
     local drive_was_running=false
     local lidar_status=0
     local mapping_was_running=false
+    local navigation_was_running=false
 
     if container_is_running; then
         mapping_was_running=true
@@ -670,14 +884,20 @@ stop_dogzilla() {
         drive_was_running=true
         compose stop --timeout 10 "${DRIVE_SERVICE_NAME}"
     fi
+    if navigation_is_running; then
+        navigation_was_running=true
+        compose stop --timeout 20 "${NAVIGATION_SERVICE_NAME}"
+    fi
     if [[ "${mapping_was_running}" == false \
-        && "${drive_was_running}" == false ]]; then
+        && "${drive_was_running}" == false \
+        && "${navigation_was_running}" == false ]]; then
         printf 'DOGZILLA is already stopped.\n'
     fi
 
     # Mapping may leave the scanner spinning after a process failure. Drive
     # mode never opens ttyAMA1, so it does not need or touch the LiDAR here.
     if [[ "${mapping_was_running}" == true \
+        || "${navigation_was_running}" == true \
         || "${drive_was_running}" == false ]]; then
         if ! send_lidar_off; then
             lidar_status=1
@@ -709,6 +929,12 @@ main() {
         drive)
             start_drive
             ;;
+        localize)
+            start_navigation localize "${@:2}"
+            ;;
+        navigate)
+            start_navigation navigate "${@:2}"
+            ;;
         status)
             show_status
             ;;
@@ -723,6 +949,12 @@ main() {
             ;;
         lidar-off)
             send_lidar_off
+            ;;
+        rest)
+            run_servo_mode rest
+            ;;
+        stand)
+            run_servo_mode stand
             ;;
         imu-calibrate)
             run_imu_calibration
