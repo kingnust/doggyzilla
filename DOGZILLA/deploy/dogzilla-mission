@@ -1,0 +1,317 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+DEPLOY_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="${DOGZILLA_MISSION_REPO_ROOT:-$(cd -- "${DEPLOY_DIR}/.." && pwd)}"
+MAP_COMMAND="${DOGZILLA_MISSION_MAP_COMMAND:-${DEPLOY_DIR}/dogzilla-map}"
+WEB_COMMAND="${DOGZILLA_MISSION_WEB_COMMAND:-${DEPLOY_DIR}/dogzilla-web}"
+DOCKER_COMMAND="${DOGZILLA_MISSION_DOCKER_COMMAND:-docker}"
+COMPOSE_FILE="${REPO_ROOT}/deploy/compose.yaml"
+STATE_FILE="${REPO_ROOT}/logs/mission-current"
+NAVIGATION_CONTAINER="dogzilla_navigation"
+WEB_CONTAINER="dogzilla_web"
+STARTUP_TIMEOUT="${DOGZILLA_MISSION_STARTUP_TIMEOUT:-120}"
+
+usage() {
+    printf '%s\n' \
+        'Usage: ./deploy/dogzilla-map mission COMMAND [ARGUMENTS]' \
+        '' \
+        'Commands:' \
+        '  start [MAP] [--rviz|--headless] [--imu]' \
+        '                        Start Nav2 and the web dashboard together.' \
+        '  MAP [--rviz|--headless] [--imu]' \
+        '                        Shortcut for "mission start MAP ...".' \
+        '  status                Show the managed session and both services.' \
+        '  logs                  Follow navigation and web container logs.' \
+        '  token                 Print the existing browser login token.' \
+        '  stop                  Stop web first, then stop navigation safely.'
+}
+
+validate_timeout() {
+    if [[ ! "${STARTUP_TIMEOUT}" =~ ^[1-9][0-9]*$ ]]; then
+        printf 'DOGZILLA_MISSION_STARTUP_TIMEOUT must be a positive integer.\n' >&2
+        exit 1
+    fi
+}
+
+validate_map_name() {
+    local map_name="$1"
+    local map_path
+    if [[ ! "${map_name}" =~ ^[A-Za-z0-9._-]{1,64}$ ]]; then
+        printf 'Map name may contain only letters, numbers, dot, underscore, and dash.\n' >&2
+        exit 1
+    fi
+    for map_path in \
+        "${REPO_ROOT}/maps/${map_name}.pbstream" \
+        "${REPO_ROOT}/maps/${map_name}.yaml" \
+        "${REPO_ROOT}/maps/${map_name}.pgm"; do
+        if [[ ! -s "${map_path}" ]]; then
+            printf 'Required mission map file is missing: %s\n' \
+                "${map_path}" >&2
+            exit 1
+        fi
+    done
+}
+
+container_status() {
+    local container_name="$1"
+    "${DOCKER_COMMAND}" inspect \
+        --format '{{.State.Status}}' \
+        "${container_name}" 2>/dev/null
+}
+
+container_is_active() {
+    local status
+    status="$(container_status "$1" || true)"
+    case "${status}" in
+        ''|created|exited|dead)
+            return 1
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+}
+
+container_health() {
+    local container_name="$1"
+    "${DOCKER_COMMAND}" inspect \
+        --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \
+        "${container_name}" 2>/dev/null
+}
+
+assert_runtime_is_free() {
+    local container_name
+    for container_name in \
+        dogzilla_mapping \
+        dogzilla_drive \
+        "${NAVIGATION_CONTAINER}" \
+        "${WEB_CONTAINER}"; do
+        if container_is_active "${container_name}"; then
+            printf 'Cannot start Mission Mode: %s is already running.\n' \
+                "${container_name}" >&2
+            printf 'Finish or stop the current DOGZILLA mode first.\n' >&2
+            exit 1
+        fi
+    done
+}
+
+write_state() {
+    local map_name="$1"
+    local state="$2"
+    local session="${3:-pending}"
+    local temporary="${STATE_FILE}.tmp"
+    mkdir -p "${REPO_ROOT}/logs"
+    umask 077
+    {
+        printf 'state=%s\n' "${state}"
+        printf 'map=%s\n' "${map_name}"
+        printf 'session=%s\n' "${session}"
+        printf 'started_utc=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+    } > "${temporary}"
+    mv -f "${temporary}" "${STATE_FILE}"
+}
+
+state_value() {
+    local name="$1"
+    if [[ ! -f "${STATE_FILE}" ]]; then
+        return 1
+    fi
+    sed -n "s/^${name}=//p" "${STATE_FILE}" | head -n 1
+}
+
+wait_for_healthy() {
+    local container_name="$1"
+    local label="$2"
+    local deadline=$((SECONDS + STARTUP_TIMEOUT))
+    local health
+    while ((SECONDS < deadline)); do
+        health="$(container_health "${container_name}" || true)"
+        case "${health}" in
+            healthy)
+                printf '%s is healthy.\n' "${label}"
+                return 0
+                ;;
+            unhealthy|exited|dead)
+                printf '%s failed with container state: %s\n' \
+                    "${label}" "${health}" >&2
+                return 1
+                ;;
+        esac
+        sleep 2
+    done
+    printf '%s did not become healthy within %s seconds.\n' \
+        "${label}" "${STARTUP_TIMEOUT}" >&2
+    return 1
+}
+
+verify_ros_readiness() {
+    "${DOCKER_COMMAND}" exec "${NAVIGATION_CONTAINER}" bash -lc '
+        set -e
+        source /opt/ros/humble/setup.bash
+        source /root/yahboomcar_ws/install/setup.bash
+        export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-12}"
+        topics="$(ros2 topic list)"
+        for topic in /scan /map /odom /battery_state /joint_states; do
+            grep -qx "${topic}" <<< "${topics}"
+        done
+        actions="$(ros2 action list)"
+        for action in /navigate_to_pose /compute_path_to_pose; do
+            grep -qx "${action}" <<< "${actions}"
+        done
+        nodes="$(ros2 node list)"
+        grep -qx /planner_server <<< "${nodes}"
+        grep -qx /bt_navigator <<< "${nodes}"
+        timeout 6 bash -c \
+            "ros2 run tf2_ros tf2_echo map base_link 2>&1 | grep -m1 -q Translation:"
+    '
+}
+
+stop_components() {
+    local status=0
+    set +e
+    "${WEB_COMMAND}" stop
+    if (($? != 0)); then
+        status=1
+    fi
+    "${MAP_COMMAND}" stop
+    if (($? != 0)); then
+        status=1
+    fi
+    if ((status == 0)); then
+        rm -f "${STATE_FILE}" "${STATE_FILE}.tmp"
+    fi
+    set -e
+    return "${status}"
+}
+
+rollback_on_failure() {
+    local status=$?
+    trap - EXIT INT TERM
+    if [[ "${MISSION_STARTUP_COMPLETE:-false}" != true ]]; then
+        printf 'Mission Mode startup failed; stopping web and navigation.\n' >&2
+        stop_components || true
+    fi
+    exit "${status}"
+}
+
+stop_mission() {
+    if [[ ! -f "${STATE_FILE}" ]]; then
+        printf 'Mission Mode is not active; no services were stopped.\n'
+        return 0
+    fi
+    stop_components
+}
+
+start_mission() {
+    local map_name='test1'
+    local session
+    local -a navigation_arguments
+
+    if (($# > 0)) && [[ "$1" != --* ]]; then
+        map_name="$1"
+        shift
+    fi
+    validate_timeout
+    validate_map_name "${map_name}"
+    assert_runtime_is_free
+
+    if [[ -e "${STATE_FILE}" ]]; then
+        printf 'A previous Mission Mode state file exists: %s\n' \
+            "${STATE_FILE}" >&2
+        printf 'Run "./deploy/dogzilla-map mission stop" before starting again.\n' >&2
+        exit 1
+    fi
+
+    navigation_arguments=(navigate "${map_name}")
+    if (($# == 0)); then
+        navigation_arguments+=(--headless)
+    else
+        navigation_arguments+=("$@")
+    fi
+
+    write_state "${map_name}" starting
+    MISSION_STARTUP_COMPLETE=false
+    trap rollback_on_failure EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+
+    DOGZILLA_MISSION_START=1 \
+        "${MAP_COMMAND}" "${navigation_arguments[@]}"
+    session="$(sed -n '1p' "${REPO_ROOT}/logs/current-session")"
+    if [[ -z "${session}" || ! "${session}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+        printf 'Navigation did not create a valid log session.\n' >&2
+        return 1
+    fi
+    export DOGZILLA_ROS_LOG_DIR="/logs/sessions/${session}"
+    "${WEB_COMMAND}" start "${map_name}"
+
+    wait_for_healthy "${NAVIGATION_CONTAINER}" 'Navigation'
+    wait_for_healthy "${WEB_CONTAINER}" 'Web gateway'
+    if ! verify_ros_readiness; then
+        printf 'Mission Mode ROS readiness checks failed.\n' >&2
+        return 1
+    fi
+
+    write_state "${map_name}" ready "${session}"
+    MISSION_STARTUP_COMPLETE=true
+    trap - EXIT INT TERM
+    printf '%s\n' \
+        'Mission Mode is ready.' \
+        "Map: ${map_name}" \
+        "ROS logs: logs/sessions/${session}" \
+        'No movement has been queued automatically.' \
+        'Use "./deploy/dogzilla-map mission token" for browser login.'
+}
+
+show_mission_status() {
+    if [[ ! -f "${STATE_FILE}" ]]; then
+        printf 'Mission Mode is not managed by this command.\n'
+    else
+        printf 'Mission Mode state: %s\n' "$(state_value state)"
+        printf 'Map: %s\n' "$(state_value map)"
+        printf 'Log session: %s\n' "$(state_value session)"
+    fi
+    "${MAP_COMMAND}" status
+    "${WEB_COMMAND}" status
+}
+
+follow_mission_logs() {
+    "${DOCKER_COMMAND}" compose \
+        --project-directory "${REPO_ROOT}" \
+        --file "${COMPOSE_FILE}" \
+        logs --follow --tail 200 navigation web
+}
+
+main() {
+    local command="${1:-}"
+    case "${command}" in
+        start)
+            shift
+            start_mission "$@"
+            ;;
+        status)
+            show_mission_status
+            ;;
+        logs)
+            follow_mission_logs
+            ;;
+        token)
+            "${WEB_COMMAND}" show-token
+            ;;
+        stop)
+            stop_mission
+            ;;
+        help|-h|--help|'')
+            usage
+            ;;
+        --*)
+            start_mission "$@"
+            ;;
+        *)
+            start_mission "$@"
+            ;;
+    esac
+}
+
+main "$@"

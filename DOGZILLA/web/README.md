@@ -9,19 +9,30 @@ to Nav2's `/navigate_to_pose` action.
 
 ## Start it
 
-Build the image after pulling these files, then start localization and Nav2:
+Build the image after pulling these files. After a saved map exists and mapping
+has been stopped, the normal one-command startup is:
 
 ```bash
 cd /home/pi/DOGZILLA
 ./deploy/dogzilla-map build
-./deploy/dogzilla-map navigate test1 --headless
+./deploy/dogzilla-map mission test1 --headless
+./deploy/dogzilla-map mission token
 ```
 
-In a second terminal, initialize and start the gateway for the same map:
+`mission` starts Nav2 and the web gateway in order, waits for both health checks
+and required ROS interfaces, and rolls both back if startup fails. `test1`
+selects the matching PBStream/YAML/PGM map bundle. `--headless` skips RViz, and
+`token` prints the existing dashboard login token. Startup never queues a goal.
+
+The lower-level two-terminal equivalent remains available for diagnostics:
 
 ```bash
+# Terminal 1
 cd /home/pi/DOGZILLA
-./deploy/dogzilla-web init
+./deploy/dogzilla-map navigate test1 --headless
+
+# Terminal 2
+cd /home/pi/DOGZILLA
 ./deploy/dogzilla-web start test1
 ./deploy/dogzilla-web show-token
 ```
@@ -33,9 +44,9 @@ stored only in browser session storage.
 Useful operator commands:
 
 ```bash
-./deploy/dogzilla-web status
-./deploy/dogzilla-web logs
-./deploy/dogzilla-web stop
+./deploy/dogzilla-map mission status
+./deploy/dogzilla-map mission logs
+./deploy/dogzilla-map mission stop
 ```
 
 ## What it monitors

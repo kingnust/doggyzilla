@@ -18,6 +18,9 @@ CALIBRATION_FILE="${REPO_ROOT}/calibration/imu.json"
 DESKTOP_TEMPLATE="${DEPLOY_DIR}/desktop/dogzilla-mapping.desktop"
 SHUTDOWN_UNIT="dogzilla-mapping-shutdown.service"
 SHUTDOWN_UNIT_SOURCE="${DEPLOY_DIR}/systemd/${SHUTDOWN_UNIT}"
+MISSION_COMMAND="${DEPLOY_DIR}/dogzilla-mission"
+MISSION_STATE_FILE="${REPO_ROOT}/logs/mission-current"
+WEB_COMMAND="${DEPLOY_DIR}/dogzilla-web"
 
 compose() {
     docker compose \
@@ -40,6 +43,10 @@ usage() {
         '                        Localize on MAP (default: test1), without Nav2.' \
         '  navigate [MAP] [--rviz|--headless] [--imu]' \
         '                        Localize and start conservative Nav2 planning.' \
+        '  mission [start] [MAP] [--rviz|--headless] [--imu]' \
+        '                        Start Nav2 and the web dashboard together.' \
+        '  mission status|logs|token|stop' \
+        '                        Inspect or stop the managed mission session.' \
         '  status                Show container and ROS topic status.' \
         '  teleop [slow|normal|high]' \
         '                        Open keyboard control; default is normal.' \
@@ -73,6 +80,15 @@ ensure_runtime_directories() {
         "${REPO_ROOT}/calibration" \
         "${REPO_ROOT}/profiles/captures" \
         "${REPO_ROOT}/profiles/validated"
+}
+
+assert_mission_allows_start() {
+    if [[ -f "${MISSION_STATE_FILE}" \
+        && "${DOGZILLA_MISSION_START:-0}" != 1 ]]; then
+        printf 'A managed Mission Mode session is still recorded.\n' >&2
+        printf 'Run "./deploy/dogzilla-map mission stop" before starting another mode.\n' >&2
+        exit 1
+    fi
 }
 
 container_is_running() {
@@ -488,6 +504,7 @@ enable_display_access() {
 }
 
 start_mapping() {
+    assert_mission_allows_start
     ensure_runtime_directories
     ensure_image
     if drive_is_running || navigation_is_running; then
@@ -538,6 +555,7 @@ start_mapping() {
 }
 
 start_drive() {
+    assert_mission_allows_start
     ensure_runtime_directories
     ensure_image
     if container_is_running || navigation_is_running; then
@@ -626,6 +644,7 @@ start_navigation() {
     local mode="$1"
     shift
 
+    assert_mission_allows_start
     ensure_runtime_directories
     ensure_image
     if container_is_running || drive_is_running; then
@@ -669,7 +688,7 @@ start_navigation() {
             "${DOGZILLA_MAP_NAME}"
         printf 'Nav2 path planning is not running in this mode.\n'
     fi
-    printf 'Unknown/unmapped test1 cells remain non-traversable.\n'
+    printf 'Unknown/unmapped map cells remain non-traversable.\n'
     printf 'ROS log session: logs/sessions/%s (logs/latest).\n' \
         "${DOGZILLA_LOG_SESSION}"
     printf 'Use status, then RViz 2D Pose Estimate before sending a goal.\n'
@@ -921,7 +940,17 @@ stop_dogzilla() {
     local drive_was_running=false
     local lidar_status=0
     local mapping_was_running=false
+    local mission_was_active=false
     local navigation_was_running=false
+    local web_status=0
+
+    if [[ -f "${MISSION_STATE_FILE}" ]]; then
+        mission_was_active=true
+        printf 'Stopping the Mission Mode web gateway first.\n'
+        if ! "${WEB_COMMAND}" stop; then
+            web_status=1
+        fi
+    fi
 
     if container_is_running; then
         mapping_was_running=true
@@ -956,7 +985,13 @@ stop_dogzilla() {
         xhost -SI:localuser:root >/dev/null 2>&1 || true
     fi
 
-    return "${lidar_status}"
+    if ((lidar_status != 0 || web_status != 0)); then
+        return 1
+    fi
+    if [[ "${mission_was_active}" == true ]]; then
+        rm -f "${MISSION_STATE_FILE}" "${MISSION_STATE_FILE}.tmp"
+    fi
+    return 0
 }
 
 main() {
@@ -981,6 +1016,9 @@ main() {
             ;;
         navigate)
             start_navigation navigate "${@:2}"
+            ;;
+        mission)
+            "${MISSION_COMMAND}" "${@:2}"
             ;;
         status)
             show_status

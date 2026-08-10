@@ -11,13 +11,14 @@ No deployment command pushes to GitHub.
 ```text
 Pi host
 ├── deploy/dogzilla-map          operator command
+├── deploy/dogzilla-mission      navigation + web coordinator
 ├── maps/                        persistent PBStream/PGM/YAML files
 ├── logs/latest                  latest timestamped ROS log session
 ├── calibration/imu.json         robot-specific IMU calibration
 └── Docker Compose
     ├── dogzilla_mapping          full mapping mode
     ├── dogzilla_drive            controller-only mode
-    └── dogzilla_navigation       localization or localization + Nav2
+    ├── dogzilla_navigation       localization or localization + Nav2
         ├── MS200 LiDAR           /dev/ttyAMA1 -> /scan
         ├── serial manager        sole owner of /dev/ttyAMA0
         │   ├── movement          /cmd_vel -> controller + watchdog
@@ -30,11 +31,13 @@ Pi host
         ├── Nav2                  optional planner/controller/behaviors
         ├── Twist Mux             teleop priority over Nav2 commands
         └── patched shutdown      deactivates the MS200 motor
+    └── dogzilla_web              browser mission UI; no serial devices
 ```
 
-The three Compose services are mutually exclusive. Every mode uses the same
-serial-manager implementation, so movement, battery reads, motor-angle reads,
-raw IMU reads, and posture writes never compete for `/dev/ttyAMA0`.
+The three hardware-owning Compose services are mutually exclusive. Every mode
+uses the same serial-manager implementation, so movement, battery reads,
+motor-angle reads, raw IMU reads, and posture writes never compete for
+`/dev/ttyAMA0`. The device-free web service may run beside navigation.
 
 ## First build
 
@@ -259,6 +262,77 @@ Wait for `status` to report healthy, set the initial pose in RViz, confirm that
 the scan aligns with walls, and only then use **Nav2 Goal**. Keep the robot in a
 clear test area with immediate access to `Space`, `k`, or `dogzilla-map stop`.
 The unfinished part of `test1` is intentionally not traversable.
+
+### Mission mode on a saved map
+
+After saving the room map and stopping mapping, start localization, Nav2, and
+the browser mission gateway with one host command:
+
+```bash
+./deploy/dogzilla-map mission room1 --headless
+```
+
+`mission` selects the guarded mission coordinator. `room1` requires the
+non-empty files `maps/room1.pbstream`, `maps/room1.yaml`, and
+`maps/room1.pgm`. `--headless` starts navigation without RViz; this is the
+normal browser or SSH mode. `mission start room1 --headless` is an equivalent,
+more explicit spelling. If neither `--headless` nor `--rviz` is supplied,
+Mission Mode defaults to headless operation.
+
+The coordinator refuses to replace an active mapping, drive, navigation, or
+web container. On a free system it starts navigation first, starts the web
+gateway second, waits for both container health checks, and verifies the
+required ROS topics, Nav2 actions and nodes, and `map -> base_link` transform.
+It gives both services one ROS log session and records only its own managed
+state in `logs/mission-current`. It never queues a goal automatically. If any
+startup check fails or startup is interrupted, it stops the web gateway first
+and then follows the normal navigation shutdown path.
+
+Inspect a managed session without moving the robot:
+
+```bash
+./deploy/dogzilla-map mission status
+```
+
+`status` prints the coordinator state, selected map, log session, navigation
+container status, ROS topics, web container status, and dashboard address.
+
+Print the existing private browser token:
+
+```bash
+./deploy/dogzilla-map mission token
+```
+
+`token` prints the existing token used by the dashboard login. It does not
+start a service or queue a mission. Keep this token private.
+
+Follow both navigation and web logs:
+
+```bash
+./deploy/dogzilla-map mission logs
+```
+
+`logs` follows the last 200 lines from both containers. Press `Ctrl+C` to stop
+following output; this does not stop Mission Mode.
+
+Stop a managed session in the safe order:
+
+```bash
+./deploy/dogzilla-map mission stop
+```
+
+`stop` stops the web gateway before navigation, releases the serial ports, and
+runs the existing LiDAR motor-off fallback. If no managed Mission Mode state
+exists, it reports that nothing was stopped and leaves manually started
+services alone. The ordinary `./deploy/dogzilla-map stop` command recognizes a
+managed mission and uses the same web-first order.
+
+Before queuing a delivery, confirm that the displayed scan aligns with the
+saved walls and that localization is stable. On the Pi monitor,
+`./deploy/dogzilla-map rviz` can open RViz for **2D Pose Estimate** while the
+headless mission is running. The browser then previews the real Nav2 path and
+dispatches its validated pickup and drop-off points one at a time. Keep the
+robot supervised and the software emergency stop visible during testing.
 
 ### Serial telemetry
 

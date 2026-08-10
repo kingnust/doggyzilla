@@ -147,15 +147,14 @@ services:
         - >-
           bash -lc 'source /opt/ros/humble/setup.bash &&
           source /root/yahboomcar_ws/install/setup.bash &&
-          ros2 topic list | grep -qx /scan &&
-          ros2 topic list | grep -qx /map &&
-          ros2 topic list | grep -qx /odom &&
-          ros2 topic list | grep -qx /battery_state &&
-          ros2 topic list | grep -qx /joint_states &&
-          { [ "$${DOGZILLA_USE_NAV2}" != true ] ||
-          ros2 node list | grep -qx /planner_server; }'
+          topics="$$(ros2 topic list)" &&
+          for topic in /scan /map /odom /battery_state /joint_states; do
+          grep -qx "$${topic}" <<< "$${topics}" || exit 1; done &&
+          { [ "$${DOGZILLA_USE_NAV2}" != true ] || {
+          nodes="$$(ros2 node list)" &&
+          grep -qx /planner_server <<< "$${nodes}"; }; }'
       interval: 10s
-      timeout: 5s
+      timeout: 12s
       retries: 5
       start_period: 45s
     restart: "no"

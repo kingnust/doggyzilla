@@ -464,36 +464,39 @@ in sections 5 through 8.
 WEB MAP MISSION EDITOR
 ======================
 
-Terminal 1 - start localization and Nav2 on an existing map:
+Do this only after the current map has been saved and mapping has been stopped.
+
+Start localization, Nav2, and the browser gateway together:
   cd /home/pi/DOGZILLA
-  ./deploy/dogzilla-map navigate test1 --headless
+  ./deploy/dogzilla-map mission test1 --headless
 
 Explanation:
   cd changes this terminal to the DOGZILLA project directory.
   ./ runs the deployment script from the current directory.
-  navigate starts localization and the Nav2 planning/control servers.
+  mission starts the guarded navigation + browser coordinator.
   test1 selects maps/test1 as the active saved map.
   --headless prevents RViz from opening; the browser becomes the map display.
-
-Terminal 2 - initialize and start the browser gateway:
-  cd /home/pi/DOGZILLA
-  ./deploy/dogzilla-web init
-  ./deploy/dogzilla-web start test1
-
-Explanation:
-  init creates or repairs the private .env settings and generates a random
-  browser token if one does not already exist. It does not start the robot.
-  start launches only the web gateway container.
-  test1 must match the map selected by the navigate command in Terminal 1.
-  The web container has no controller or LiDAR serial-device access.
+  The command validates all three saved-map files, refuses to replace mapping
+  or another active mode, starts Nav2 before the web gateway, checks ROS
+  readiness, and rolls both services back if startup fails.
+  It does not queue a goal or move DOGZILLA automatically.
 
 Print the browser login token:
-  ./deploy/dogzilla-web show-token
+  ./deploy/dogzilla-map mission token
 
 Explanation:
-  show-token prints the existing access token from .env. It does not generate
-  a new token or restart the gateway. Open the URL printed by the start command
-  on the same trusted network and enter this token.
+  mission selects the coordinator command group.
+  token prints the existing access token from .env. It does not restart the
+  gateway or queue movement. Open the URL printed by the start command on the
+  same trusted network and enter this token.
+
+Check both services:
+  ./deploy/dogzilla-map mission status
+
+Explanation:
+  status displays the managed state, selected map, shared log session,
+  navigation/ROS status, web status, and dashboard address. It does not move
+  the robot.
 
 Using the editor:
   1. Select Pickup, then click one free map cell.
@@ -506,14 +509,13 @@ Using the editor:
 There is no drag-and-drop interaction and map coordinates are read-only. The
 gateway validates free space and clearance again before saving or queuing.
 
-Stop the browser gateway, then stop navigation:
-  ./deploy/dogzilla-web stop
-  ./deploy/dogzilla-map stop
+Stop the complete managed mission safely:
+  ./deploy/dogzilla-map mission stop
 
 Explanation:
-  dogzilla-web stop stops only the dashboard/API container.
-  dogzilla-map stop cancels the active robot mode, stops the ROS containers,
-  releases the serial ports, and runs the existing safe stop path.
+  stop shuts down the browser gateway first, then navigation, releases both
+  serial ports, and sends the LiDAR motor-off fallback. If no managed mission
+  exists, it leaves manually started services alone.
 
 
 OPTIONAL ONE-TIME CONVENIENCE COMMANDS

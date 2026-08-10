@@ -49,5 +49,15 @@ uses simple click-only pickup/drop-off selection, previews Nav2 paths, stores
 named locations, monitors task progress, and provides a latched software
 emergency stop. It runs in a separate container with no serial-device access.
 
+After mapping is saved and stopped, Mission Mode starts Nav2 and the dashboard
+together:
+
+```bash
+./deploy/dogzilla-map mission MAP --headless
+```
+
+It verifies readiness, shares one log session, and rolls back safely if
+startup fails. It does not queue a goal or move the robot automatically.
+
 See [web/README.md](web/README.md) for setup, safety behavior, and the API
 architecture.
