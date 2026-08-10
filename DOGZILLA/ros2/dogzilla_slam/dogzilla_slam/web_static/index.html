@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>DOGZILLA Mission Control</title>
+    <link rel="stylesheet" href="/assets/styles.css">
+    <script src="/assets/app.js" defer></script>
+  </head>
+  <body>
+    <div class="ambient ambient-one"></div>
+    <div class="ambient ambient-two"></div>
+
+    <div id="login" class="login-shell">
+      <form id="login-form" class="login-card">
+        <div class="brand-mark" aria-hidden="true"><span></span><span></span></div>
+        <p class="eyebrow">Secure operator access</p>
+        <h1>DOGZILLA</h1>
+        <p class="subtle">Enter the access token generated on the Raspberry Pi.</p>
+        <label for="token">Gateway token</label>
+        <input id="token" name="token" type="password" autocomplete="current-password" required>
+        <button class="primary" type="submit">Connect to robot</button>
+        <p id="login-error" class="form-error" role="alert"></p>
+      </form>
+    </div>
+
+    <div id="app" class="app-shell hidden">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark small" aria-hidden="true"><span></span><span></span></div>
+          <div>
+            <p class="eyebrow">Mission control</p>
+            <h1>DOGZILLA</h1>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <div id="connection-pill" class="pill offline"><span></span>Offline</div>
+          <button id="logout" class="ghost" type="button">Disconnect</button>
+        </div>
+      </header>
+
+      <main>
+        <section class="hero-grid" aria-label="Robot overview">
+          <article class="status-card robot-card">
+            <div>
+              <p class="eyebrow">Robot state</p>
+              <h2 id="robot-mode">Waiting for telemetry</h2>
+              <p id="gate-reason" class="subtle">Connecting to the ROS gateway…</p>
+            </div>
+            <div class="robot-visual" aria-hidden="true">
+              <div class="robot-head"><i></i><i></i></div>
+              <div class="robot-body"><span></span></div>
+              <div class="leg l1"></div><div class="leg l2"></div>
+              <div class="leg l3"></div><div class="leg l4"></div>
+            </div>
+          </article>
+
+          <article class="metric-card">
+            <p class="metric-label">Battery</p>
+            <div class="metric-row"><strong id="battery-value">—</strong><span>%</span></div>
+            <div class="meter"><div id="battery-meter"></div></div>
+            <p id="battery-age" class="metric-foot">No reading</p>
+          </article>
+
+          <article class="metric-card">
+            <p class="metric-label">Position</p>
+            <div class="coordinate-grid">
+              <span>X</span><strong id="pose-x">—</strong>
+              <span>Y</span><strong id="pose-y">—</strong>
+              <span>Yaw</span><strong id="pose-yaw">—</strong>
+            </div>
+            <p id="pose-age" class="metric-foot">No localization</p>
+          </article>
+
+          <article class="metric-card">
+            <p class="metric-label">Current task</p>
+            <strong id="active-task" class="task-name">None</strong>
+            <div class="task-progress"><div id="task-progress"></div></div>
+            <p id="active-task-detail" class="metric-foot">Queue is idle</p>
+          </article>
+        </section>
+
+        <section class="workspace-grid">
+          <article class="panel mission-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">New mission</p>
+                <h2>Delivery route</h2>
+              </div>
+              <span id="map-chip" class="map-chip">map: —</span>
+            </div>
+            <form id="delivery-form">
+              <label for="mission-name">Mission name</label>
+              <input id="mission-name" name="name" maxlength="80" value="Delivery" required>
+
+              <div class="waypoint-section">
+                <div class="waypoint-title"><span class="waypoint-dot pickup"></span>Pickup</div>
+                <div class="field-grid">
+                  <label>X <input name="pickup-x" type="number" min="-100" max="100" step="0.01" value="0" required></label>
+                  <label>Y <input name="pickup-y" type="number" min="-100" max="100" step="0.01" value="0" required></label>
+                  <label>Yaw <input name="pickup-yaw" type="number" min="-3.1416" max="3.1416" step="0.01" value="0" required></label>
+                  <label>Wait (s) <input name="pickup-dwell" type="number" min="0" max="300" step="1" value="5" required></label>
+                </div>
+              </div>
+
+              <div class="waypoint-section">
+                <div class="waypoint-title"><span class="waypoint-dot dropoff"></span>Drop-off</div>
+                <div class="field-grid">
+                  <label>X <input name="dropoff-x" type="number" min="-100" max="100" step="0.01" value="0" required></label>
+                  <label>Y <input name="dropoff-y" type="number" min="-100" max="100" step="0.01" value="0" required></label>
+                  <label>Yaw <input name="dropoff-yaw" type="number" min="-3.1416" max="3.1416" step="0.01" value="0" required></label>
+                  <label>Wait (s) <input name="dropoff-dwell" type="number" min="0" max="300" step="1" value="0" required></label>
+                </div>
+              </div>
+
+              <button id="submit-mission" class="primary" type="submit">Queue delivery</button>
+              <p id="mission-message" class="form-message" role="status"></p>
+            </form>
+          </article>
+
+          <div class="right-column">
+            <article id="safety-panel" class="panel safety-panel">
+              <div>
+                <p class="eyebrow">Safety control</p>
+                <h2 id="safety-title">Emergency stop ready</h2>
+                <p id="safety-detail" class="subtle">Stops navigation and latches zero velocity.</p>
+              </div>
+              <button id="estop" class="estop" type="button"><span>STOP</span>Emergency stop</button>
+              <button id="reset-estop" class="reset hidden" type="button">Reset emergency stop</button>
+            </article>
+
+            <article class="panel queue-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Task history</p>
+                  <h2>Mission queue</h2>
+                </div>
+                <button id="refresh" class="icon-button" type="button" aria-label="Refresh tasks">↻</button>
+              </div>
+              <div id="task-list" class="task-list">
+                <p class="empty-state">No missions yet.</p>
+              </div>
+            </article>
+
+            <article class="panel system-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Live sources</p>
+                  <h2>Robot telemetry</h2>
+                </div>
+                <span id="graph-age" class="source-age">No ROS graph</span>
+              </div>
+              <div class="detail-grid">
+                <div><span>Nav2 action</span><strong id="nav-state">—</strong></div>
+                <div><span>ROS nodes</span><strong id="ros-node-count">—</strong></div>
+                <div><span>Joint positions</span><strong id="joint-count">—</strong></div>
+                <div><span>Current motion</span><strong id="velocity-detail">—</strong></div>
+                <div class="wide"><span>Loaded map</span><strong id="map-detail">—</strong></div>
+              </div>
+            </article>
+          </div>
+        </section>
+      </main>
+
+      <div id="toast" class="toast" role="status"></div>
+    </div>
+  </body>
+</html>

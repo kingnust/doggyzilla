@@ -46,11 +46,21 @@ for all commands.
 - `dogzilla_slam teleop`: safety-oriented keyboard control with live
   slow/normal/high profile selection using the `1`/`2`/`3` keys, plus bounded
   body height and whole-body look controls in controller-only drive mode.
-- `dogzilla_slam servo_power`: one-shot, single-owner access to Yahboom's native
-  lie-down (action 1) and stand-up (action 2) animations for the guarded
-  host-side `rest` and `stand` commands. Rest releases all servo torque only
-  after the lie-down animation finishes. Stand cannot override Yahboom
-  low-battery rest at 25% or below or when battery telemetry fails.
+- `dogzilla_slam servo_power`: one-shot, single-owner access to supported servo
+  operations. Host-side `rest` is blocked without sending any movement or
+  torque command because public action 1 is not treated as equivalent to the
+  controller's private low-battery/power-button safety trajectory. Rest remains
+  unavailable until that real 12-joint trajectory is captured and validated.
+  `stand` uses public action 2 and cannot override Yahboom low-battery rest at
+  25% or below or when battery telemetry fails.
+- `dogzilla_slam firmware_rest_capture`: a command-free state machine fed by
+  the single serial manager's existing battery and 12-joint readbacks. It arms
+  at 30%, triggers on the configured 25% crossing, retains two seconds of
+  pre-roll, records at 5 Hz, and requires a two-second stationary tail. Every
+  saved result explicitly has `replay_enabled: false`.
+- `dogzilla_slam firmware_rest_monitor`: dedicated read-only capture for an
+  otherwise stopped, stationary robot. It invokes only `read_battery()` and
+  `read_motor()` and writes raw results atomically to `/profiles/captures`.
 
 For normal operation use `deploy/dogzilla-map`; do not start these launch files
 independently on the hardware. The operator commands enforce mutually exclusive

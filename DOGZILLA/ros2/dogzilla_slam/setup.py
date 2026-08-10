@@ -11,6 +11,7 @@ setup(
     name=package_name,
     version='0.2.0',
     packages=find_packages(exclude=['test']),
+    package_data={package_name: ['web_static/*']},
     data_files=[
         (
             'share/ament_index/resource_index/packages',
@@ -31,7 +32,7 @@ setup(
         ),
     ],
     install_requires=['setuptools'],
-    zip_safe=True,
+    zip_safe=False,
     maintainer='DOGZILLA maintainer',
     maintainer_email='pi@raspberrypi.local',
     description=(
@@ -45,12 +46,15 @@ setup(
             'imu_corrector = dogzilla_slam.imu_corrector:main',
             'imu_validate = dogzilla_slam.imu_validate:main',
             'lidar_off = dogzilla_slam.lidar_off:main',
+            'firmware_rest_monitor = '
+            'dogzilla_slam.firmware_rest_monitor:main',
             'localization_manager = dogzilla_slam.localization_manager:main',
             'safe_base = dogzilla_slam.safe_base:main',
             'save_map = dogzilla_slam.save_map:main',
             'servo_power = dogzilla_slam.servo_power:main',
             'teleop = dogzilla_slam.teleop:main',
             'tf_odometry = dogzilla_slam.tf_odometry:main',
+            'web_gateway = dogzilla_slam.web_gateway:main',
         ],
     },
 )

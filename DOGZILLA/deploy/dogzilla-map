@@ -46,7 +46,8 @@ usage() {
         '  rviz                  Open RViz on the current Pi desktop.' \
         '  save MAP_NAME         Save MAP_NAME.pbstream/.pgm/.yaml to maps/.' \
         '  lidar-off             Stop the MS200 motor without starting ROS.' \
-        '  rest                  Lie down, then release all servo torque.' \
+        '  rest-capture          Read-only capture of firmware low-battery rest.' \
+        '  rest                  Disabled until firmware-rest profile capture.' \
         '  stand                 Play guarded animated stand-up action.' \
         '  imu-calibrate         Run safe guided six-pose IMU calibration.' \
         '  imu-check [SECONDS]   Validate fused IMU rate, gravity, and stamps.' \
@@ -69,7 +70,9 @@ ensure_runtime_directories() {
     mkdir -p \
         "${REPO_ROOT}/maps" \
         "${REPO_ROOT}/logs/sessions" \
-        "${REPO_ROOT}/calibration"
+        "${REPO_ROOT}/calibration" \
+        "${REPO_ROOT}/profiles/captures" \
+        "${REPO_ROOT}/profiles/validated"
 }
 
 container_is_running() {
@@ -267,13 +270,10 @@ confirm_servo_mode() {
 
     if [[ "${mode}" == 'rest' ]]; then
         printf '%s\n' \
-            'WARNING: REST plays Yahboom animated lie-down action 1.' \
-            'After lowering its body, DOGZILLA releases all leg servos.' \
-            'Place it on a clear, level floor and keep hands away from joints.'
-        printf 'Type REST to confirm: '
-        read -r confirmation
-        [[ "${confirmation}" == 'REST' ]]
-        return
+            'SAFETY: REST is disabled.' \
+            'Public action 1 is not verified as the firmware low-battery/power-button trajectory.' \
+            'No movement or torque command will be sent until a real profile is captured and validated.' >&2
+        return 1
     fi
 
     printf '%s\n' \
@@ -311,9 +311,56 @@ run_servo_mode() {
     set +e
     docker run \
         --rm \
+        --interactive \
         --device /dev/ttyAMA0:/dev/ttyAMA0 \
         "${IMAGE_NAME}" \
         ros2 run dogzilla_slam servo_power "${mode}"
+    command_status=$?
+    set -e
+
+    restore_oled_service
+    return "${command_status}"
+}
+
+run_firmware_rest_capture() {
+    local command_status
+    local confirmation
+
+    if container_is_running || drive_is_running || navigation_is_running; then
+        printf 'Stop mapping, localization, navigation, or drive mode first.\n' >&2
+        printf 'Run "./deploy/dogzilla-map stop" first.\n' >&2
+        exit 1
+    fi
+
+    ensure_runtime_directories
+    ensure_image
+    printf '%s\n' \
+        'READ-ONLY: this captures the controller low-battery trajectory.' \
+        'It sends battery and joint read requests only; it never commands motion or torque.' \
+        'Start only while DOGZILLA is stationary on a clear, level floor.' \
+        'Do not press the physical power button; allow low battery to occur naturally.'
+    printf 'Type CAPTURE to continue: '
+    read -r confirmation
+    if [[ "${confirmation}" != 'CAPTURE' ]]; then
+        printf 'Cancelled; the serial port was not opened.\n'
+        return 1
+    fi
+
+    stop_vendor_application
+    pause_oled_service
+    if ! assert_serial_ports_free /dev/ttyAMA0; then
+        restore_oled_service
+        return 1
+    fi
+
+    set +e
+    docker run \
+        --rm \
+        --interactive \
+        --device /dev/ttyAMA0:/dev/ttyAMA0 \
+        --volume "${REPO_ROOT}/profiles:/profiles" \
+        "${IMAGE_NAME}" \
+        ros2 run dogzilla_slam firmware_rest_monitor
     command_status=$?
     set -e
 
@@ -949,6 +996,9 @@ main() {
             ;;
         lidar-off)
             send_lidar_off
+            ;;
+        rest-capture)
+            run_firmware_rest_capture
             ;;
         rest)
             run_servo_mode rest

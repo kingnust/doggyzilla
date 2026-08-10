@@ -41,3 +41,12 @@ deployment guide and [ros2/dogzilla_slam/README.md](ros2/dogzilla_slam/README.md
 for ROS package details and the legacy manual-container workflow.
 
 The deployment scripts do not commit or push to GitHub.
+
+## Web mission control
+
+An optional local web dashboard can monitor battery, pose, ROS/Nav2 state, and
+task progress, as well as queue pickup/drop-off deliveries and latch a software
+emergency stop. It runs in a separate container with no serial-device access.
+
+See [web/README.md](web/README.md) for setup, safety behavior, and the API
+architecture.

@@ -1,13 +1,15 @@
 import pytest
 
 from dogzilla_slam.servo_power import apply_servo_mode
+from dogzilla_slam.servo_power import main
 from dogzilla_slam.servo_power import ServoPowerSafetyError
 
 
 class FakeController:
-    def __init__(self, battery=80):
+    def __init__(self, battery=80, motor_angles=None):
         self.calls = []
         self.battery = battery
+        self.motor_angles = motor_angles or [0.0] * 12
 
     def read_battery(self):
         self.calls.append('read_battery')
@@ -25,6 +27,10 @@ class FakeController:
     def action(self, action_id):
         self.calls.append(('action', action_id))
 
+    def read_motor(self):
+        self.calls.append('read_motor')
+        return self.motor_angles
+
 
 class FailingBatteryController(FakeController):
     def read_battery(self):
@@ -32,14 +38,26 @@ class FailingBatteryController(FakeController):
         raise OSError('simulated serial failure')
 
 
-def test_rest_stops_then_runs_vendor_lie_down_animation():
+def test_rest_is_blocked_without_sending_any_servo_command():
     controller = FakeController()
-    delays = []
 
-    apply_servo_mode('rest', controller, sleep=delays.append)
+    with pytest.raises(ServoPowerSafetyError, match='REST is disabled'):
+        apply_servo_mode(
+            'rest',
+            controller,
+            sleep=lambda _: None,
+        )
 
-    assert controller.calls == ['stop', ('action', 1), 'unload_allmotor']
-    assert delays == [0.20, 3.00, 0.20]
+    assert controller.calls == []
+
+
+def test_rest_cli_returns_before_opening_the_serial_port(monkeypatch):
+    def unexpected_controller(*args, **kwargs):
+        raise AssertionError('REST must not open the controller serial port')
+
+    monkeypatch.setattr('dogzilla_slam.servo_power.dog.DOGZILLA', unexpected_controller)
+
+    assert main(['rest']) == 2
 
 
 def test_stand_stops_loads_then_runs_vendor_stand_up_animation():
@@ -54,7 +72,7 @@ def test_stand_stops_loads_then_runs_vendor_stand_up_animation():
         'load_allmotor',
         ('action', 2),
     ]
-    assert delays == [0.20, 0.25, 3.00]
+    assert delays == [0.20, 0.50, 4.00]
 
 
 @pytest.mark.parametrize('battery', [1, 24, 25])

@@ -29,3 +29,11 @@ log/
 # Runtime deployment output
 logs/*
 !logs/.gitkeep
+
+# Raw controller captures are diagnostics, not replay-approved profiles.
+profiles/captures/*
+!profiles/captures/.gitkeep
+
+# The web gateway database contains runtime mission history.
+web/data/*
+!web/data/.gitkeep

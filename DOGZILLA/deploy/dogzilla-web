@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+DEPLOY_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "${DEPLOY_DIR}/.." && pwd)"
+COMPOSE_FILE="${DEPLOY_DIR}/compose.yaml"
+ENV_FILE="${REPO_ROOT}/.env"
+IMAGE_NAME="dogzilla-mapping:humble"
+SERVICE_NAME="web"
+
+compose() {
+    docker compose \
+        --project-directory "${REPO_ROOT}" \
+        --file "${COMPOSE_FILE}" \
+        "$@"
+}
+
+usage() {
+    printf '%s\n' \
+        'Usage: ./deploy/dogzilla-web COMMAND [ARGUMENTS]' \
+        '' \
+        'Commands:' \
+        '  init                  Generate the local access token and defaults.' \
+        '  start [MAP]           Start the dashboard (default map: test1).' \
+        '  status                Show the gateway container and local URL.' \
+        '  logs                  Follow gateway logs.' \
+        '  show-token            Print the browser login token.' \
+        '  stop                  Stop the web gateway.' \
+        '' \
+        'Start navigation separately with:' \
+        '  ./deploy/dogzilla-map navigate MAP --headless'
+}
+
+append_default() {
+    local name="$1"
+    local value="$2"
+    if ! grep -q "^${name}=" "${ENV_FILE}"; then
+        printf '%s=%s\n' "${name}" "${value}" >> "${ENV_FILE}"
+    fi
+}
+
+initialize_environment() {
+    local token
+    if [[ ! -e "${ENV_FILE}" ]]; then
+        install -m 0600 /dev/null "${ENV_FILE}"
+    fi
+    chmod 0600 "${ENV_FILE}"
+    if ! grep -q '^DOGZILLA_WEB_TOKEN=..' "${ENV_FILE}"; then
+        token="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+        append_default DOGZILLA_WEB_TOKEN "${token}"
+    fi
+    append_default DOGZILLA_WEB_HOST '0.0.0.0'
+    append_default DOGZILLA_WEB_PORT '8080'
+    append_default DOGZILLA_WEB_MAP_NAME 'test1'
+    append_default DOGZILLA_WEB_MIN_BATTERY '28'
+    mkdir -p "${REPO_ROOT}/web/data" "${REPO_ROOT}/logs/web"
+    printf 'Web configuration is ready in %s (mode 600).\n' "${ENV_FILE}"
+}
+
+environment_value() {
+    local name="$1"
+    sed -n "s/^${name}=//p" "${ENV_FILE}" | tail -n 1
+}
+
+start_gateway() {
+    local map_name="${1:-$(environment_value DOGZILLA_WEB_MAP_NAME)}"
+    map_name="${map_name:-test1}"
+    if [[ ! "${map_name}" =~ ^[A-Za-z0-9._-]{1,64}$ ]]; then
+        printf 'Map name may contain only letters, numbers, dot, underscore, and dash.\n' >&2
+        exit 1
+    fi
+    if ! docker image inspect "${IMAGE_NAME}" >/dev/null 2>&1; then
+        printf 'The DOGZILLA image is missing or predates this gateway.\n' >&2
+        printf 'Run "./deploy/dogzilla-map build" first.\n' >&2
+        exit 1
+    fi
+    export DOGZILLA_WEB_MAP_NAME="${map_name}"
+    compose up --detach --no-build --force-recreate "${SERVICE_NAME}"
+    show_status
+    printf 'Use "./deploy/dogzilla-web show-token" for the browser login.\n'
+}
+
+show_status() {
+    local host_ip
+    local port
+    compose ps "${SERVICE_NAME}"
+    port="$(environment_value DOGZILLA_WEB_PORT)"
+    port="${port:-8080}"
+    host_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+    host_ip="${host_ip:-127.0.0.1}"
+    printf 'Dashboard: http://%s:%s\n' "${host_ip}" "${port}"
+}
+
+show_token() {
+    local token
+    token="$(environment_value DOGZILLA_WEB_TOKEN)"
+    if [[ -z "${token}" ]]; then
+        printf 'No token is configured. Run init first.\n' >&2
+        exit 1
+    fi
+    printf '%s\n' "${token}"
+}
+
+main() {
+    if ! command -v docker >/dev/null 2>&1; then
+        printf 'Required command not found: docker\n' >&2
+        exit 1
+    fi
+    case "${1:-}" in
+        init)
+            initialize_environment
+            ;;
+        start)
+            initialize_environment
+            start_gateway "${2:-}"
+            ;;
+        status)
+            initialize_environment
+            show_status
+            ;;
+        logs)
+            initialize_environment
+            compose logs --follow --tail 100 "${SERVICE_NAME}"
+            ;;
+        show-token)
+            initialize_environment >/dev/null
+            show_token
+            ;;
+        stop)
+            compose stop --timeout 10 "${SERVICE_NAME}"
+            ;;
+        *)
+            usage
+            [[ -z "${1:-}" ]]
+            ;;
+    esac
+}
+
+main "$@"

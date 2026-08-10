@@ -1,4 +1,4 @@
-"""Safely run DOGZILLA's native lie-down and stand-up animations."""
+"""Safely run supported DOGZILLA servo-power operations."""
 
 import argparse
 import time
@@ -7,10 +7,19 @@ import DOGZILLALib as dog
 
 
 LOW_BATTERY_PERCENT = 25
+STAND_ACTION_GUARD_SECONDS = 4.0
 
 
 class ServoPowerSafetyError(RuntimeError):
     """Raised when a pose command would bypass a safety invariant."""
+
+
+FIRMWARE_REST_UNAVAILABLE = (
+    'REST is disabled: Yahboom action 1 is only the public preset lie-down '
+    'action and has not been verified as the controller firmware\'s '
+    'low-battery/power-button safety trajectory. No servo command was sent. '
+    'A captured and validated 12-joint firmware-rest profile is required.'
+)
 
 
 def read_battery_percent(controller):
@@ -35,6 +44,12 @@ def apply_servo_mode(
     low_battery_percent=LOW_BATTERY_PERCENT,
 ):
     """Apply a vendor pose action to an open controller."""
+    if mode == 'rest':
+        # Do not substitute public preset action 1 for the controller's private
+        # low-battery/power-button sequence. The host protocol does not
+        # establish that their trajectories or torque timing are identical.
+        raise ServoPowerSafetyError(FIRMWARE_REST_UNAVAILABLE)
+
     battery = None
     if mode == 'stand':
         battery = read_battery_percent(controller)
@@ -48,21 +63,14 @@ def apply_servo_mode(
     controller.stop()
     sleep(0.20)
 
-    if mode == 'rest':
-        # Yahboom action group 1 is the normal animated lie-down sequence.
-        controller.action(1)
-        sleep(3.00)
-        # Release torque only after the body is safely in the low pose.
-        controller.unload_allmotor()
-        sleep(0.20)
-        return battery
     if mode == 'stand':
-        # Recover cleanly if an older rest command left servo torque unloaded.
+        # Yahboom documents that this loads at the joints' current positions,
+        # so the folded legs are held before the stand-up action begins.
         controller.load_allmotor()
-        sleep(0.25)
+        sleep(0.50)
         # Yahboom action group 2 is the normal animated stand-up sequence.
         controller.action(2)
-        sleep(3.00)
+        sleep(STAND_ACTION_GUARD_SECONDS)
         return battery
     raise ValueError('mode must be rest or stand')
 
@@ -76,11 +84,15 @@ def close_controller(controller):
 
 def main(args=None):
     parser = argparse.ArgumentParser(
-        description='Run DOGZILLA lie-down or stand-up animation.',
+        description='Run supported DOGZILLA servo-power operations.',
     )
     parser.add_argument('mode', choices=('rest', 'stand'))
     parser.add_argument('--port', default='/dev/ttyAMA0')
     parsed = parser.parse_args(args)
+
+    if parsed.mode == 'rest':
+        print(f'SAFETY: {FIRMWARE_REST_UNAVAILABLE}')
+        return 2
 
     controller = dog.DOGZILLA(port=parsed.port)
     try:
@@ -91,15 +103,7 @@ def main(args=None):
     finally:
         close_controller(controller)
 
-    if parsed.mode == 'rest':
-        print(
-            'DOGZILLA lie-down animation completed; all leg-servo torque '
-            'is now released.'
-        )
-    else:
-        print(
-            f'DOGZILLA battery: {battery}%. Stand-up animation completed.'
-        )
+    print(f'DOGZILLA battery: {battery}%. Stand-up animation completed.')
     return 0
 
 

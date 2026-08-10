@@ -9,6 +9,9 @@ from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import BatteryState, Imu, JointState
 
+from .firmware_rest_capture import FirmwareRestRecorder
+from .firmware_rest_capture import save_capture_atomic
+
 
 class SafeBase(Node):
     """Clamp velocity commands and stop the controller after a short timeout."""
@@ -49,11 +52,18 @@ class SafeBase(Node):
         self.declare_parameter('serial_read_timeout', 0.08)
         self.declare_parameter('publish_battery', True)
         self.declare_parameter('battery_topic', '/battery_state')
-        self.declare_parameter('battery_rate_hz', 0.20)
+        self.declare_parameter('battery_rate_hz', 1.0)
         self.declare_parameter('low_battery_percent', 25)
         self.declare_parameter('publish_joint_states', True)
         self.declare_parameter('joint_state_topic', '/joint_states')
         self.declare_parameter('joint_state_rate_hz', 1.0)
+        self.declare_parameter('capture_firmware_rest', True)
+        self.declare_parameter(
+            'firmware_rest_capture_directory',
+            '/profiles/captures',
+        )
+        self.declare_parameter('firmware_rest_arm_margin_percent', 5)
+        self.declare_parameter('firmware_rest_capture_joint_rate_hz', 5.0)
         self.declare_parameter('posture_control_enabled', False)
         self.declare_parameter('body_height', 105.0)
         self.declare_parameter('head_pitch', 0.0)
@@ -84,6 +94,42 @@ class SafeBase(Node):
         self._battery_percent = None
         self._battery_failures = 0
         self._joint_failures = 0
+        self._joint_rate_hz_normal = float(
+            self.get_parameter('joint_state_rate_hz').value
+        )
+        if not 0.10 <= self._joint_rate_hz_normal <= 5.0:
+            raise ValueError('joint_state_rate_hz must be between 0.10 and 5 Hz')
+        self._joint_rate_hz_capture = float(
+            self.get_parameter('firmware_rest_capture_joint_rate_hz').value
+        )
+        if not self._joint_rate_hz_normal <= self._joint_rate_hz_capture <= 5.0:
+            raise ValueError(
+                'firmware_rest_capture_joint_rate_hz must be between the '
+                'normal joint rate and 5 Hz'
+            )
+        self._joint_rate_hz_current = self._joint_rate_hz_normal
+
+        self._firmware_rest_recorder = None
+        if bool(self.get_parameter('capture_firmware_rest').value):
+            capture_directory = str(
+                self.get_parameter(
+                    'firmware_rest_capture_directory'
+                ).value
+            )
+            arm_margin = int(
+                self.get_parameter(
+                    'firmware_rest_arm_margin_percent'
+                ).value
+            )
+            self._firmware_rest_recorder = FirmwareRestRecorder(
+                joint_names=self.JOINT_NAMES,
+                low_battery_percent=self._low_battery_percent,
+                arm_margin_percent=arm_margin,
+                save_callback=lambda payload: save_capture_atomic(
+                    payload,
+                    capture_directory,
+                ),
+            )
 
         # This node is the only /dev/ttyAMA0 owner during mapping.
         self._dog = dog.DOGZILLA()
@@ -106,17 +152,21 @@ class SafeBase(Node):
 
         self._battery_publisher = None
         self._battery_timer = None
-        if bool(self.get_parameter('publish_battery').value):
+        self._joint_publisher = None
+        self._joint_timer = None
+        publish_battery = bool(self.get_parameter('publish_battery').value)
+        if publish_battery or self._firmware_rest_recorder is not None:
             battery_rate_hz = float(
                 self.get_parameter('battery_rate_hz').value
             )
             if not 0.05 <= battery_rate_hz <= 2.0:
                 raise ValueError('battery_rate_hz must be between 0.05 and 2 Hz')
-            self._battery_publisher = self.create_publisher(
-                BatteryState,
-                self.get_parameter('battery_topic').value,
-                qos_profile_sensor_data,
-            )
+            if publish_battery:
+                self._battery_publisher = self.create_publisher(
+                    BatteryState,
+                    self.get_parameter('battery_topic').value,
+                    qos_profile_sensor_data,
+                )
             self._battery_timer = self.create_timer(
                 1.0 / battery_rate_hz,
                 self._publish_battery,
@@ -124,23 +174,18 @@ class SafeBase(Node):
             # Check before the executor can accept its first movement command.
             self._publish_battery()
 
-        self._joint_publisher = None
-        self._joint_timer = None
-        if bool(self.get_parameter('publish_joint_states').value):
-            joint_rate_hz = float(
-                self.get_parameter('joint_state_rate_hz').value
-            )
-            if not 0.10 <= joint_rate_hz <= 5.0:
-                raise ValueError(
-                    'joint_state_rate_hz must be between 0.10 and 5 Hz'
+        publish_joint_states = bool(
+            self.get_parameter('publish_joint_states').value
+        )
+        if publish_joint_states or self._firmware_rest_recorder is not None:
+            if publish_joint_states:
+                self._joint_publisher = self.create_publisher(
+                    JointState,
+                    self.get_parameter('joint_state_topic').value,
+                    qos_profile_sensor_data,
                 )
-            self._joint_publisher = self.create_publisher(
-                JointState,
-                self.get_parameter('joint_state_topic').value,
-                qos_profile_sensor_data,
-            )
             self._joint_timer = self.create_timer(
-                1.0 / joint_rate_hz,
+                1.0 / self._joint_rate_hz_current,
                 self._publish_joint_states,
             )
 
@@ -175,6 +220,12 @@ class SafeBase(Node):
             f'timeout = {self._command_timeout:.2f}s, '
             f'posture controls = {self._posture_control_enabled}'
         )
+        if self._firmware_rest_recorder is not None:
+            self.get_logger().info(
+                'Passive firmware-rest capture enabled: normal joint rate '
+                f'{self._joint_rate_hz_normal:.1f} Hz, near-low rate '
+                f'{self._joint_rate_hz_capture:.1f} Hz; replay remains disabled'
+            )
 
     def _set_speed_profile(self, profile, announce=True):
         """Apply a Yahboom-compatible pace and velocity ceiling."""
@@ -362,14 +413,21 @@ class SafeBase(Node):
                     'Battery telemetry read failed '
                     f'({self._battery_failures} failures)'
                 )
-            self._battery_publisher.publish(message)
+            if self._battery_publisher is not None:
+                self._battery_publisher.publish(message)
             return
 
         self._battery_failures = 0
         self._battery_percent = battery
         message.percentage = battery / 100.0
         message.present = True
-        self._battery_publisher.publish(message)
+        if self._battery_publisher is not None:
+            self._battery_publisher.publish(message)
+
+        if self._firmware_rest_recorder is not None:
+            self._firmware_rest_recorder.observe_battery(battery)
+            self._report_firmware_rest_capture_events()
+            self._update_joint_capture_rate()
 
         if battery <= self._low_battery_percent:
             if not self._movement_inhibited:
@@ -405,11 +463,49 @@ class SafeBase(Node):
             return
 
         self._joint_failures = 0
+        if self._firmware_rest_recorder is not None:
+            self._firmware_rest_recorder.observe_joints(angles)
+            self._report_firmware_rest_capture_events()
         message = JointState()
         message.header.stamp = self.get_clock().now().to_msg()
         message.name = list(self.JOINT_NAMES)
         message.position = [math.radians(float(angle)) for angle in angles]
-        self._joint_publisher.publish(message)
+        if self._joint_publisher is not None:
+            self._joint_publisher.publish(message)
+
+    def _report_firmware_rest_capture_events(self):
+        if self._firmware_rest_recorder is None:
+            return
+        logger = self.get_logger()
+        for level, message in self._firmware_rest_recorder.take_events():
+            if level == 'error':
+                logger.error(message)
+            elif level == 'warning':
+                logger.warn(message)
+            else:
+                logger.info(message)
+
+    def _update_joint_capture_rate(self):
+        if self._firmware_rest_recorder is None:
+            return
+        target_rate = (
+            self._joint_rate_hz_capture
+            if self._firmware_rest_recorder.wants_high_joint_rate
+            else self._joint_rate_hz_normal
+        )
+        if abs(target_rate - self._joint_rate_hz_current) < 1e-9:
+            return
+        self._joint_rate_hz_current = target_rate
+        if self._joint_timer is not None:
+            self._joint_timer.cancel()
+            self._joint_timer = self.create_timer(
+                1.0 / target_rate,
+                self._publish_joint_states,
+            )
+        self.get_logger().info(
+            f'Joint telemetry rate changed to {target_rate:.1f} Hz for '
+            'passive firmware-rest capture.'
+        )
 
     def _publish_raw_imu(self):
         """Read the controller IMU without opening a second serial owner."""

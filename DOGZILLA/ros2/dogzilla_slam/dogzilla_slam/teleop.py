@@ -52,8 +52,9 @@ hardware watchdog stop the robot within 0.6 seconds.
 POSTURE_MENU = r'''
 Body height and look direction (controller-only drive mode)
    r / f                body higher / lower
-   t / g                look up / down (whole-body pitch)
-   y / h                look left / right (whole-body yaw)
+        i                look up (whole-body pitch)
+   j         l           look left / right (whole-body yaw)
+        ,                look down (whole-body pitch)
    c                    center look and restore 105 mm height
 '''
 
@@ -64,13 +65,13 @@ def next_posture(key, height, pitch, yaw):
         height = min(110.0, height + 5.0)
     elif key == 'f':
         height = max(75.0, height - 5.0)
-    elif key == 't':
+    elif key == 'i':
         pitch = max(-15.0, pitch - 5.0)
-    elif key == 'g':
+    elif key == ',':
         pitch = min(15.0, pitch + 5.0)
-    elif key == 'y':
+    elif key == 'j':
         yaw = min(11.0, yaw + 5.0)
-    elif key == 'h':
+    elif key == 'l':
         yaw = max(-11.0, yaw - 5.0)
     elif key == 'c':
         height, pitch, yaw = 105.0, 0.0, 0.0
@@ -174,7 +175,6 @@ class DogzillaTeleop(Node):
             if value != previous:
                 changed.append(Parameter(name, Parameter.Type.DOUBLE, value))
         if not changed:
-            print('Posture is already at that limit.')
             return True
         if not self.set_remote_parameters(changed, 'posture'):
             return False
@@ -246,7 +246,7 @@ def main(args=None):
                 print('Stopped.')
             elif key in PROFILE_KEYS:
                 node.set_profile(PROFILE_KEYS[key])
-            elif key in ('r', 'f', 't', 'g', 'y', 'h', 'c'):
+            elif key in ('r', 'f', 'i', 'j', 'l', ',', 'c'):
                 node.change_posture(key)
             elif key == 'x':
                 break

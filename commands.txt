@@ -145,8 +145,8 @@ Explanation:
 
 Extra drive-mode teleop keys:
   r / f        raise / lower the body by 5 mm
-  t / g        look up / down using whole-body pitch
-  y / h        look left / right using whole-body yaw
+  i / ,        look up / down using whole-body pitch
+  j / l        look left / right using whole-body yaw
   c            center pitch/yaw and restore 105 mm body height
 
 Explanation:
@@ -156,8 +156,8 @@ Explanation:
   disabled because tilting the body also tilts the LiDAR scan plane.
 
 
-ANIMATED REST AND STAND
-=======================
+FIRMWARE REST CAPTURE, REST, AND STAND
+======================================
 
 First stop mapping or controller-only mode:
   ./deploy/dogzilla-map stop
@@ -166,16 +166,34 @@ Explanation:
   stop releases the controller serial port. The rest and stand commands refuse
   to run while either mapping or drive mode is active.
 
-Play Yahboom's animated lie-down action:
+Passively capture the real low-battery firmware movement:
+  ./deploy/dogzilla-map rest-capture
+
+Explanation:
+  ./ runs the dogzilla-map script from the current project directory.
+  rest-capture selects the dedicated read-only monitor. It requires the exact
+  confirmation CAPTURE, then pauses competing vendor and OLED serial readers.
+  The monitor sends only battery and 12-joint read requests. It never sends a
+  movement, action, motor-angle, speed, servo-load, or servo-unload command.
+
+  Use it only when DOGZILLA is stationary on a clear, level floor and already
+  near, but above, the 25% threshold. Do not press the physical power button;
+  allow the natural low-battery routine to happen so the Pi remains powered.
+  A successful raw file appears in DOGZILLA/profiles/captures/ with status
+  captured_unvalidated and replay_enabled false. If DOGZILLA is already low and
+  resting when the monitor starts, capture is skipped because the movement was
+  missed. Mapping, drive, localization, and navigation also arm this recorder
+  automatically, changing joint reads from 1 Hz to 5 Hz only near low battery.
+
+Check firmware-rest availability:
   ./deploy/dogzilla-map rest
 
 Explanation:
-  rest displays a movement warning and requires you to type REST exactly. It
-  sends movement STOP and then Yahboom firmware action 1, the same animated
-  lie-down sequence used by the vendor examples. Allow three seconds for it to
-  finish. It then releases torque from all 12 leg servos to save power. The body
-  may settle slightly after release, so use a clear, level floor. This does not
-  shut down the Raspberry Pi, controller, or LiDAR.
+  rest is currently disabled. It prints a safety explanation and sends no
+  movement or torque command. Public action 1 is not verified as identical to
+  the controller firmware's low-battery/power-button rest. A captured and
+  validated 12-joint firmware-rest profile is required before this command can
+  be enabled safely.
 
 Play Yahboom's animated stand-up action:
   ./deploy/dogzilla-map stand
@@ -185,8 +203,9 @@ Explanation:
   first reads Yahboom's battery percentage. At 25% or below, or if the reading
   fails, it exits before sending STOP, enabling torque, or starting an action.
   This allows Yahboom's existing low-battery lying-down behavior to remain in
-  control. Above 25%, it enables all 12 servos and runs Yahboom firmware action
-  2, the three-second animated stand-up sequence. Place DOGZILLA on a clear,
+  control. Above 25%, it loads all 12 servos at their current folded positions
+  and then runs Yahboom firmware action 2, the animated stand-up sequence.
+  Place DOGZILLA on a clear,
   level floor and keep hands clear of every joint. Both commands temporarily
   pause the OLED service while using /dev/ttyAMA0 and restore it afterward.
 

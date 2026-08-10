@@ -30,6 +30,7 @@ services:
       - ./maps:/maps
       - ./logs:/logs
       - ./calibration:/calibration:ro
+      - ./profiles:/profiles
     command:
       - ros2
       - launch
@@ -72,6 +73,7 @@ services:
       ROS_LOG_DIR: ${DOGZILLA_ROS_LOG_DIR:-/logs/manual}
     volumes:
       - ./logs:/logs
+      - ./profiles:/profiles
     command:
       - ros2
       - run
@@ -124,6 +126,7 @@ services:
       - ./maps:/maps:ro
       - ./logs:/logs
       - ./calibration:/calibration:ro
+      - ./profiles:/profiles
     command:
       - ros2
       - launch
@@ -158,3 +161,42 @@ services:
     restart: "no"
     stdin_open: true
     tty: true
+
+  web:
+    image: dogzilla-mapping:humble
+    platform: linux/arm64
+    container_name: dogzilla_web
+    init: true
+    network_mode: host
+    ipc: host
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-12}
+      ROS_LOG_DIR: ${DOGZILLA_ROS_LOG_DIR:-/logs/web}
+      DOGZILLA_WEB_HOST: ${DOGZILLA_WEB_HOST:-0.0.0.0}
+      DOGZILLA_WEB_PORT: ${DOGZILLA_WEB_PORT:-8080}
+      DOGZILLA_WEB_TOKEN: ${DOGZILLA_WEB_TOKEN:-}
+      DOGZILLA_WEB_MAP_NAME: ${DOGZILLA_WEB_MAP_NAME:-test1}
+      DOGZILLA_WEB_MIN_BATTERY: ${DOGZILLA_WEB_MIN_BATTERY:-28}
+      DOGZILLA_WEB_DATABASE: /data/tasks.sqlite3
+    volumes:
+      - ./web/data:/data
+      - ./logs:/logs
+    command:
+      - ros2
+      - run
+      - dogzilla_slam
+      - web_gateway
+    stop_signal: SIGINT
+    stop_grace_period: 10s
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python3 -c "import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:' +
+          '$${DOGZILLA_WEB_PORT}/healthz', timeout=2)"
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped

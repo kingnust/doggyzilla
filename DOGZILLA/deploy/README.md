@@ -119,8 +119,8 @@ clear area with an immediate stop available.
 In controller-only `drive` mode, the same menu also provides:
 
 - `r` / `f`: raise / lower body height in 5 mm steps, clamped to 75–110 mm.
-- `t` / `g`: look up / down using bounded whole-body pitch.
-- `y` / `h`: look left / right using bounded whole-body yaw.
+- `i` / `,`: look up / down using bounded whole-body pitch.
+- `j` / `l`: look left / right using bounded whole-body yaw.
 - `c`: center pitch/yaw and restore 105 mm body height.
 
 DOGZILLA has no separate neck; “head” control uses whole-body attitude, as in
@@ -146,7 +146,42 @@ mutually exclusive because both require the controller serial port. `teleop`,
 `status`, `logs`, `shell`, and `stop` automatically use whichever mode is
 active.
 
-### Animated rest and stand
+### Firmware rest and animated stand
+
+The real controller low-battery trajectory must be captured before host-side
+rest can be implemented. Capture is passive: it uses only Yahboom's supported
+battery and 12-joint read requests. It does not call movement, action,
+motor-angle, motor-speed, load, or unload commands.
+
+When mapping, controller-only drive, localization, or navigation is running,
+the existing single serial manager automatically watches for the configured
+25% low-battery transition. Joint feedback remains at the normal 1 Hz rate
+until the battery reaches the 30% capture window, then temporarily changes to
+5 Hz. The recorder retains a two-second pre-roll and requires measurable joint
+movement followed by two stationary seconds.
+
+For a stationary robot that is already near—but still above—the low-battery
+threshold, stop all other modes and start the read-only monitor:
+
+```bash
+./deploy/dogzilla-map rest-capture
+```
+
+Type `CAPTURE` exactly. The command stops competing vendor/OLED serial readers,
+claims `/dev/ttyAMA0` exclusively, and sends read requests only. Place DOGZILLA
+on a clear, level floor before starting. Do not press the physical power button:
+allow the firmware's natural low-battery routine to occur so the Raspberry Pi
+stays powered long enough to save the file. Do not intentionally hold a fully
+charged robot standing for hours merely to drain it; normal operation can arm
+the automatic recorder instead.
+
+Raw results are written atomically under `profiles/captures/`. A successful
+capture has `status: captured_unvalidated` and `replay_enabled: false`.
+Telemetry loss, no observed motion, or failure to reach a stable tail produces
+an `incomplete` diagnostic, never a replay profile. If the monitor starts after
+the battery is already low and the dog is already resting, it deliberately
+skips capture because the descent has already been missed. Raw captures are
+ignored by Git until they have been reviewed and explicitly promoted.
 
 After stopping mapping or drive mode, place DOGZILLA on a clear, level floor,
 keep hands away from every joint, then run:
@@ -155,13 +190,12 @@ keep hands away from every joint, then run:
 ./deploy/dogzilla-map rest
 ```
 
-`rest` requires typing `REST` before it sends anything. It stops locomotion,
-then runs Yahboom firmware action group 1, the same three-second animated
-lie-down sequence used by the vendor examples. Only after the animation has
-finished does it call Yahboom's `unload_allmotor()` command, releasing torque
-from all 12 leg servos. The body may settle slightly, so keep it on a clear,
-level floor. The Raspberry Pi and controller remain powered; use `lidar-off`
-separately if the scanner is spinning.
+`rest` is intentionally disabled and sends no movement or torque command. The
+public preset action group 1 has not been verified as identical to the lower
+controller's private low-battery/power-button safety trajectory. A real
+12-joint trajectory must be captured from that firmware behavior and validated
+before host-side replay is enabled. Guessing a folded pose or treating action 1
+as the same routine is not accepted as a safe implementation.
 
 To run the matching animated stand-up sequence:
 
@@ -170,8 +204,9 @@ To run the matching animated stand-up sequence:
 ```
 
 `stand` requires typing `STAND`. It first reads Yahboom's battery percentage,
-stops locomotion, ensures servo torque is enabled, and runs firmware action
-group 2, Yahboom's three-second animated stand-up sequence. At 25% or below—or
+stops locomotion, loads torque while holding every joint at its current folded
+position, and then runs firmware action group 2, Yahboom's animated stand-up
+sequence. It allows four seconds for the documented three-second action. At 25% or below—or
 if the battery read fails—`stand` exits before loading torque or starting the
 animation, allowing the controller's built-in low-battery rest to win. Support
 the body and keep hands clear because every leg moves during the animation.
