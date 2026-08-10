@@ -4,8 +4,11 @@ import tempfile
 import unittest
 
 from dogzilla_slam.web_core import build_delivery_payload
+from dogzilla_slam.web_core import build_location_payload
 from dogzilla_slam.web_core import build_route_payload
+from dogzilla_slam.web_core import ConflictError
 from dogzilla_slam.web_core import EventBus
+from dogzilla_slam.web_core import OccupancyMap
 from dogzilla_slam.web_core import TaskStore
 from dogzilla_slam.web_core import TelemetryCache
 from dogzilla_slam.web_core import ValidationError
@@ -63,6 +66,90 @@ class WebCoreTest(unittest.TestCase):
                 {'map': '../../room1', 'waypoints': [{'x': 0, 'y': 0}]}
             )
 
+    def test_location_payload_requires_a_safe_name_and_finite_pose(self):
+        location = build_location_payload(
+            {'map': 'room1', 'name': 'Lab door', 'x': 1, 'y': 2, 'yaw': 0.5}
+        )
+        self.assertEqual(
+            location,
+            {
+                'map': 'room1',
+                'name': 'Lab door',
+                'x': 1.0,
+                'y': 2.0,
+                'yaw': 0.5,
+            },
+        )
+        with self.assertRaisesRegex(ValidationError, 'name is required'):
+            build_location_payload({'map': 'room1', 'name': '', 'x': 1, 'y': 2})
+        with self.assertRaises(ValidationError):
+            build_location_payload(
+                {'map': 'room1', 'name': 'Bad', 'x': math.nan, 'y': 2}
+            )
+
+    def test_occupancy_map_encodes_and_rejects_non_free_goals(self):
+        occupancy = OccupancyMap(
+            'room1',
+            occupied_threshold=50,
+            minimum_clearance_m=0.0,
+        )
+        with self.assertRaises(ConflictError):
+            occupancy.payload()
+
+        cells = [0] * 36
+        cells[2 * 6 + 2] = -1
+        cells[4 * 6 + 4] = 100
+        occupancy.update(
+            frame='map',
+            width=6,
+            height=6,
+            resolution=0.1,
+            origin_x=-0.3,
+            origin_y=-0.3,
+            origin_yaw=0.0,
+            data=cells,
+        )
+        payload = occupancy.payload()
+        decoded = []
+        for value, count in zip(payload['runs'][::2], payload['runs'][1::2]):
+            decoded.extend([value] * count)
+        self.assertEqual(decoded, cells)
+        self.assertNotIn('data', payload)
+        self.assertEqual(occupancy.summary()['revision'], 1)
+
+        self.assertTrue(
+            occupancy.validate_waypoints([{'label': 'Free', 'x': -0.25, 'y': -0.25}])
+        )
+        cases = [
+            ({'label': 'Unknown', 'x': -0.05, 'y': -0.05}, 'unknown'),
+            ({'label': 'Wall', 'x': 0.15, 'y': 0.15}, 'obstacle'),
+            ({'label': 'Outside', 'x': 2.0, 'y': 2.0}, 'outside'),
+        ]
+        for waypoint, message in cases:
+            with self.subTest(waypoint=waypoint):
+                with self.assertRaisesRegex(ValidationError, message):
+                    occupancy.validate_waypoints([waypoint])
+
+    def test_occupancy_map_applies_origin_rotation_and_clearance(self):
+        occupancy = OccupancyMap('rotated', minimum_clearance_m=0.1)
+        cells = [0] * 49
+        cells[3 * 7 + 4] = 100
+        occupancy.update(
+            frame='map',
+            width=7,
+            height=7,
+            resolution=0.1,
+            origin_x=1.0,
+            origin_y=2.0,
+            origin_yaw=math.pi / 2,
+            data=cells,
+        )
+        # Local cell (3, 3) becomes world (0.65, 2.35) after a +90° origin.
+        with self.assertRaisesRegex(ValidationError, 'obstacle'):
+            occupancy.validate_waypoints([
+                {'label': 'Near wall', 'x': 0.65, 'y': 2.35},
+            ])
+
     def test_task_store_persists_and_recovers_interrupted_tasks(self):
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / 'tasks.sqlite3'
@@ -89,6 +176,35 @@ class WebCoreTest(unittest.TestCase):
 
             self.assertEqual(store.next_queued()['id'], first['id'])
             self.assertEqual(len(store.list()), 2)
+            store.close()
+
+    def test_task_store_upserts_and_deletes_named_locations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = TaskStore(Path(directory) / 'tasks.sqlite3')
+            first = store.save_location(
+                build_location_payload(
+                    {'map': 'room1', 'name': 'Lab', 'x': 1, 'y': 2, 'yaw': 0}
+                )
+            )
+            updated = store.save_location(
+                build_location_payload(
+                    {'map': 'room1', 'name': 'lab', 'x': 3, 'y': 4, 'yaw': 1}
+                )
+            )
+            store.save_location(
+                build_location_payload(
+                    {'map': 'room2', 'name': 'Lab', 'x': 0, 'y': 0, 'yaw': 0}
+                )
+            )
+
+            self.assertEqual(updated['id'], first['id'])
+            self.assertEqual(updated['x'], 3.0)
+            self.assertEqual(len(store.list_locations('room1')), 1)
+            self.assertEqual(len(store.list_locations('room2')), 1)
+            store.delete_location(first['id'], 'room1')
+            self.assertEqual(store.list_locations('room1'), [])
+            with self.assertRaises(KeyError):
+                store.delete_location(first['id'], 'room1')
             store.close()
 
     def test_event_bus_and_telemetry_cache_return_copies(self):

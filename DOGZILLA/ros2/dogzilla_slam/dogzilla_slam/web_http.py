@@ -147,6 +147,13 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
         try:
             if path == '/api/v1/state':
                 self._json(HTTPStatus.OK, self.server.service.get_state())
+            elif path == '/api/v1/map':
+                self._json(HTTPStatus.OK, self.server.service.get_map())
+            elif path == '/api/v1/locations':
+                self._json(
+                    HTTPStatus.OK,
+                    {'locations': self.server.service.list_locations()},
+                )
             elif path == '/api/v1/tasks':
                 query = parse_qs(parsed.query)
                 limit = int(query.get('limit', ['100'])[0])
@@ -167,6 +174,8 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                 self._error(HTTPStatus.NOT_FOUND, 'not found')
         except (TypeError, ValueError, ValidationError) as exc:
             self._error(HTTPStatus.BAD_REQUEST, exc)
+        except ConflictError as exc:
+            self._error(HTTPStatus.CONFLICT, exc)
         except Exception as exc:  # Keep internal details out of API responses.
             self.server.service.log_exception('GET request failed', exc)
             self._error(HTTPStatus.INTERNAL_SERVER_ERROR, 'internal server error')
@@ -187,6 +196,14 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
             elif path == '/api/v1/tasks/route':
                 task = self.server.service.create_route(body)
                 self._json(HTTPStatus.CREATED, task)
+            elif path == '/api/v1/routes/preview':
+                self._json(
+                    HTTPStatus.OK,
+                    self.server.service.preview_route(body),
+                )
+            elif path == '/api/v1/locations':
+                location = self.server.service.save_location(body)
+                self._json(HTTPStatus.OK, location)
             elif path.startswith('/api/v1/tasks/') and path.endswith('/cancel'):
                 task_id = path.removeprefix('/api/v1/tasks/').removesuffix(
                     '/cancel'
@@ -209,6 +226,27 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
             self._error(HTTPStatus.CONFLICT, exc)
         except Exception as exc:  # Keep internal details out of API responses.
             self.server.service.log_exception('POST request failed', exc)
+            self._error(HTTPStatus.INTERNAL_SERVER_ERROR, 'internal server error')
+
+    def do_DELETE(self):
+        path = urlsplit(self.path).path
+        if not path.startswith('/api/v1/'):
+            self._error(HTTPStatus.NOT_FOUND, 'not found')
+            return
+        if not self._require_authorized():
+            return
+        try:
+            prefix = '/api/v1/locations/'
+            if not path.startswith(prefix) or len(path) <= len(prefix):
+                self._error(HTTPStatus.NOT_FOUND, 'not found')
+                return
+            location_id = path.removeprefix(prefix)
+            self.server.service.delete_location(location_id)
+            self._json(HTTPStatus.OK, {'deleted': location_id})
+        except KeyError:
+            self._error(HTTPStatus.NOT_FOUND, 'location not found')
+        except Exception as exc:  # Keep internal details out of API responses.
+            self.server.service.log_exception('DELETE request failed', exc)
             self._error(HTTPStatus.INTERNAL_SERVER_ERROR, 'internal server error')
 
     def _stream_events(self):

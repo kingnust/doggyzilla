@@ -53,6 +53,8 @@ initialize_environment() {
     append_default DOGZILLA_WEB_PORT '8080'
     append_default DOGZILLA_WEB_MAP_NAME 'test1'
     append_default DOGZILLA_WEB_MIN_BATTERY '28'
+    append_default DOGZILLA_WEB_OCCUPIED_THRESHOLD '50'
+    append_default DOGZILLA_WEB_GOAL_CLEARANCE '0.18'
     mkdir -p "${REPO_ROOT}/web/data" "${REPO_ROOT}/logs/web"
     printf 'Web configuration is ready in %s (mode 600).\n' "${ENV_FILE}"
 }

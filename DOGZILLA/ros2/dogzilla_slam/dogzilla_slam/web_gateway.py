@@ -2,7 +2,7 @@
 
 from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import Twist
-from nav2_msgs.action import NavigateToPose
+from nav2_msgs.action import ComputePathToPose, NavigateToPose
 from nav_msgs.msg import OccupancyGrid, Odometry
 import math
 import os
@@ -12,17 +12,22 @@ import time
 
 import rclpy
 from rclpy.action import ActionClient
+from rclpy.duration import Duration
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.qos import qos_profile_sensor_data
+from rclpy.time import Time
 from sensor_msgs.msg import BatteryState, JointState
+from tf2_ros import Buffer, TransformException, TransformListener
 
+from .web_core import build_location_payload
 from .web_core import build_delivery_payload
 from .web_core import build_route_payload
 from .web_core import ConflictError
 from .web_core import EventBus
 from .web_core import MAP_NAME_PATTERN
+from .web_core import OccupancyMap
 from .web_core import TaskStore
 from .web_core import TelemetryCache
 from .web_core import utc_now
@@ -70,12 +75,30 @@ class DogzillaWebGateway(Node):
             '/data/tasks.sqlite3',
         )
         self.store = TaskStore(database_path)
+        self.occupancy_map = OccupancyMap(
+            self.map_name,
+            occupied_threshold=self._integer_environment(
+                'DOGZILLA_WEB_OCCUPIED_THRESHOLD',
+                50,
+                1,
+                100,
+            ),
+            minimum_clearance_m=self._float_environment(
+                'DOGZILLA_WEB_GOAL_CLEARANCE',
+                0.18,
+                0.0,
+                2.0,
+            ),
+        )
 
         self._estop_latched = False
         self._active = None
         self._cancel_requests = set()
         self._cancel_reasons = {}
         self._stop_until = 0.0
+        self._linear_speed = 0.0
+        self._angular_speed = 0.0
+        self._waiting_for_map_pose = False
         self._graph = {
             'mode': 'stopped',
             'nodes': [],
@@ -105,6 +128,8 @@ class DogzillaWebGateway(Node):
             self._on_map,
             map_qos,
         )
+        self._tf_buffer = Buffer(cache_time=Duration(seconds=10.0))
+        self._tf_listener = TransformListener(self._tf_buffer, self)
         self._direct_stop_publisher = self.create_publisher(
             Twist,
             '/cmd_vel',
@@ -120,7 +145,13 @@ class DogzillaWebGateway(Node):
             NavigateToPose,
             '/navigate_to_pose',
         )
+        self._planner = ActionClient(
+            self,
+            ComputePathToPose,
+            '/compute_path_to_pose',
+        )
         self._task_timer = self.create_timer(0.10, self._tick)
+        self._pose_timer = self.create_timer(0.10, self._update_map_pose)
         self._graph_timer = self.create_timer(1.0, self._refresh_graph)
         self.events.publish(
             'gateway.started',
@@ -175,48 +206,80 @@ class DogzillaWebGateway(Node):
         )
 
     def _on_odometry(self, message):
-        orientation = message.pose.pose.orientation
-        yaw = math.atan2(
+        with self._lock:
+            self._linear_speed = math.hypot(
+                float(message.twist.twist.linear.x),
+                float(message.twist.twist.linear.y),
+            )
+            self._angular_speed = float(message.twist.twist.angular.z)
+
+    @staticmethod
+    def _quaternion_yaw(quaternion):
+        return math.atan2(
             2.0 * (
-                orientation.w * orientation.z
-                + orientation.x * orientation.y
+                quaternion.w * quaternion.z
+                + quaternion.x * quaternion.y
             ),
             1.0 - 2.0 * (
-                orientation.y * orientation.y
-                + orientation.z * orientation.z
+                quaternion.y * quaternion.y
+                + quaternion.z * quaternion.z
             ),
         )
+
+    def _update_map_pose(self):
+        try:
+            transform = self._tf_buffer.lookup_transform(
+                'map',
+                'base_link',
+                Time(),
+                timeout=Duration(seconds=0.02),
+            )
+        except TransformException as exc:
+            if not self._waiting_for_map_pose:
+                self.get_logger().info(
+                    f'Waiting for map-to-base localization transform: {exc}'
+                )
+                self._waiting_for_map_pose = True
+            return
+        self._waiting_for_map_pose = False
+        translation = transform.transform.translation
+        rotation = transform.transform.rotation
+        with self._lock:
+            linear_speed = self._linear_speed
+            angular_speed = self._angular_speed
         self.telemetry.update(
             'pose',
             {
-                'frame': message.header.frame_id,
-                'x': round(float(message.pose.pose.position.x), 4),
-                'y': round(float(message.pose.pose.position.y), 4),
-                'yaw': round(yaw, 4),
-                'linear_speed': round(
-                    math.hypot(
-                        float(message.twist.twist.linear.x),
-                        float(message.twist.twist.linear.y),
-                    ),
-                    4,
-                ),
-                'angular_speed': round(
-                    float(message.twist.twist.angular.z),
-                    4,
-                ),
+                'frame': transform.header.frame_id or 'map',
+                'x': round(float(translation.x), 4),
+                'y': round(float(translation.y), 4),
+                'yaw': round(self._quaternion_yaw(rotation), 4),
+                'linear_speed': round(linear_speed, 4),
+                'angular_speed': round(angular_speed, 4),
             },
         )
 
     def _on_map(self, message):
-        self.telemetry.update(
-            'map',
-            {
-                'name': self.map_name,
-                'frame': message.header.frame_id,
-                'width': int(message.info.width),
-                'height': int(message.info.height),
-                'resolution': round(float(message.info.resolution), 5),
-            },
+        origin = message.info.origin
+        try:
+            self.occupancy_map.update(
+                frame=message.header.frame_id,
+                width=message.info.width,
+                height=message.info.height,
+                resolution=message.info.resolution,
+                origin_x=origin.position.x,
+                origin_y=origin.position.y,
+                origin_yaw=self._quaternion_yaw(origin.orientation),
+                data=message.data,
+            )
+        except (TypeError, ValueError) as exc:
+            self.get_logger().error(f'Invalid occupancy map ignored: {exc}')
+            return
+        summary = self.occupancy_map.summary()
+        self.telemetry.update('map', summary)
+        self.events.publish(
+            'map.updated',
+            {'name': self.map_name, 'revision': summary['revision']},
         )
 
     def _refresh_graph(self):
@@ -272,8 +335,7 @@ class DogzillaWebGateway(Node):
         pose = self.telemetry.get('pose', stale_after=3.0)
         if pose is None or pose['stale']:
             return False, 'fresh localization odometry is unavailable'
-        map_state = self.telemetry.get('map', stale_after=30.0)
-        if map_state is None:
+        if not self.occupancy_map.available():
             return False, 'map telemetry is unavailable'
         return True, 'ready'
 
@@ -304,6 +366,30 @@ class DogzillaWebGateway(Node):
     def get_task(self, task_id):
         return self.store.get(task_id)
 
+    def get_map(self):
+        return self.occupancy_map.payload()
+
+    def list_locations(self):
+        return self.store.list_locations(self.map_name)
+
+    def save_location(self, value):
+        payload = build_location_payload(value, default_map=self.map_name)
+        self._validate_active_map(payload)
+        self.occupancy_map.validate_waypoints([
+            {
+                'label': payload['name'],
+                'x': payload['x'],
+                'y': payload['y'],
+            },
+        ])
+        location = self.store.save_location(payload)
+        self.events.publish('location.saved', location)
+        return location
+
+    def delete_location(self, location_id):
+        self.store.delete_location(location_id, self.map_name)
+        self.events.publish('location.deleted', {'id': location_id})
+
     def _validate_active_map(self, payload):
         if payload['map'] != self.map_name:
             raise ValidationError(
@@ -314,6 +400,7 @@ class DogzillaWebGateway(Node):
     def create_delivery(self, value):
         payload = build_delivery_payload(value)
         self._validate_active_map(payload)
+        self.occupancy_map.validate_waypoints(payload['waypoints'])
         task = self.store.create(payload)
         self.events.publish('task.created', task)
         return task
@@ -321,9 +408,98 @@ class DogzillaWebGateway(Node):
     def create_route(self, value):
         payload = build_route_payload(value)
         self._validate_active_map(payload)
+        self.occupancy_map.validate_waypoints(payload['waypoints'])
         task = self.store.create(payload)
         self.events.publish('task.created', task)
         return task
+
+    @staticmethod
+    def _wait_for_future(future, timeout, description):
+        completed = threading.Event()
+        future.add_done_callback(lambda _future: completed.set())
+        if not completed.wait(float(timeout)):
+            raise ConflictError(f'{description} timed out')
+        try:
+            return future.result()
+        except Exception as exc:
+            raise ConflictError(f'{description} failed: {exc}') from exc
+
+    def preview_route(self, value):
+        """Ask Nav2 for a non-executing path through validated waypoints."""
+        payload = build_route_payload(value)
+        self._validate_active_map(payload)
+        self.occupancy_map.validate_waypoints(payload['waypoints'])
+        if not self._planner.server_is_ready():
+            raise ConflictError('Nav2 path planner is unavailable')
+        pose = self.telemetry.get('pose', stale_after=3.0)
+        if pose is None or pose['stale']:
+            raise ConflictError('fresh map-frame localization is unavailable')
+
+        start = pose['value']
+        path_points = []
+        total_distance = 0.0
+        for waypoint in payload['waypoints']:
+            goal = ComputePathToPose.Goal()
+            goal.use_start = True
+            goal.start.header.frame_id = 'map'
+            goal.start.header.stamp = self.get_clock().now().to_msg()
+            goal.start.pose.position.x = start['x']
+            goal.start.pose.position.y = start['y']
+            goal.start.pose.orientation.z = math.sin(start['yaw'] / 2.0)
+            goal.start.pose.orientation.w = math.cos(start['yaw'] / 2.0)
+            goal.goal.header.frame_id = 'map'
+            goal.goal.header.stamp = goal.start.header.stamp
+            goal.goal.pose.position.x = waypoint['x']
+            goal.goal.pose.position.y = waypoint['y']
+            goal.goal.pose.orientation.z = math.sin(waypoint['yaw'] / 2.0)
+            goal.goal.pose.orientation.w = math.cos(waypoint['yaw'] / 2.0)
+
+            goal_handle = self._wait_for_future(
+                self._planner.send_goal_async(goal),
+                3.0,
+                'Nav2 path request',
+            )
+            if goal_handle is None or not goal_handle.accepted:
+                raise ConflictError('Nav2 rejected the path preview request')
+            result = self._wait_for_future(
+                goal_handle.get_result_async(),
+                5.0,
+                'Nav2 path calculation',
+            )
+            if result.status != GoalStatus.STATUS_SUCCEEDED:
+                raise ConflictError(
+                    f'Nav2 path preview failed with status {result.status}'
+                )
+            poses = result.result.path.poses
+            segment = [
+                {
+                    'x': round(float(item.pose.position.x), 4),
+                    'y': round(float(item.pose.position.y), 4),
+                }
+                for item in poses
+            ]
+            for previous, current in zip(segment, segment[1:]):
+                total_distance += math.hypot(
+                    current['x'] - previous['x'],
+                    current['y'] - previous['y'],
+                )
+            if path_points and segment:
+                segment = segment[1:]
+            path_points.extend(segment)
+            start = waypoint
+
+        if not path_points:
+            raise ConflictError('Nav2 returned an empty path preview')
+        if len(path_points) > 3000:
+            stride = math.ceil(len(path_points) / 3000)
+            path_points = path_points[::stride]
+        return {
+            'map': self.map_name,
+            'generated_at': utc_now(),
+            'distance_m': round(total_distance, 3),
+            'path': path_points,
+            'waypoints': payload['waypoints'],
+        }
 
     def cancel_task(self, task_id):
         task = self.store.get(task_id)

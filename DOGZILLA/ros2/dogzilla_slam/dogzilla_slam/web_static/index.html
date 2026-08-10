@@ -81,6 +81,60 @@
           </article>
         </section>
 
+        <section class="panel map-editor-panel" aria-labelledby="map-editor-title">
+          <div class="panel-heading map-heading">
+            <div>
+              <p class="eyebrow">Visual mission planning</p>
+              <h2 id="map-editor-title">Map waypoint editor</h2>
+              <p class="subtle map-instructions">Choose Pickup or Drop-off, then click one free map cell. Set the heading from the form below.</p>
+            </div>
+            <div class="map-status-cluster">
+              <span id="map-editor-chip" class="map-chip">waiting for map</span>
+              <span id="map-revision" class="source-age">No occupancy grid</span>
+            </div>
+          </div>
+
+          <div class="map-editor-grid">
+            <div>
+              <div class="map-toolbar" role="group" aria-label="Waypoint selection">
+                <button class="target-button active" type="button" data-map-target="pickup"><span class="waypoint-dot pickup"></span>Select pickup</button>
+                <button class="target-button" type="button" data-map-target="dropoff"><span class="waypoint-dot dropoff"></span>Select drop-off</button>
+                <button id="use-robot-pose" class="ghost compact" type="button">Use robot position</button>
+                <button id="clear-waypoints" class="ghost compact" type="button">Clear points</button>
+              </div>
+              <div id="map-stage" class="map-stage">
+                <canvas id="map-canvas" tabindex="0" aria-label="DOGZILLA occupancy map waypoint editor"></canvas>
+                <div id="map-loading" class="map-loading">Waiting for the ROS occupancy map…</div>
+              </div>
+              <div class="map-footer">
+                <div class="map-legend" aria-label="Map legend">
+                  <span><i class="legend-free"></i>Free</span>
+                  <span><i class="legend-occupied"></i>Obstacle</span>
+                  <span><i class="legend-unknown"></i>Unknown</span>
+                  <span><i class="legend-robot"></i>Robot</span>
+                </div>
+                <strong id="route-preview">Select both waypoints to preview the route.</strong>
+              </div>
+              <p id="map-message" class="form-message" role="status"></p>
+            </div>
+
+            <aside class="location-sidebar" aria-labelledby="saved-location-title">
+              <div>
+                <p class="eyebrow">Reusable places</p>
+                <h3 id="saved-location-title">Named locations</h3>
+                <p class="subtle">Save the currently selected waypoint, then reuse it on this map.</p>
+              </div>
+              <div class="save-location-row">
+                <input id="location-name" maxlength="80" placeholder="e.g. Lab door" aria-label="Location name">
+                <button id="save-location" class="primary compact" type="button">Save selected</button>
+              </div>
+              <div id="location-list" class="location-list">
+                <p class="empty-state">No saved locations.</p>
+              </div>
+            </aside>
+          </div>
+        </section>
+
         <section class="workspace-grid">
           <article class="panel mission-panel">
             <div class="panel-heading">
@@ -97,9 +151,20 @@
               <div class="waypoint-section">
                 <div class="waypoint-title"><span class="waypoint-dot pickup"></span>Pickup</div>
                 <div class="field-grid">
-                  <label>X <input name="pickup-x" type="number" min="-100" max="100" step="0.01" value="0" required></label>
-                  <label>Y <input name="pickup-y" type="number" min="-100" max="100" step="0.01" value="0" required></label>
-                  <label>Yaw <input name="pickup-yaw" type="number" min="-3.1416" max="3.1416" step="0.01" value="0" required></label>
+                  <label>X <input id="pickup-x" name="pickup-x" type="number" value="" placeholder="Select on map" readonly required></label>
+                  <label>Y <input id="pickup-y" name="pickup-y" type="number" value="" placeholder="Select on map" readonly required></label>
+                  <label>Heading
+                    <select id="pickup-yaw" name="pickup-yaw" required>
+                      <option value="0">East · 0°</option>
+                      <option value="0.7854">North-east · 45°</option>
+                      <option value="1.5708">North · 90°</option>
+                      <option value="2.3562">North-west · 135°</option>
+                      <option value="3.1416">West · 180°</option>
+                      <option value="-2.3562">South-west · 225°</option>
+                      <option value="-1.5708">South · 270°</option>
+                      <option value="-0.7854">South-east · 315°</option>
+                    </select>
+                  </label>
                   <label>Wait (s) <input name="pickup-dwell" type="number" min="0" max="300" step="1" value="5" required></label>
                 </div>
               </div>
@@ -107,9 +172,20 @@
               <div class="waypoint-section">
                 <div class="waypoint-title"><span class="waypoint-dot dropoff"></span>Drop-off</div>
                 <div class="field-grid">
-                  <label>X <input name="dropoff-x" type="number" min="-100" max="100" step="0.01" value="0" required></label>
-                  <label>Y <input name="dropoff-y" type="number" min="-100" max="100" step="0.01" value="0" required></label>
-                  <label>Yaw <input name="dropoff-yaw" type="number" min="-3.1416" max="3.1416" step="0.01" value="0" required></label>
+                  <label>X <input id="dropoff-x" name="dropoff-x" type="number" value="" placeholder="Select on map" readonly required></label>
+                  <label>Y <input id="dropoff-y" name="dropoff-y" type="number" value="" placeholder="Select on map" readonly required></label>
+                  <label>Heading
+                    <select id="dropoff-yaw" name="dropoff-yaw" required>
+                      <option value="0">East · 0°</option>
+                      <option value="0.7854">North-east · 45°</option>
+                      <option value="1.5708">North · 90°</option>
+                      <option value="2.3562">North-west · 135°</option>
+                      <option value="3.1416">West · 180°</option>
+                      <option value="-2.3562">South-west · 225°</option>
+                      <option value="-1.5708">South · 270°</option>
+                      <option value="-0.7854">South-east · 315°</option>
+                    </select>
+                  </label>
                   <label>Wait (s) <input name="dropoff-dwell" type="number" min="0" max="300" step="1" value="0" required></label>
                 </div>
               </div>

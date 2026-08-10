@@ -44,8 +44,9 @@ The deployment scripts do not commit or push to GitHub.
 
 ## Web mission control
 
-An optional local web dashboard can monitor battery, pose, ROS/Nav2 state, and
-task progress, as well as queue pickup/drop-off deliveries and latch a software
+An optional local web dashboard renders the occupancy map and live robot pose,
+uses simple click-only pickup/drop-off selection, previews Nav2 paths, stores
+named locations, monitors task progress, and provides a latched software
 emergency stop. It runs in a separate container with no serial-device access.
 
 See [web/README.md](web/README.md) for setup, safety behavior, and the API

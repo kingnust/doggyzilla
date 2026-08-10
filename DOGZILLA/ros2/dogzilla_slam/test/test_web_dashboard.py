@@ -61,9 +61,27 @@ class WebDashboardTest(unittest.TestCase):
             'reset-estop',
             'nav-state',
             'joint-count',
+            'map-canvas',
+            'map-stage',
+            'map-message',
+            'route-preview',
+            'location-name',
+            'save-location',
+            'location-list',
         ):
             with self.subTest(element_id=element_id):
                 self.assertIn(f'id="{element_id}"', html)
+
+    def test_map_editor_uses_clicks_and_fixed_heading_choices(self):
+        html = (STATIC_DIRECTORY / 'index.html').read_text()
+        javascript = (STATIC_DIRECTORY / 'app.js').read_text()
+
+        self.assertIn("addEventListener('click'", javascript)
+        self.assertNotIn("addEventListener('pointermove'", javascript)
+        self.assertNotIn('draggable=', html)
+        self.assertIn('<select id="pickup-yaw"', html)
+        self.assertIn('<select id="dropoff-yaw"', html)
+        self.assertIn('North · 90°', html)
 
 
 if __name__ == '__main__':

@@ -1,9 +1,11 @@
 # DOGZILLA web gateway
 
 The web gateway is a small ROS 2 service for monitoring DOGZILLA and queuing
-autonomous waypoint tasks. It serves a responsive browser dashboard, keeps
-task history in SQLite, and sends each validated delivery stop to Nav2's
-`/navigate_to_pose` action.
+autonomous waypoint tasks. Its browser map renders the live occupancy grid,
+shows the localized robot pose, accepts click-only pickup/drop-off selection,
+and previews the real Nav2 path before a task is queued. It keeps task history
+and reusable named locations in SQLite, then sends each validated delivery stop
+to Nav2's `/navigate_to_pose` action.
 
 ## Start it
 
@@ -41,15 +43,39 @@ Useful operator commands:
 - Robot mode and ROS node availability
 - Battery percentage and freshness
 - Localized map position, heading, and speed
-- Map metadata and joint telemetry
+- Occupancy map, selected waypoints, planned route, and joint telemetry
 - Active mission, queue, progress, failures, and history
+
+## Map editor
+
+Select **Pickup** or **Drop-off**, then click a free map cell once. There is no
+drag-and-drop interaction. Coordinates are read-only and generated from the
+map transform, while heading uses a fixed eight-direction selector. This keeps
+the submitted numbers predictable on desktop and touch devices.
+
+The canvas distinguishes free, occupied, and unknown cells and overlays the
+live `map -> base_link` robot pose. After both points are selected, the gateway
+asks Nav2's `/compute_path_to_pose` action for a non-executing path and draws
+that returned path. This is a preview only; it does not move the robot.
+
+The browser performs an immediate cell check, but the browser is not trusted.
+The gateway repeats validation against its own current occupancy snapshot when
+previewing, saving a named location, and creating a task. It rejects goals that
+are outside the map, in unknown space, occupied, or within the configured
+clearance of those cells. The default clearance is 0.18 m.
+
+The **Named locations** panel saves the currently selected pickup or drop-off.
+Names are unique per map; saving the same name again updates it. Applying a
+saved location changes only the editor. The delivery is not dispatched until
+**Queue delivery** is pressed and all runtime safety gates pass.
 
 The dashboard values come directly from these runtime sources:
 
 | Displayed state | Authoritative source | Freshness / use |
 | --- | --- | --- |
 | Battery | `/battery_state` from `safe_base` | Shown with age; tasks require a reading no older than 12 seconds and at least 28% by default. |
-| Pose and motion | `/odom` | Shown with age; dispatch requires localization no older than 3 seconds. |
+| Pose | `map -> base_link` TF | True map-frame position and heading; dispatch requires a reading no older than 3 seconds. |
+| Motion | `/odom` | Linear and angular speed are combined with the map-frame pose. |
 | Joint positions | `/joint_states` from `safe_base` | Latest position count and stale marker are shown. |
 | Map | transient-local `/map` | Map name, grid dimensions, and resolution; required before dispatch. |
 | Robot/Nav2 mode | ROS node graph and `/navigate_to_pose` action | Refreshed every second; action availability is required before dispatch. |
@@ -63,7 +89,12 @@ Core API routes:
 
 ```text
 GET  /api/v1/state
+GET  /api/v1/map
 GET  /api/v1/tasks
+GET  /api/v1/locations
+POST /api/v1/locations
+DELETE /api/v1/locations/{id}
+POST /api/v1/routes/preview
 POST /api/v1/tasks/delivery
 POST /api/v1/tasks/route
 POST /api/v1/tasks/{id}/cancel
@@ -91,7 +122,8 @@ it never silently resumes a partially completed delivery.
 ## Task and safety behavior
 
 A delivery contains a pickup and drop-off coordinate in the active map frame.
-The gateway rejects malformed, non-finite, out-of-range, or wrong-map goals.
+The gateway rejects malformed, non-finite, out-of-range, wrong-map, occupied,
+unknown, outside-map, or insufficient-clearance goals.
 It does not dispatch queued tasks until Nav2, a map, fresh localization, and a
 fresh battery reading at or above the configured threshold are available.
 
@@ -107,3 +139,15 @@ host networking and the same `ROS_DOMAIN_ID` so they can exchange ROS messages.
 
 Do not forward port 8080 directly to the public internet. For remote access,
 put it behind a VPN or a TLS-authenticated reverse proxy and rotate the token.
+
+Optional `.env` tuning:
+
+```text
+DOGZILLA_WEB_OCCUPIED_THRESHOLD=50
+DOGZILLA_WEB_GOAL_CLEARANCE=0.18
+```
+
+`DOGZILLA_WEB_OCCUPIED_THRESHOLD` is the first ROS occupancy value considered
+blocked. `DOGZILLA_WEB_GOAL_CLEARANCE` is the minimum free radius around the
+selected cell in metres. It is a goal-selection check, not a replacement for
+the Nav2 footprint and costmap configuration.
