@@ -1,4 +1,4 @@
-"""Static safety checks for the undeployed DOGZILLA robot description."""
+"""Static safety checks for the gated DOGZILLA robot description."""
 
 from pathlib import Path
 import shutil
@@ -25,9 +25,9 @@ def _expanded_kinematic_graph():
     leg_root = ET.parse(LEG_XACRO).getroot()
     leg_tag = f'{{{XACRO_NAMESPACE}}}dogzilla_leg'
 
-    links = [link.attrib['name'] for link in robot_root.findall('link')]
+    links = [link.attrib['name'] for link in robot_root.findall('.//link')]
     joints = []
-    for joint in robot_root.findall('joint'):
+    for joint in robot_root.findall('.//joint'):
         joints.append((
             joint.attrib['name'],
             joint.attrib['type'],
@@ -60,7 +60,7 @@ def _expanded_kinematic_graph():
 
 
 def _joint(root, name):
-    for joint in root.findall('joint'):
+    for joint in root.findall('.//joint'):
         if joint.attrib.get('name') == name:
             return joint
     raise AssertionError(f'joint not found: {name}')
@@ -88,9 +88,33 @@ def test_real_xacro_expansion_when_processor_is_available():
     assert len(root.findall('joint')) == 20
 
 
+def test_sensor_frames_can_be_omitted_without_changing_camera_tf():
+    xacro = shutil.which('xacro')
+    if xacro is None:
+        return
+    result = subprocess.run(
+        [
+            xacro,
+            str(ROBOT_XACRO),
+            'include_lidar:=false',
+            'include_imu:=false',
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    root = ET.fromstring(result.stdout)
+    links = {link.attrib['name'] for link in root.findall('link')}
+    assert len(root.findall('link')) == 19
+    assert len(root.findall('joint')) == 18
+    assert 'laser_frame' not in links
+    assert 'imu_link' not in links
+    assert {'base_link', 'camera_link', 'camera_optical_frame'} <= links
+
+
 def test_working_sensor_frames_and_transforms_are_preserved():
     root = ET.parse(ROBOT_XACRO).getroot()
-    links = {link.attrib['name'] for link in root.findall('link')}
+    links = {link.attrib['name'] for link in root.findall('.//link')}
     assert {
         'base_link',
         'laser_frame',
@@ -224,7 +248,8 @@ def test_camera_pose_is_configurable_end_to_end():
         argument.attrib['name']
         for argument in root.findall(argument_tag)
     }
-    assert arguments == expected_arguments
+    assert expected_arguments < arguments
+    assert {'include_lidar', 'include_imu'} <= arguments
 
     camera_origin = _joint(root, 'camera_mount_joint').find('origin')
     origin_source = camera_origin.attrib['xyz'] + camera_origin.attrib['rpy']

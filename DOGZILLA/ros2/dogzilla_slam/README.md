@@ -92,14 +92,13 @@ gravity convention/scale, stationary gyro bias, and measured covariance from
 unavailable because Yahboom's fused RPY world convention is undocumented and
 Cartographer does not need it here.
 
-## Undeployed URDF and monocular RTAB-Map framework
+## Gated URDF and monocular RTAB-Map deployment
 
-The repository contains a disabled-by-default URDF/Xacro model and an isolated
-RTAB-Map shadow-mode launch for a calibrated monocular camera. They are not
-included in `full_mapping.launch.py`, `full_navigation.launch.py`, or the host
-deployment entry points, so the normal `dogzilla` workflow does not load them.
-The current image was not rebuilt and the new runtime dependencies are not yet
-pinned.
+The image contains the URDF/Xacro, USB camera, rectification, and isolated
+RTAB-Map runtime with exact package pins. Normal mapping and navigation launch
+files still do not load them. The explicit `dogzilla shadow` command starts a
+second, camera-only Compose service beside Cartographer and refuses to start
+until real 640x480 intrinsics and measured camera extrinsics validate.
 
 The current mechanical dimensions, camera pose, leg corner assignment, joint
 axes, and joint zero offsets are provisional. Do not use the model for control
@@ -107,9 +106,18 @@ or collision checking. RTAB-Map is configured to consume a rectified mono
 image and `CameraInfo`, plus Cartographer's scan-matched odometry and MS200
 `/scan`; it publishes no TF and keeps output under `/rtabmap_shadow`.
 
-See `docs/URDF_RTABMAP_MONO.md` at the repository root for the camera contract,
-transform-ownership warning, measurements, and gates required before a later
-deployment.
+`dogzilla camera-check 12` validates the physical raw camera without exposing
+serial devices. The image builds a checksum-pinned upstream `usb_cam` fix that
+drains the camera at its native rate while publishing at 30 Hz, preventing the
+old-frame queue observed with Humble's 0.8.0 binary. `dogzilla camera-calibrate
+BOARD_SIZE SQUARE_METRES` runs the official GUI and atomically installs only a
+valid COMMIT result.
+`dogzilla camera-extrinsics --measured ...` generates the mount YAML from XYZ
+metres and RPY degrees without manual formatting. `dogzilla shadow-check 10`
+validates calibrated rectified data, the exact live CameraInfo matrices, scan,
+odometry, timestamp alignment, usable LiDAR returns, and real RTAB `Info`
+activity after shadow mode starts. See `docs/URDF_RTABMAP_MONO.md` for the camera
+contract, transform ownership, measurements, and remaining gates.
 
 ## Legacy manual-container workflow
 

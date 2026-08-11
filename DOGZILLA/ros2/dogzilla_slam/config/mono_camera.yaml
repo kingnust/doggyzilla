@@ -1,0 +1,28 @@
+/camera/mono_camera:
+  ros__parameters:
+    video_device: /dev/video0
+    framerate: 30.0
+    io_method: mmap
+    frame_id: camera_optical_frame
+    pixel_format: mjpeg2rgb
+    av_device_format: YUV422P
+    image_width: 640
+    image_height: 480
+    camera_name: dogzilla_mono
+    camera_info_url: file:///calibration/camera.yaml
+    # The container receives only /dev/video0. Avoid probing unrelated host
+    # video nodes that are visible through sysfs but not passed into Docker.
+    skip_device_check: true
+    brightness: -1
+    contrast: -1
+    saturation: -1
+    sharpness: -1
+    gain: -1
+    # usb_cam 0.8.0 expects these keys even when this UVC camera reports the
+    # corresponding controls as unsupported. The warnings are non-fatal.
+    auto_white_balance: true
+    white_balance: 4600
+    autoexposure: true
+    exposure: 157
+    autofocus: false
+    focus: -1

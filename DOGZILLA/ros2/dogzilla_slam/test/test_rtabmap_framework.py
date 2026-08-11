@@ -1,4 +1,4 @@
-"""Static checks for the disabled monocular RTAB-Map shadow framework."""
+"""Static checks for the gated monocular RTAB-Map shadow deployment."""
 
 from pathlib import Path
 import importlib.util
@@ -10,6 +10,11 @@ import yaml
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = PACKAGE_ROOT / 'config' / 'rtabmap_mono_shadow.yaml'
 LAUNCH_PATH = PACKAGE_ROOT / 'launch' / 'rtabmap_mono_shadow.launch.py'
+CAMERA_LAUNCH_PATH = PACKAGE_ROOT / 'launch' / 'mono_camera.launch.py'
+CALIBRATION_LAUNCH_PATH = (
+    PACKAGE_ROOT / 'launch' / 'camera_calibration.launch.py'
+)
+COMBINED_LAUNCH_PATH = PACKAGE_ROOT / 'launch' / 'visual_shadow.launch.py'
 REPOSITORY_ROOT = PACKAGE_ROOT.parents[1]
 
 
@@ -48,6 +53,9 @@ def test_launch_descriptions_construct_when_ros_is_available():
     for path in (
         LAUNCH_PATH,
         PACKAGE_ROOT / 'launch' / 'robot_description.launch.py',
+        CAMERA_LAUNCH_PATH,
+        CALIBRATION_LAUNCH_PATH,
+        COMBINED_LAUNCH_PATH,
     ):
         spec = importlib.util.spec_from_file_location(path.stem, path)
         module = importlib.util.module_from_spec(spec)
@@ -122,7 +130,7 @@ def test_configuration_is_planar_visual_plus_icp_mapping():
     assert int(parameters['Kp/MaxFeatures']) >= 100
 
 
-def test_database_is_persistent_and_framework_is_not_integrated():
+def test_database_is_persistent_and_normal_mapping_is_unchanged():
     config_source = CONFIG_PATH.read_text()
     launch_source = LAUNCH_PATH.read_text()
     assert '/logs/rtabmap_mono_shadow.db' in config_source
@@ -151,26 +159,101 @@ def test_framework_has_no_hardware_or_motion_ownership():
         assert token not in combined_source
 
 
-def test_framework_is_absent_from_deployment_entry_points():
-    deploy_files = (
-        REPOSITORY_ROOT / 'deploy' / 'Dockerfile',
-        REPOSITORY_ROOT / 'deploy' / 'compose.yaml',
-        REPOSITORY_ROOT / 'deploy' / 'dogzilla-map',
-        REPOSITORY_ROOT / 'deploy' / 'ros-packages.lock',
-    )
-    for path in deploy_files:
+def test_camera_and_combined_launches_are_disabled_by_default():
+    for path in (
+        CAMERA_LAUNCH_PATH,
+        CALIBRATION_LAUNCH_PATH,
+        COMBINED_LAUNCH_PATH,
+    ):
         source = path.read_text()
-        assert 'rtabmap_mono_shadow' not in source
-        assert 'robot_description.launch.py' not in source
+        compile(source, str(path), 'exec')
+        assert re.search(
+            r"DeclareLaunchArgument\(\s*'enabled',\s*default_value='false'",
+            source,
+        )
+    camera_source = CAMERA_LAUNCH_PATH.read_text()
+    assert 'GroupAction(' in camera_source
+    assert 'condition=IfCondition(enabled)' in camera_source
 
+
+def test_camera_calibration_launch_uses_exact_topics_and_commit_service():
+    source = CALIBRATION_LAUNCH_PATH.read_text()
+    assert "package='camera_calibration'" in source
+    assert "executable='cameracalibrator'" in source
+    assert "('image', '/camera/image_raw')" in source
+    assert "('camera', '/camera')" in source
+    assert "'dogzilla_mono'" in source
+    assert "'rectify': 'false'" in source
+    assert 'OnProcessExit(' in source
+    assert 'camera calibration window closed' in source
+
+
+def test_shadow_deployment_is_separate_and_has_no_motion_ownership():
+    compose_path = REPOSITORY_ROOT / 'deploy' / 'compose.yaml'
+    if not compose_path.is_file():
+        # The runtime image intentionally copies only this ROS package.
+        return
+    compose_source = compose_path.read_text()
+    command_source = (
+        REPOSITORY_ROOT / 'deploy' / 'dogzilla-map'
+    ).read_text()
     package_lock = (
         REPOSITORY_ROOT / 'deploy' / 'ros-packages.lock'
     ).read_text()
-    assert 'rtabmap' not in package_lock.lower()
+    dockerfile = (
+        REPOSITORY_ROOT / 'deploy' / 'Dockerfile'
+    ).read_text()
+    camera_profile = yaml.safe_load(CAMERA_LAUNCH_PATH.parent.parent.joinpath(
+        'config', 'mono_camera.yaml'
+    ).read_text())
+
+    shadow_service = compose_source.split('  shadow:', 1)[1].split(
+        '\n  web:', 1
+    )[0]
+    assert 'visual_shadow.launch.py' in shadow_service
+    assert '/dev/video0:/dev/video0' in shadow_service
+    assert '/dev/ttyAMA0' not in shadow_service
+    assert '/dev/ttyAMA1' not in shadow_service
+    assert '/cmd_vel' not in shadow_service
+    assert 'privileged: true' not in shadow_service
+    assert 'require_valid_camera_model' in command_source
+    assert 'camera_extrinsics.yaml' in command_source
+    assert 'camera-calibrate' in command_source
+    assert '--network none' in command_source
+    assert '--device /dev/video0:/dev/video0' in command_source
+    assert 'com.dogzilla.role=camera-calibration' in command_source
+    assert 'camera-calibration-current' in command_source
+    assert 'reconcile_camera_calibration' in command_source
+    assert 'timeout --signal=INT --kill-after=30s 1800s' in command_source
+    assert '--intrinsics /calibration/camera.yaml' in command_source
+    assert 'shadow_validate --duration "$1"' in command_source
+    shadow_check_body = command_source.split('check_shadow() {', 1)[1].split(
+        '\n}\n', 1
+    )[0]
+    assert 'set -e' in shadow_check_body
+    assert 'rtabmap-slam=' in package_lock
+    assert 'rtabmap-msgs=' in package_lock
+    assert 'a180538def5056d89563f7275baaa7c3fae01316' in dockerfile
+    assert (
+        'f91976d9b2091b20465d15f58f81ae57d7fae3b3b69d36803d56821ffce51e9e'
+        in dockerfile
+    )
+    assert '--packages-select usb_cam oradar_lidar dogzilla_slam' in dockerfile
+    assert '--allow-overriding usb_cam' in dockerfile
+    assert camera_profile['/camera/mono_camera']['ros__parameters'][
+        'skip_device_check'
+    ] is True
 
 
 def test_future_runtime_dependencies_are_declared():
     manifest = (PACKAGE_ROOT / 'package.xml').read_text()
     assert '<exec_depend>robot_state_publisher</exec_depend>' in manifest
+    assert '<exec_depend>camera_calibration</exec_depend>' in manifest
     assert '<exec_depend>rtabmap_slam</exec_depend>' in manifest
+    assert '<exec_depend>rtabmap_msgs</exec_depend>' in manifest
+    assert '<exec_depend>image_proc</exec_depend>' in manifest
+    assert '<exec_depend>usb_cam</exec_depend>' in manifest
     assert '<exec_depend>xacro</exec_depend>' in manifest
+
+    setup_source = (PACKAGE_ROOT / 'setup.py').read_text()
+    assert 'shadow_validate = dogzilla_slam.shadow_validate:main' in setup_source

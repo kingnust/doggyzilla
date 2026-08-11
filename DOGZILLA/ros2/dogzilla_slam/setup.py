@@ -46,6 +46,8 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'camera_model = dogzilla_slam.camera_model:main',
+            'camera_validate = dogzilla_slam.camera_validate:main',
             'imu_calibrate = dogzilla_slam.imu_calibrate:main',
             'imu_corrector = dogzilla_slam.imu_corrector:main',
             'imu_validate = dogzilla_slam.imu_validate:main',
@@ -56,6 +58,7 @@ setup(
             'safe_base = dogzilla_slam.safe_base:main',
             'save_map = dogzilla_slam.save_map:main',
             'servo_power = dogzilla_slam.servo_power:main',
+            'shadow_validate = dogzilla_slam.shadow_validate:main',
             'teleop = dogzilla_slam.teleop:main',
             'tf_odometry = dogzilla_slam.tf_odometry:main',
             'web_gateway = dogzilla_slam.web_gateway:main',

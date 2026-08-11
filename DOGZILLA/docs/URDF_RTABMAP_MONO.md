@@ -2,12 +2,12 @@
 
 ## Current status
 
-This is source-only scaffolding. It is disabled by default and is not included
-by the normal mapping or navigation launch files. The current Docker image was
-not rebuilt, the required runtime packages are not pinned, and no deployment
-command invokes the framework. A later image rebuild will copy the source
-files because the ROS package is copied as a whole, but they will remain inert
-until their dependencies and launch integration are deliberately added.
+This is a deployed but calibration-gated shadow workflow. Exact Humble
+versions of the camera, image processing, Xacro, robot-state-publisher, and
+RTAB-Map dependencies are installed in `dogzilla-mapping:humble`. Normal
+mapping and navigation launch files remain unchanged. Only `dogzilla shadow`
+can start the separate visual service, and it refuses before hardware startup
+when either required camera calibration file is absent or invalid.
 
 The framework deliberately separates two jobs:
 
@@ -47,12 +47,29 @@ monocular RGB is mainly valuable here for recognizing previously seen places.
   safety gate is enabled. Its output stays under `/rtabmap_shadow` and its
   database defaults to `/logs/rtabmap_mono_shadow.db`. Its read-only odometry
   adapter can be disabled when an existing odometry message is selected.
+- `config/mono_camera.yaml` is the tested 640x480, 30 Hz MJPEG camera profile.
+- `deploy/Dockerfile` checksum-pins the upstream `usb_cam` frame-draining fix;
+  the stock Humble 0.8.0 timer otherwise returned nearly one-second-old frames
+  from this camera's 120 Hz V4L2 queue.
+- `launch/mono_camera.launch.py` owns `/dev/video0` and optionally rectifies.
+- `launch/camera_calibration.launch.py` combines the tested camera profile with
+  the official ROS intrinsic-calibration GUI and shuts the camera down when the
+  GUI exits.
+- `launch/visual_shadow.launch.py` combines the gated camera, camera TF and
+  RTAB launch while omitting duplicate LiDAR and IMU transforms.
+- `dogzilla_slam/camera_model.py` rejects missing, placeholder, wrong-size, or
+  unmeasured calibration before deployment starts.
+- `dogzilla_slam/camera_validate.py` validates live frames, timing and
+  calibrated `CameraInfo`.
+- `dogzilla_slam/shadow_validate.py` proves that image, LiDAR, and scan-matched
+  odometry timestamps overlap and that RTAB is publishing processed-node
+  statistics. Topic existence alone is not treated as success.
 
 ## Camera contract
 
-The current Yahboom camera application reads `/dev/video0` or `/dev/video1`
-with OpenCV. It does not publish ROS messages, so it cannot feed this framework
-directly. A later deployment needs one ROS camera owner that publishes:
+The Yahboom application and ROS camera cannot own `/dev/video0` together. The
+operator command stops the Yahboom application through its normal Ctrl-C path,
+refuses unknown competing owners, and then makes `usb_cam` the sole ROS owner:
 
 | Topic | Type | Requirement |
 | --- | --- | --- |
@@ -63,8 +80,16 @@ The image `frame_id` should be `camera_optical_frame`. The camera calibration
 must be produced at the exact deployed resolution and must not contain the
 all-zero placeholder matrices commonly emitted by an uncalibrated driver.
 
-The framework does not open a video device. This avoids competing with the
-Yahboom app while the driver and device selection are still undecided.
+`dogzilla camera-check 12` verifies raw data without calibration. It must not
+be used as evidence that rectification or RTAB-Map is ready. The `shadow`
+command additionally requires non-zero intrinsic matrices and a measured mount
+transform before it opens the camera.
+
+`dogzilla camera-calibrate BOARD_SIZE SQUARE_METRES` writes the GUI COMMIT to a
+temporary path, validates it, then atomically installs `camera.yaml`; a cancel,
+crash, malformed result, or wrong resolution cannot replace a prior file.
+`dogzilla camera-extrinsics --measured X Y Z ROLL PITCH YAW` generates the mount
+YAML from metres and degrees, avoiding manual YAML formatting errors.
 
 ## Measurements still required
 
@@ -85,23 +110,16 @@ use, measure and verify:
 The model is currently suitable only as a TF and visualization framework. It
 must not be treated as a control, collision, or kinematics model.
 
-## Deployment gates
+## Remaining activation gates
 
-Deployment should happen in a later, stationary maintenance session:
-
-1. Finish and save the current Cartographer map.
-2. Measure the camera extrinsic and complete monocular intrinsic calibration.
-3. Select one camera driver and one rectification path.
-4. Pin Xacro, robot-state-publisher, camera, image-processing, and RTAB-Map
-   packages in `deploy/ros-packages.lock`, then rebuild the image.
-5. Move LiDAR and IMU static-transform ownership into one place. The current
-   LiDAR launch and `hardware.launch.py` already publish those transforms, so
-   robot-state-publisher must not publish duplicates during migration.
-6. Verify the URDF and camera topics from a recorded bag before live shadow
-   mode.
-7. Run RTAB-Map under its isolated namespace with TF publication disabled,
-   compare its loop closures with Cartographer, and only then decide whether it
-   should become part of deployment.
+1. Measure the real checkerboard and run `dogzilla camera-calibrate` to generate
+   `calibration/camera.yaml` for `dogzilla_mono` at exactly 640x480.
+2. Measure the camera translation and RPY relative to `base_link`, then run
+   `dogzilla camera-extrinsics --measured ...` with the physical values.
+3. Run `dogzilla shadow --headless`, then `dogzilla shadow-check 10` while the
+   robot is stationary.
+4. Record a new camera-enabled route and compare real RTAB loop closures with
+   Cartographer before relying on the visual database.
 
 Existing PGM/YAML/PBStream maps remain usable because their frame names and
 working sensor transforms have not changed. They contain no historical camera
@@ -110,23 +128,25 @@ recording or mapping run after deployment.
 
 ## Validation status
 
-Offline validation currently passes:
+Current validation passes:
 
-- 20 static safety and structure tests from both the package directory and
-  repository root
-- 2,000 repeated test executions without state or path-dependent failures
-- real Xacro expansion with versions 2.1.1 and 2.0.8
-- 100 randomized camera-pose Xacro expansions
-- semantic URDF parsing with one `base_link` root, 21 unique links, and 20
-  unique joints forming one connected acyclic tree
-- native YAML parsing and checks for monocular input, LiDAR input, isolated
-  odometry, planar optimization, disabled TF output, persistent database, and
-  absence from operational/deployment entry points
+- 98 source and deployment tests plus ROS Python/launch style validation
+- installed-image package discovery for the pinned camera overlay and DOGZILLA
+  package
+- Xacro expansion to 21 links/20 joints normally and 19/18 in shadow mode
+- live `base_link -> camera_optical_frame` TF with LiDAR/IMU duplicates omitted
+- physical raw camera data at about 28 Hz, 640x480, correct frame ID,
+  monotonic timestamps, about 0.016-second mean age, and low delay jitter
+- RTAB 0.23.7 launch-time parameter acceptance, intended subscriptions,
+  isolated odometry, no devices, no privilege, no `/cmd_vel`, `publish_tf`
+  false, no observed TF messages, SQLite database creation, and clean SIGINT
+  save/exit
+- missing-calibration refusal before any mapping or hardware service starts
+- guarded intrinsic/extrinsic writers that cannot replace an existing file
+  with a cancelled, malformed, implausible, or unacknowledged measurement
 
-These checks establish source and configuration reliability, not mapping
-quality on the physical robot. Still unverified are ROS 2 Humble launch-time
-parameter acceptance, camera calibration quality, camera/scan/odometry timing,
-CPU and memory load on the Pi, visual feature quality under motion and changing
-light, real loop-closure precision, and long-duration database behavior. Those
-require a stationary maintenance window followed by recorded-data testing and
-an explicitly approved shadow-mode deployment.
+Still unverified are calibrated rectification quality, combined live
+camera/scan/odometry synchronization, CPU/temperature during the full stack,
+visual features while moving, loop-closure precision, and long-duration
+database behavior. Those require the two physical camera calibration files;
+the deployment does not invent them or bypass the gate.

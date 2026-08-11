@@ -16,6 +16,8 @@
   <xacro:arg name="camera_roll" default="0.000"/>
   <xacro:arg name="camera_pitch" default="0.000"/>
   <xacro:arg name="camera_yaw" default="0.000"/>
+  <xacro:arg name="include_lidar" default="true"/>
+  <xacro:arg name="include_imu" default="true"/>
 
   <xacro:property name="base_length" value="0.300"/>
   <xacro:property name="base_width" value="0.160"/>
@@ -78,26 +80,30 @@
   <xacro:dogzilla_leg
     leg="4" parent="base_link" mount_x="-0.115" mount_y="-0.080" side="-1"/>
 
-  <link name="laser_frame">
-    <visual>
-      <geometry>
-        <cylinder radius="0.036" length="0.025"/>
-      </geometry>
-      <material name="dogzilla_sensor_material"/>
-    </visual>
-  </link>
-  <joint name="laser_mount_joint" type="fixed">
-    <origin xyz="0.000 0.000 0.180" rpy="0 0 0"/>
-    <parent link="base_link"/>
-    <child link="laser_frame"/>
-  </joint>
+  <xacro:if value="$(arg include_lidar)">
+    <link name="laser_frame">
+      <visual>
+        <geometry>
+          <cylinder radius="0.036" length="0.025"/>
+        </geometry>
+        <material name="dogzilla_sensor_material"/>
+      </visual>
+    </link>
+    <joint name="laser_mount_joint" type="fixed">
+      <origin xyz="0.000 0.000 0.180" rpy="0 0 0"/>
+      <parent link="base_link"/>
+      <child link="laser_frame"/>
+    </joint>
+  </xacro:if>
 
-  <link name="imu_link"/>
-  <joint name="imu_mount_joint" type="fixed">
-    <origin xyz="0.085 0.000 0.070" rpy="0 0 0"/>
-    <parent link="base_link"/>
-    <child link="imu_link"/>
-  </joint>
+  <xacro:if value="$(arg include_imu)">
+    <link name="imu_link"/>
+    <joint name="imu_mount_joint" type="fixed">
+      <origin xyz="0.085 0.000 0.070" rpy="0 0 0"/>
+      <parent link="base_link"/>
+      <child link="imu_link"/>
+    </joint>
+  </xacro:if>
 
   <link name="camera_link">
     <visual>

@@ -12,3 +12,48 @@ physical robot. Keep it with the robot's backup. The fused mapping profile
 refuses to start when the file is absent or its six-pose validation is false.
 
 Do not copy another robot's `imu.json`: bias and scale are hardware-specific.
+
+## Monocular camera files
+
+Visual shadow mapping requires two separate, robot-specific files:
+
+- `camera.yaml`: ROS camera intrinsics generated at exactly 640x480 by the
+  `camera_calibration` tool. Its camera name must be `dogzilla_mono`.
+- `camera_extrinsics.yaml`: the measured `base_link` to `camera_link`
+  translation in metres and roll/pitch/yaw in radians.
+
+Generate the intrinsics from a terminal on the Raspberry Pi monitor:
+
+```bash
+dogzilla camera-calibrate 8x6 0.025
+```
+
+`8x6` is an example count of the checkerboard's inner corners, not its printed
+squares. `0.025` is an example measured square edge in metres. Replace both
+values with the physical board measurements. DOGZILLA stays stationary and no
+serial device is exposed. The command opens the official ROS calibration GUI,
+accepts only a COMMIT result that passes the 640x480 camera contract, backs up
+an existing calibration, and installs `camera.yaml` atomically. Closing the GUI
+without COMMIT changes nothing.
+
+The GUI has a 30-minute maximum session time. If the terminal is killed before
+its cleanup trap can run, the next `camera-calibrate`, `camera-check`, `shadow`,
+or `stop` command stops the labelled temporary container. A valid COMMIT is
+recovered and installed; an absent or invalid partial result is discarded.
+
+After measuring the camera centre relative to `base_link`, save the transform
+without editing YAML by hand:
+
+```bash
+dogzilla camera-extrinsics --measured X Y Z ROLL PITCH YAW
+```
+
+XYZ is in metres. Roll, pitch, and yaw are in degrees and are converted to ROS
+radians in the generated file. The `--measured` flag is an explicit statement
+that the supplied values were physically measured. Do not enter the example
+numbers merely to bypass the deployment gate.
+
+The deployment command rejects the example and all missing, malformed,
+implausible, or zero-intrinsic files before opening the camera or starting
+mapping. `shadow-check` also compares the live `CameraInfo` matrices against
+the exact installed `camera.yaml`.

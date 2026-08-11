@@ -15,6 +15,8 @@ Pi host
 ├── maps/                        persistent PBStream/PGM/YAML files
 ├── logs/latest                  latest timestamped ROS log session
 ├── calibration/imu.json         robot-specific IMU calibration
+├── calibration/camera.yaml      required 640x480 mono intrinsics
+├── calibration/camera_extrinsics.yaml  measured camera mount
 └── Docker Compose
     ├── dogzilla_mapping          full mapping mode
     ├── dogzilla_drive            controller-only mode
@@ -31,13 +33,20 @@ Pi host
         ├── Nav2                  optional planner/controller/behaviors
         ├── Twist Mux             teleop priority over Nav2 commands
         └── patched shutdown      deactivates the MS200 motor
+    ├── dogzilla_visual_shadow    camera + URDF + isolated RTAB-Map
+    │   ├── /dev/video0           sole camera owner
+    │   ├── robot-state publisher camera TF; no duplicate LiDAR/IMU TF
+    │   ├── TF odometry           reads Cartographer odom -> base_link
+    │   └── RTAB-Map              no motion command, serial device, or TF output
     └── dogzilla_web              browser mission UI; no serial devices
 ```
 
-The three hardware-owning Compose services are mutually exclusive. Every mode
+The three serial-owning Compose services are mutually exclusive. Every mode
 uses the same serial-manager implementation, so movement, battery reads,
 motor-angle reads, raw IMU reads, and posture writes never compete for
 `/dev/ttyAMA0`. The device-free web service may run beside navigation.
+The visual shadow service may run only beside mapping. It receives `/scan` and
+scan-matched odometry over ROS but has no access to either serial port.
 
 ## First build
 
@@ -91,6 +100,106 @@ Check the container and ROS topics:
 
 `status` shows the Compose container state and the ROS topics visible inside
 it. Compose reports `healthy` after both `/scan` and `/map` exist.
+
+### Monocular camera and visual shadow mapping
+
+Test the raw USB camera without starting the legs, LiDAR, or mapping:
+
+```bash
+dogzilla camera-check 12
+```
+
+`camera-check` is the operator alias plus the `camera-check` subcommand. `12`
+is the number of seconds sampled. The command gracefully closes Yahboom's
+camera application if it is running, opens only `/dev/video0` in a temporary
+container, checks 640x480 images, `camera_optical_frame`, rate, monotonic
+timestamps, bounded latency and jitter, then removes the container. It does
+not require or pretend to provide intrinsic calibration.
+
+The deployed 30 Hz MJPEG profile produces about 27-28 Hz on this Pi. The image
+uses a checksum-pinned upstream `usb_cam` frame-draining fix because Humble's
+0.8.0 binary accumulated old V4L2 frames on this 120 Hz camera. A clean
+camera-only test reduced mean capture-to-receipt age from about 0.91 seconds to
+0.016 seconds while retaining the original capture timestamp. Warnings about
+unsupported white-balance, exposure, and focus controls are expected with this
+camera.
+
+From a terminal on the Pi monitor, generate intrinsics without moving files by
+hand:
+
+```bash
+dogzilla camera-calibrate 8x6 0.025
+```
+
+`8x6` counts inner checkerboard corners. `0.025` is the measured square edge in
+metres; replace both examples with the real board. The command automatically
+finds the local Pi display, opens only `/dev/video0` in an isolated container,
+and runs the official ROS GUI. Move the checkerboard while DOGZILLA stays
+still. Fill the coverage bars, click `CALIBRATE`, inspect the rectified image,
+then click `COMMIT`. The wrapper validates the committed 640x480 file and
+atomically installs it as `calibration/camera.yaml`. Closing without `COMMIT`
+leaves the existing file unchanged.
+
+The calibration container has no network or serial devices and a 30-minute
+maximum lifetime. If its terminal is forcibly closed, the next camera,
+shadow, or stop command reconciles the labelled session: a valid COMMIT is
+recovered, while an empty or invalid partial result is removed.
+
+Save physically measured mount coordinates without hand-editing YAML:
+
+```bash
+dogzilla camera-extrinsics --measured X Y Z ROLL PITCH YAW
+```
+
+XYZ is in metres and RPY is in degrees. The command converts RPY to radians,
+validates the transform, backs up an existing file, and atomically writes
+`calibration/camera_extrinsics.yaml`. `--measured` must not be used with guessed
+values.
+
+Visual shadow mapping is deliberately calibration-gated. It requires:
+
+- `calibration/camera.yaml`, produced for `dogzilla_mono` at exactly 640x480.
+- `calibration/camera_extrinsics.yaml`, copied from the example and filled
+  with measured `base_link -> camera_link` XYZ metres and RPY radians, with
+  `measured: true` only after measurement.
+
+After both files validate, start one combined headless session:
+
+```bash
+dogzilla shadow --headless
+```
+
+`shadow` starts normal Cartographer mapping first, then the calibrated camera,
+camera TF, rectification, and namespaced RTAB-Map service. `--headless` disables
+RViz, which is appropriate over SSH. Add `--imu` only when the existing
+`imu.json` calibration should be fused into Cartographer:
+
+```bash
+dogzilla shadow --headless --imu
+```
+
+Before moving the robot, validate all four synchronized inputs:
+
+```bash
+dogzilla shadow-check 10
+```
+
+`shadow-check` first samples ten seconds of rectified calibrated images and
+compares the live CameraInfo matrices with the installed YAML. It then samples
+the complete pipeline for ten seconds: image, scan, scan-matched odometry, and
+RTAB `Info`. It rejects stale or sparse streams, bad LiDAR metadata, unusable
+ranges, missing odometry covariance, weak timestamp overlap, or a running RTAB
+node that has not successfully processed data. It reports loop closures, but
+does not require one while the robot is stationary. Stop both services and the
+LiDAR safely with:
+
+```bash
+dogzilla stop
+```
+
+Without both camera calibration files, `shadow` exits before starting mapping
+or opening any hardware. Normal `start`, `drive`, `localize`, and `navigate`
+commands do not load the camera, URDF publisher, or RTAB-Map.
 
 Open keyboard control:
 

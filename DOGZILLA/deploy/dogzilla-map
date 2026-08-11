@@ -7,6 +7,7 @@ COMPOSE_FILE="${DEPLOY_DIR}/compose.yaml"
 SERVICE_NAME="mapping"
 DRIVE_SERVICE_NAME="drive"
 NAVIGATION_SERVICE_NAME="navigation"
+SHADOW_SERVICE_NAME="shadow"
 IMAGE_NAME="dogzilla-mapping:humble"
 BASE_IMAGE_NAME="yahboomtechnology/ros-humble:3.8"
 PINNED_BASE_ALIAS="dogzilla-yahboom-base:3.8-pinned"
@@ -15,6 +16,11 @@ MINIMUM_BUILD_KB=2621440
 OLED_SERVICE="yahboom_oled.service"
 OLED_STATE_FILE="${REPO_ROOT}/logs/yahboom_oled.was-active"
 CALIBRATION_FILE="${REPO_ROOT}/calibration/imu.json"
+CAMERA_INTRINSICS_FILE="${REPO_ROOT}/calibration/camera.yaml"
+CAMERA_EXTRINSICS_FILE="${REPO_ROOT}/calibration/camera_extrinsics.yaml"
+CAMERA_MODEL_HELPER="${REPO_ROOT}/ros2/dogzilla_slam/dogzilla_slam/camera_model.py"
+CAMERA_CALIBRATION_STATE="${REPO_ROOT}/logs/camera-calibration-current"
+CAMERA_CALIBRATION_XHOST_STATE="${REPO_ROOT}/logs/camera-calibration-xhost"
 DESKTOP_TEMPLATE="${DEPLOY_DIR}/desktop/dogzilla-mapping.desktop"
 SHUTDOWN_UNIT="dogzilla-mapping-shutdown.service"
 SHUTDOWN_UNIT_SOURCE="${DEPLOY_DIR}/systemd/${SHUTDOWN_UNIT}"
@@ -38,6 +44,16 @@ usage() {
         '  build                 Build the pinned dogzilla-mapping image.' \
         '  start [--rviz|--headless] [--imu]' \
         '                        Start hardware and Cartographer together.' \
+        '  shadow [--rviz|--headless] [--imu]' \
+        '                        Map with calibrated mono RTAB shadow mode.' \
+        '  camera-check [SECONDS]' \
+        '                        Test /dev/video0 without moving the robot.' \
+        '  camera-calibrate BOARD_SIZE SQUARE_METRES' \
+        '                        Calibrate 640x480 intrinsics on the Pi display.' \
+        '  camera-extrinsics --measured X Y Z ROLL PITCH YAW' \
+        '                        Save measured XYZ metres and RPY degrees.' \
+        '  shadow-check [SECONDS]' \
+        '                        Validate the active calibrated shadow stream.' \
         '  drive                 Start controller-only mode; LiDAR stays off.' \
         '  localize [MAP] [--rviz|--headless] [--imu]' \
         '                        Localize on MAP (default: test1), without Nav2.' \
@@ -101,6 +117,10 @@ drive_is_running() {
 
 navigation_is_running() {
     service_is_running "${NAVIGATION_SERVICE_NAME}"
+}
+
+shadow_is_running() {
+    service_is_running "${SHADOW_SERVICE_NAME}"
 }
 
 service_is_running() {
@@ -239,9 +259,62 @@ ensure_image() {
 }
 
 stop_vendor_application() {
-    local kill_script="${REPO_ROOT}/app_dogzilla/kill_dogzilla.sh"
-    if [[ -f "${kill_script}" ]]; then
-        sh "${kill_script}"
+    local any_alive
+    local attempt
+    local owner_pid
+    local vendor_path="${REPO_ROOT}/app_dogzilla/app_dogzilla.py"
+    local vendor_pids=()
+
+    mapfile -t vendor_pids < <(
+        pgrep -f "^python3 ${vendor_path//./\\.}([[:space:]]|$)" || true
+    )
+    if ((${#vendor_pids[@]} == 0)); then
+        return
+    fi
+
+    printf 'Stopping the Yahboom application through its Ctrl-C cleanup path.\n'
+    kill -INT "${vendor_pids[@]}"
+    for attempt in {1..50}; do
+        any_alive=false
+        for owner_pid in "${vendor_pids[@]}"; do
+            if kill -0 "${owner_pid}" 2>/dev/null; then
+                any_alive=true
+            fi
+        done
+        if [[ "${any_alive}" == false ]]; then
+            return
+        fi
+        sleep 0.1
+    done
+    printf '%s\n' \
+        'Yahboom application did not stop after Ctrl-C.' \
+        'Refusing to use kill -9; close it manually and retry.' >&2
+    return 1
+}
+
+assert_camera_free() {
+    local command_name
+    local owner_pid
+    local unexpected_owners=()
+
+    if ! command -v fuser >/dev/null 2>&1; then
+        return
+    fi
+    for owner_pid in $(fuser /dev/video0 2>/dev/null || true); do
+        command_name="$(ps -p "${owner_pid}" -o comm= 2>/dev/null || true)"
+        case "${command_name}" in
+            pipewire|wireplumber)
+                ;;
+            *)
+                unexpected_owners+=("${owner_pid}:${command_name:-unknown}")
+                ;;
+        esac
+    done
+    if ((${#unexpected_owners[@]} > 0)); then
+        printf 'Camera device is already in use: /dev/video0\n' >&2
+        printf 'Owners: %s\n' "${unexpected_owners[*]}" >&2
+        printf 'Close the other camera program and retry.\n' >&2
+        return 1
     fi
 }
 
@@ -304,7 +377,8 @@ run_servo_mode() {
     local command_status
     local mode="$1"
 
-    if container_is_running || drive_is_running || navigation_is_running; then
+    if container_is_running || drive_is_running || navigation_is_running \
+        || shadow_is_running; then
         printf 'Stop mapping, localization, or drive mode before using %s.\n' \
             "${mode}" >&2
         printf 'Run "./deploy/dogzilla-map stop" first.\n' >&2
@@ -342,7 +416,8 @@ run_firmware_rest_capture() {
     local command_status
     local confirmation
 
-    if container_is_running || drive_is_running || navigation_is_running; then
+    if container_is_running || drive_is_running || navigation_is_running \
+        || shadow_is_running; then
         printf 'Stop mapping, localization, navigation, or drive mode first.\n' >&2
         printf 'Run "./deploy/dogzilla-map stop" first.\n' >&2
         exit 1
@@ -475,6 +550,36 @@ if calibration.get("axis_validated") is not True:
     fi
 }
 
+require_valid_camera_model() {
+    local pose
+
+    if ! pose="$(python3 "${CAMERA_MODEL_HELPER}" \
+        --intrinsics "${CAMERA_INTRINSICS_FILE}" \
+        --extrinsics "${CAMERA_EXTRINSICS_FILE}" \
+        --print-pose)"; then
+        printf '%s\n' \
+            'Visual shadow mode was not started.' \
+            'Create camera.yaml with ROS camera_calibration at 640x480,' \
+            'then measure calibration/camera_extrinsics.yaml.' >&2
+        return 1
+    fi
+
+    read -r \
+        DOGZILLA_CAMERA_X \
+        DOGZILLA_CAMERA_Y \
+        DOGZILLA_CAMERA_Z \
+        DOGZILLA_CAMERA_ROLL \
+        DOGZILLA_CAMERA_PITCH \
+        DOGZILLA_CAMERA_YAW <<< "${pose}"
+    export \
+        DOGZILLA_CAMERA_X \
+        DOGZILLA_CAMERA_Y \
+        DOGZILLA_CAMERA_Z \
+        DOGZILLA_CAMERA_ROLL \
+        DOGZILLA_CAMERA_PITCH \
+        DOGZILLA_CAMERA_YAW
+}
+
 begin_log_session() {
     local base_name
     local candidate
@@ -507,7 +612,7 @@ start_mapping() {
     assert_mission_allows_start
     ensure_runtime_directories
     ensure_image
-    if drive_is_running || navigation_is_running; then
+    if drive_is_running || navigation_is_running || shadow_is_running; then
         printf 'Another DOGZILLA mode is running. Stop it before mapping.\n' >&2
         printf 'Run "./deploy/dogzilla-map stop" first.\n' >&2
         exit 1
@@ -554,11 +659,483 @@ start_mapping() {
     printf 'Use "./deploy/dogzilla-map logs" to watch Cartographer.\n'
 }
 
+start_visual_shadow() {
+    reconcile_camera_calibration
+    if container_is_running || drive_is_running || navigation_is_running \
+        || shadow_is_running; then
+        printf 'Another DOGZILLA mode is running. Stop it before shadow mode.\n' >&2
+        printf 'Run "./deploy/dogzilla-map stop" first.\n' >&2
+        exit 1
+    fi
+    if [[ ! -c /dev/video0 ]]; then
+        printf 'Camera device is missing: /dev/video0\n' >&2
+        exit 1
+    fi
+    require_valid_camera_model
+    start_mapping "$@"
+
+    printf 'Waiting for Cartographer /scan and /map before camera startup.\n'
+    if ! compose exec --no-TTY "${SERVICE_NAME}" bash -lc '
+        source /opt/ros/humble/setup.bash
+        source /root/yahboomcar_ws/install/setup.bash
+        timeout 45 bash -c '\''
+            until ros2 topic list --no-daemon --spin-time 2 \
+                    | grep -qx /scan \
+                && ros2 topic list --no-daemon --spin-time 2 \
+                    | grep -qx /map; do
+                sleep 1
+            done
+        '\''
+    '; then
+        printf 'Cartographer did not become ready; stopping safely.\n' >&2
+        stop_dogzilla
+        return 1
+    fi
+
+    DOGZILLA_RTABMAP_DATABASE="${DOGZILLA_ROS_LOG_DIR}/rtabmap_mono_shadow.db"
+    export DOGZILLA_RTABMAP_DATABASE
+    if ! assert_camera_free; then
+        stop_dogzilla
+        return 1
+    fi
+    if ! compose up \
+        --detach \
+        --no-build \
+        --force-recreate \
+        "${SHADOW_SERVICE_NAME}"; then
+        printf 'Visual shadow startup failed; stopping mapping safely.\n' >&2
+        stop_dogzilla
+        return 1
+    fi
+
+    printf 'Calibrated visual shadow mode started.\n'
+    printf 'RTAB database: logs/sessions/%s/rtabmap_mono_shadow.db\n' \
+        "${DOGZILLA_LOG_SESSION}"
+    printf 'Run "./deploy/dogzilla-map shadow-check 10" before moving.\n'
+}
+
+select_local_display() {
+    local display_number
+
+    if [[ "${DISPLAY:-}" =~ ^:([0-9]+)(\.[0-9]+)?$ ]]; then
+        display_number="${BASH_REMATCH[1]}"
+        if [[ -S "/tmp/.X11-unix/X${display_number}" ]]; then
+            return
+        fi
+    fi
+    for display_number in {0..9}; do
+        if [[ -S "/tmp/.X11-unix/X${display_number}" ]]; then
+            DISPLAY=":${display_number}"
+            export DISPLAY
+            printf 'Using the Pi desktop display %s.\n' "${DISPLAY}"
+            return
+        fi
+    done
+    printf '%s\n' \
+        'Camera calibration requires the Raspberry Pi desktop.' \
+        'Log into the Pi monitor desktop, then retry from a terminal.' >&2
+    return 1
+}
+
+validate_camera_intrinsics_file() {
+    python3 -c '
+import sys
+sys.path.insert(0, sys.argv[2])
+from dogzilla_slam.camera_model import validate_intrinsics
+validate_intrinsics(sys.argv[1])
+' "$1" "${REPO_ROOT}/ros2/dogzilla_slam"
+}
+
+install_camera_intrinsics_file() {
+    local install_source="$1"
+    local install_stage
+
+    validate_camera_intrinsics_file "${install_source}"
+    if [[ -f "${CAMERA_INTRINSICS_FILE}" ]]; then
+        cp --preserve=mode,timestamps \
+            "${CAMERA_INTRINSICS_FILE}" \
+            "${REPO_ROOT}/calibration/camera.backup.$(
+                date -u '+%Y%m%dT%H%M%S%NZ'
+            ).yaml"
+    fi
+    install_stage="$(mktemp \
+        "${REPO_ROOT}/calibration/.camera.install.XXXXXX.yaml")"
+    if ! install -m 0644 "${install_source}" "${install_stage}"; then
+        rm -f -- "${install_stage}"
+        return 1
+    fi
+    mv -f -- "${install_stage}" "${CAMERA_INTRINSICS_FILE}"
+}
+
+revoke_camera_calibration_display() {
+    local display_number
+    local revoked=false
+
+    if [[ ! -f "${CAMERA_CALIBRATION_XHOST_STATE}" ]]; then
+        return
+    fi
+    if ! command -v xhost >/dev/null 2>&1; then
+        return 1
+    fi
+    for display_number in {0..9}; do
+        if [[ -S "/tmp/.X11-unix/X${display_number}" ]] \
+            && DISPLAY=":${display_number}" \
+                xhost -SI:localuser:root >/dev/null 2>&1; then
+            revoked=true
+        fi
+    done
+    if [[ "${revoked}" == true ]]; then
+        rm -f -- "${CAMERA_CALIBRATION_XHOST_STATE}"
+        return
+    fi
+    return 1
+}
+
+reconcile_camera_calibration() {
+    local calibration_container='dogzilla_camera_calibration'
+    local container_role
+    local pending_directory
+    local pending_path
+
+    revoke_camera_calibration_display || true
+    if docker container inspect "${calibration_container}" \
+        >/dev/null 2>&1; then
+        container_role="$(docker container inspect \
+            --format '{{index .Config.Labels "com.dogzilla.role"}}' \
+            "${calibration_container}")"
+        if [[ "${container_role}" != 'camera-calibration' ]]; then
+            printf 'Unexpected container owns reserved name: %s\n' \
+                "${calibration_container}" >&2
+            return 1
+        fi
+        printf 'Stopping interrupted camera calibration session.\n'
+        docker stop --time 20 "${calibration_container}" >/dev/null
+        docker rm "${calibration_container}" >/dev/null 2>&1 || true
+    fi
+    if [[ ! -f "${CAMERA_CALIBRATION_STATE}" ]]; then
+        return
+    fi
+    IFS= read -r pending_directory < "${CAMERA_CALIBRATION_STATE}"
+    if [[ "$(dirname -- "${pending_directory}")" \
+            != "${REPO_ROOT}/calibration" \
+        || ! "$(basename -- "${pending_directory}")" \
+            =~ ^\.camera-calibration\.[A-Za-z0-9]+$ ]]; then
+        printf 'Unsafe camera-calibration state path; refusing cleanup: %s\n' \
+            "${pending_directory}" >&2
+        return 1
+    fi
+    pending_path="${pending_directory}/camera.yaml"
+    if [[ -f "${pending_path}" ]]; then
+        if validate_camera_intrinsics_file "${pending_path}"; then
+            install_camera_intrinsics_file "${pending_path}"
+            printf 'Recovered committed camera intrinsics after interruption.\n'
+        else
+            printf 'Discarding invalid interrupted calibration result.\n' >&2
+        fi
+    fi
+    rm -f -- "${pending_path}"
+    rmdir -- "${pending_directory}" 2>/dev/null || true
+    rm -f -- "${CAMERA_CALIBRATION_STATE}"
+}
+
+calibrate_camera_intrinsics() {
+    local board_columns
+    local board_rows
+    local board_size="${1:-}"
+    local calibration_container='dogzilla_camera_calibration'
+    local calibration_status
+    local cleanup_directory=''
+    local display_access=false
+    local pending_name
+    local pending_path=''
+    local square_size="${2:-}"
+
+    if (($# != 2)); then
+        printf '%s\n' \
+            'Usage: dogzilla camera-calibrate BOARD_SIZE SQUARE_METRES' \
+            'Example: dogzilla camera-calibrate 8x6 0.025' >&2
+        return 2
+    fi
+    if [[ ! "${board_size}" =~ ^([0-9]+)x([0-9]+)$ ]]; then
+        printf 'BOARD_SIZE must look like 8x6 and count inner corners.\n' >&2
+        return 2
+    fi
+    board_columns="${BASH_REMATCH[1]}"
+    board_rows="${BASH_REMATCH[2]}"
+    if ((board_columns < 3 || board_columns > 30 \
+        || board_rows < 3 || board_rows > 30)); then
+        printf 'Each BOARD_SIZE dimension must be between 3 and 30.\n' >&2
+        return 2
+    fi
+    if ! python3 -c '
+import math, sys
+value = float(sys.argv[1])
+raise SystemExit(0 if math.isfinite(value) and 0.001 <= value <= 0.5 else 1)
+' "${square_size}" 2>/dev/null; then
+        printf 'SQUARE_METRES must be between 0.001 and 0.5 metres.\n' >&2
+        return 2
+    fi
+    reconcile_camera_calibration
+    if container_is_running || drive_is_running || navigation_is_running \
+        || shadow_is_running; then
+        printf 'Stop the active DOGZILLA mode before camera calibration.\n' >&2
+        printf 'Run "dogzilla stop" first.\n' >&2
+        return 1
+    fi
+    if [[ ! -c /dev/video0 ]]; then
+        printf 'Camera device is missing: /dev/video0\n' >&2
+        return 1
+    fi
+    ensure_runtime_directories
+    ensure_image
+    select_local_display
+    require_command xhost
+    stop_vendor_application
+    assert_camera_free
+
+    cleanup_directory="$(mktemp -d \
+        "${REPO_ROOT}/calibration/.camera-calibration.XXXXXX")"
+    pending_path="${cleanup_directory}/camera.yaml"
+    pending_name="${cleanup_directory##*/}/camera.yaml"
+    printf '%s\n' "${cleanup_directory}" \
+        > "${CAMERA_CALIBRATION_STATE}.tmp"
+    mv -f -- \
+        "${CAMERA_CALIBRATION_STATE}.tmp" \
+        "${CAMERA_CALIBRATION_STATE}"
+
+    cleanup_camera_calibration() {
+        docker stop --time 20 "${calibration_container}" \
+            >/dev/null 2>&1 || true
+        if [[ "${display_access}" == true ]]; then
+            if xhost -SI:localuser:root >/dev/null 2>&1; then
+                rm -f -- "${CAMERA_CALIBRATION_XHOST_STATE}"
+            fi
+        fi
+        if [[ -n "${pending_path}" ]]; then
+            rm -f -- "${pending_path}"
+        fi
+        if [[ -n "${cleanup_directory}" ]]; then
+            rmdir -- "${cleanup_directory}" 2>/dev/null || true
+        fi
+        rm -f -- \
+            "${CAMERA_CALIBRATION_STATE}" \
+            "${CAMERA_CALIBRATION_STATE}.tmp"
+    }
+    trap cleanup_camera_calibration EXIT INT TERM
+
+    xhost +SI:localuser:root >/dev/null
+    : > "${CAMERA_CALIBRATION_XHOST_STATE}"
+    display_access=true
+    printf '%s\n' \
+        'Camera calibration opens on the Raspberry Pi monitor.' \
+        'Keep DOGZILLA stationary; move only the checkerboard.' \
+        'Fill all four coverage bars, click CALIBRATE, inspect the result,' \
+        'then click COMMIT. Closing the window without COMMIT changes nothing.'
+
+    set +e
+    docker run \
+        --rm \
+        --interactive \
+        --name "${calibration_container}" \
+        --init \
+        --stop-signal SIGINT \
+        --label com.dogzilla.role=camera-calibration \
+        --network none \
+        --device /dev/video0:/dev/video0 \
+        --env DISPLAY="${DISPLAY}" \
+        --env QT_X11_NO_MITSHM=1 \
+        --env ROS_DOMAIN_ID=115 \
+        --env ROS_LOCALHOST_ONLY=1 \
+        --env ROS_LOG_DIR=/tmp/ros-logs \
+        --volume /tmp/.X11-unix:/tmp/.X11-unix:rw \
+        --volume "${REPO_ROOT}/calibration:/calibration:rw" \
+        "${IMAGE_NAME}" \
+        timeout --signal=INT --kill-after=30s 1800s \
+        ros2 launch dogzilla_slam camera_calibration.launch.py \
+            enabled:=true \
+            board_size:="${board_size}" \
+            square_size:="${square_size}" \
+            camera_info_url:="file:///calibration/${pending_name}"
+    calibration_status=$?
+    set -e
+
+    if ((calibration_status != 0)); then
+        printf 'Camera calibration exited with status %d; nothing installed.\n' \
+            "${calibration_status}" >&2
+        cleanup_camera_calibration
+        trap - EXIT INT TERM
+        unset -f cleanup_camera_calibration
+        return "${calibration_status}"
+    fi
+    if [[ ! -f "${pending_path}" ]]; then
+        printf 'No committed calibration was received; camera.yaml is unchanged.\n' \
+            >&2
+        cleanup_camera_calibration
+        trap - EXIT INT TERM
+        unset -f cleanup_camera_calibration
+        return 1
+    fi
+    if ! validate_camera_intrinsics_file "${pending_path}"; then
+        printf 'Committed calibration failed validation; camera.yaml is unchanged.\n' \
+            >&2
+        cleanup_camera_calibration
+        trap - EXIT INT TERM
+        unset -f cleanup_camera_calibration
+        return 1
+    fi
+
+    install_camera_intrinsics_file "${pending_path}"
+    printf 'Validated camera intrinsics installed: %s\n' \
+        "${CAMERA_INTRINSICS_FILE}"
+
+    cleanup_camera_calibration
+    trap - EXIT INT TERM
+    unset -f cleanup_camera_calibration
+}
+
+set_camera_extrinsics() {
+    local backup_path
+    local pending_path
+
+    if (($# != 7)) || [[ "${1:-}" != '--measured' ]]; then
+        printf '%s\n' \
+            'Usage: dogzilla camera-extrinsics --measured X Y Z ROLL PITCH YAW' \
+            'XYZ is metres; roll, pitch, and yaw are degrees.' >&2
+        return 2
+    fi
+    ensure_runtime_directories
+    pending_path="$(mktemp \
+        "${REPO_ROOT}/calibration/.camera-extrinsics.XXXXXX.yaml")"
+    if ! python3 "${CAMERA_MODEL_HELPER}" \
+        --write-extrinsics "${pending_path}" \
+        --translation "${2}" "${3}" "${4}" \
+        --rotation-degrees "${5}" "${6}" "${7}" \
+        --confirm-measured; then
+        rm -f -- "${pending_path}"
+        return 1
+    fi
+    if [[ -f "${CAMERA_EXTRINSICS_FILE}" ]]; then
+        backup_path="${REPO_ROOT}/calibration/camera_extrinsics.backup.$(
+            date -u '+%Y%m%dT%H%M%SZ'
+        ).yaml"
+        cp --preserve=mode,timestamps \
+            "${CAMERA_EXTRINSICS_FILE}" "${backup_path}"
+        printf 'Previous extrinsics backed up: %s\n' "${backup_path}"
+    fi
+    mv -f -- "${pending_path}" "${CAMERA_EXTRINSICS_FILE}"
+    printf 'Measured camera extrinsics installed: %s\n' \
+        "${CAMERA_EXTRINSICS_FILE}"
+}
+
+check_camera() {
+    local camera_container='dogzilla_camera_check'
+    local cleanup_status=0
+    local duration="${1:-8}"
+    local validation_status=0
+    reconcile_camera_calibration
+    if [[ ! "${duration}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+        printf 'SECONDS must be a positive number.\n' >&2
+        exit 1
+    fi
+    if [[ ! -c /dev/video0 ]]; then
+        printf 'Camera device is missing: /dev/video0\n' >&2
+        exit 1
+    fi
+    if shadow_is_running; then
+        printf 'The shadow service already owns /dev/video0.\n' >&2
+        exit 1
+    fi
+    ensure_image
+    stop_vendor_application
+    assert_camera_free
+
+    if docker container inspect "${camera_container}" >/dev/null 2>&1; then
+        printf 'Temporary camera container already exists: %s\n' \
+            "${camera_container}" >&2
+        printf 'Stop it before retrying camera-check.\n' >&2
+        return 1
+    fi
+    if ! docker run \
+        --rm \
+        --detach \
+        --name "${camera_container}" \
+        --init \
+        --stop-signal SIGINT \
+        --network host \
+        --device /dev/video0:/dev/video0 \
+        --env ROS_DOMAIN_ID=113 \
+        "${IMAGE_NAME}" \
+        ros2 launch dogzilla_slam mono_camera.launch.py \
+            enabled:=true rectify:=false \
+            camera_info_url:=file:///tmp/dogzilla-uncalibrated.yaml \
+            >/dev/null; then
+        return 1
+    fi
+
+    trap 'docker stop --time 20 dogzilla_camera_check >/dev/null 2>&1 || true' \
+        EXIT INT TERM
+    set +e
+    docker exec "${camera_container}" bash -lc '
+        source /opt/ros/humble/setup.bash
+        source /root/yahboomcar_ws/install/setup.bash
+        timeout 12 bash -c '\''
+            until ros2 topic list --no-daemon --spin-time 2 \
+                    | grep -qx /camera/image_raw; do
+                sleep 0.5
+            done
+        '\''
+    '
+    validation_status=$?
+    if ((validation_status == 0)); then
+        docker exec "${camera_container}" bash -lc '
+            source /opt/ros/humble/setup.bash
+            source /root/yahboomcar_ws/install/setup.bash
+            exec ros2 run dogzilla_slam camera_validate --duration "$1"
+        ' _ "${duration}"
+        validation_status=$?
+    fi
+    docker stop --time 20 "${camera_container}" >/dev/null
+    cleanup_status=$?
+    set -e
+    trap - EXIT INT TERM
+
+    if ((cleanup_status != 0)); then
+        printf 'Camera validation container did not stop cleanly.\n' >&2
+        return 1
+    fi
+    return "${validation_status}"
+}
+
+check_shadow() {
+    local duration="${1:-10}"
+    if [[ ! "${duration}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+        printf 'SECONDS must be a positive number.\n' >&2
+        exit 1
+    fi
+    if ! shadow_is_running || ! container_is_running; then
+        printf 'Visual shadow mapping is not running.\n' >&2
+        exit 1
+    fi
+    compose exec --no-TTY "${SHADOW_SERVICE_NAME}" bash -lc '
+        source /opt/ros/humble/setup.bash
+        source /root/yahboomcar_ws/install/setup.bash
+        set -e
+        ros2 run dogzilla_slam camera_validate \
+            --image-topic /camera/image_rect \
+            --duration "$1" \
+            --require-calibration \
+            --intrinsics /calibration/camera.yaml
+        ros2 node list --no-daemon --spin-time 2 \
+            | grep -qx /rtabmap_shadow/rtabmap_mono
+        ros2 run dogzilla_slam shadow_validate --duration "$1"
+    ' _ "${duration}"
+}
+
 start_drive() {
     assert_mission_allows_start
     ensure_runtime_directories
     ensure_image
-    if container_is_running || navigation_is_running; then
+    if container_is_running || navigation_is_running || shadow_is_running; then
         printf 'Mapping/localization is running. Stop it before drive mode.\n' >&2
         printf 'Run "./deploy/dogzilla-map stop" first.\n' >&2
         exit 1
@@ -647,7 +1224,7 @@ start_navigation() {
     assert_mission_allows_start
     ensure_runtime_directories
     ensure_image
-    if container_is_running || drive_is_running; then
+    if container_is_running || drive_is_running || shadow_is_running; then
         printf 'Mapping or drive mode is running. Stop it first.\n' >&2
         printf 'Run "./deploy/dogzilla-map stop" first.\n' >&2
         exit 1
@@ -697,7 +1274,8 @@ start_navigation() {
 run_imu_calibration() {
     local calibration_status
 
-    if container_is_running || drive_is_running || navigation_is_running; then
+    if container_is_running || drive_is_running || navigation_is_running \
+        || shadow_is_running; then
         printf 'Stop every DOGZILLA mode before IMU calibration.\n' >&2
         printf 'Run "./deploy/dogzilla-map stop" first.\n' >&2
         exit 1
@@ -775,6 +1353,14 @@ install_shutdown_guard() {
 
 show_status() {
     local control_service
+
+    if docker container inspect dogzilla_camera_calibration \
+        >/dev/null 2>&1 \
+        && [[ "$(docker container inspect \
+            --format '{{.State.Running}}' \
+            dogzilla_camera_calibration)" == true ]]; then
+        printf 'Camera calibration: running on the Pi display\n\n'
+    fi
     compose ps
     if ! control_service="$(active_control_service)"; then
         return
@@ -786,7 +1372,7 @@ show_status() {
         source /root/yahboomcar_ws/install/setup.bash
         export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-12}"
         printf "\nROS topics:\n"
-        ros2 topic list | sort
+        ros2 topic list --no-daemon --spin-time 2 | sort
     '
 }
 
@@ -933,7 +1519,12 @@ follow_logs() {
         printf 'No mapping, localization, or drive mode is running.\n' >&2
         exit 1
     fi
-    compose logs --follow --tail 200 "${control_service}"
+    if shadow_is_running; then
+        compose logs --follow --tail 200 \
+            "${control_service}" "${SHADOW_SERVICE_NAME}"
+    else
+        compose logs --follow --tail 200 "${control_service}"
+    fi
 }
 
 stop_dogzilla() {
@@ -942,14 +1533,22 @@ stop_dogzilla() {
     local mapping_was_running=false
     local mission_was_active=false
     local navigation_was_running=false
+    local shadow_was_running=false
     local web_status=0
 
+    reconcile_camera_calibration
     if [[ -f "${MISSION_STATE_FILE}" ]]; then
         mission_was_active=true
         printf 'Stopping the Mission Mode web gateway first.\n'
         if ! "${WEB_COMMAND}" stop; then
             web_status=1
         fi
+    fi
+
+    if shadow_is_running; then
+        shadow_was_running=true
+        printf 'Stopping the visual shadow service first.\n'
+        compose stop --timeout 20 "${SHADOW_SERVICE_NAME}"
     fi
 
     if container_is_running; then
@@ -966,7 +1565,8 @@ stop_dogzilla() {
     fi
     if [[ "${mapping_was_running}" == false \
         && "${drive_was_running}" == false \
-        && "${navigation_was_running}" == false ]]; then
+        && "${navigation_was_running}" == false \
+        && "${shadow_was_running}" == false ]]; then
         printf 'DOGZILLA is already stopped.\n'
     fi
 
@@ -1007,6 +1607,21 @@ main() {
             ;;
         start)
             start_mapping "${@:2}"
+            ;;
+        shadow)
+            start_visual_shadow "${@:2}"
+            ;;
+        camera-check)
+            check_camera "${2:-8}"
+            ;;
+        camera-calibrate)
+            calibrate_camera_intrinsics "${@:2}"
+            ;;
+        camera-extrinsics)
+            set_camera_extrinsics "${@:2}"
+            ;;
+        shadow-check)
+            check_shadow "${2:-10}"
             ;;
         drive)
             start_drive

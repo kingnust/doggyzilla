@@ -1,4 +1,4 @@
-"""Disabled-by-default DOGZILLA URDF publisher for future integration."""
+"""Calibration-gated DOGZILLA URDF publisher for visual shadow mode."""
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
@@ -34,6 +34,10 @@ def generate_launch_description():
             LaunchConfiguration('camera_pitch'),
             ' camera_yaw:=',
             LaunchConfiguration('camera_yaw'),
+            ' include_lidar:=',
+            LaunchConfiguration('include_lidar'),
+            ' include_imu:=',
+            LaunchConfiguration('include_imu'),
         ]),
         value_type=str,
     )
@@ -61,6 +65,8 @@ def generate_launch_description():
         DeclareLaunchArgument('camera_roll', default_value='0.000'),
         DeclareLaunchArgument('camera_pitch', default_value='0.000'),
         DeclareLaunchArgument('camera_yaw', default_value='0.000'),
+        DeclareLaunchArgument('include_lidar', default_value='true'),
+        DeclareLaunchArgument('include_imu', default_value='true'),
         Node(
             package='robot_state_publisher',
             executable='robot_state_publisher',
