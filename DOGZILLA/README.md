@@ -42,6 +42,15 @@ for ROS package details and the legacy manual-container workflow.
 
 The deployment scripts do not commit or push to GitHub.
 
+## Future URDF and visual mapping work
+
+A source-only, disabled framework now describes the robot and prepares an
+isolated RTAB-Map experiment using the monocular camera, MS200 scan, and
+Cartographer motion estimate. The current image was not rebuilt, its runtime
+dependencies are not pinned, and normal mapping commands do not invoke it. See
+[docs/URDF_RTABMAP_MONO.md](docs/URDF_RTABMAP_MONO.md) for its status and the
+measurements and camera calibration required before deployment.
+
 ## Web mission control
 
 An optional local web dashboard renders the occupancy map and live robot pose,

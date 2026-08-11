@@ -92,6 +92,25 @@ gravity convention/scale, stationary gyro bias, and measured covariance from
 unavailable because Yahboom's fused RPY world convention is undocumented and
 Cartographer does not need it here.
 
+## Undeployed URDF and monocular RTAB-Map framework
+
+The repository contains a disabled-by-default URDF/Xacro model and an isolated
+RTAB-Map shadow-mode launch for a calibrated monocular camera. They are not
+included in `full_mapping.launch.py`, `full_navigation.launch.py`, or the host
+deployment entry points, so the normal `dogzilla` workflow does not load them.
+The current image was not rebuilt and the new runtime dependencies are not yet
+pinned.
+
+The current mechanical dimensions, camera pose, leg corner assignment, joint
+axes, and joint zero offsets are provisional. Do not use the model for control
+or collision checking. RTAB-Map is configured to consume a rectified mono
+image and `CameraInfo`, plus Cartographer's scan-matched odometry and MS200
+`/scan`; it publishes no TF and keeps output under `/rtabmap_shadow`.
+
+See `docs/URDF_RTABMAP_MONO.md` at the repository root for the camera contract,
+transform-ownership warning, measurements, and gates required before a later
+deployment.
+
 ## Legacy manual-container workflow
 
 The steps below remain useful for debugging the existing `pedantic_elgamal`

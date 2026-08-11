@@ -1,0 +1,41 @@
+/rtabmap_shadow/rtabmap_mono:
+  ros__parameters:
+    # Wrapper inputs. CameraInfo must contain real monocular calibration.
+    subscribe_rgb: true
+    subscribe_depth: false
+    subscribe_rgbd: false
+    subscribe_stereo: false
+    subscribe_scan: true
+    subscribe_scan_cloud: false
+    subscribe_odom_info: false
+    approx_sync: true
+    topic_queue_size: 30
+    sync_queue_size: 30
+    qos_image: 2
+    qos_scan: 2
+    qos_odom: 2
+
+    # Shadow mode must not compete with Cartographer's map -> odom TF.
+    frame_id: base_link
+    map_frame_id: rtabmap_shadow_map
+    odom_frame_id: ''
+    publish_tf: false
+    database_path: /logs/rtabmap_mono_shadow.db
+    use_sim_time: false
+
+    # Monocular images provide appearance and loop-closure constraints.
+    # Existing scan-matched odometry and LiDAR preserve metric scale.
+    'Mem/IncrementalMemory': 'true'
+    'Mem/InitWMWithAllNodes': 'false'
+    'Rtabmap/DetectionRate': '1.0'
+    'Reg/Strategy': '2'
+    'Reg/Force3DoF': 'true'
+    'Vis/MinInliers': '15'
+    'Kp/MaxFeatures': '500'
+    'RGBD/NeighborLinkRefining': 'true'
+    'RGBD/ProximityBySpace': 'true'
+    'RGBD/ProximityPathMaxNeighbors': '10'
+    'Optimizer/Slam2D': 'true'
+    'Grid/FromDepth': 'false'
+    'Grid/3D': 'false'
+    'Grid/CellSize': '0.05'

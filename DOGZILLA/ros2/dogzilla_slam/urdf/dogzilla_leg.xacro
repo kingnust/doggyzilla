@@ -1,0 +1,106 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <!--
+    Visualization-only leg scaffold.
+
+    The motor names match safe_base.py and Yahboom motor IDs 11..43. Joint
+    axes, zero offsets, limits, link lengths, and the leg-number-to-corner
+    assignment must be measured before this model is used for control,
+    collision checking, or kinematics.
+  -->
+  <xacro:macro
+    name="dogzilla_leg"
+    params="leg parent mount_x mount_y side">
+    <link name="leg${leg}_hip_link">
+      <visual>
+        <origin xyz="0 ${side * hip_offset / 2.0} 0" rpy="1.57079632679 0 0"/>
+        <geometry>
+          <cylinder radius="${leg_radius}" length="${hip_offset}"/>
+        </geometry>
+        <material name="dogzilla_leg_material"/>
+      </visual>
+      <collision>
+        <origin xyz="0 ${side * hip_offset / 2.0} 0" rpy="1.57079632679 0 0"/>
+        <geometry>
+          <cylinder radius="${leg_radius}" length="${hip_offset}"/>
+        </geometry>
+      </collision>
+    </link>
+
+    <joint name="leg${leg}_motor1_joint" type="revolute">
+      <origin xyz="${mount_x} ${mount_y} 0" rpy="0 0 0"/>
+      <parent link="${parent}"/>
+      <child link="leg${leg}_hip_link"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="-2.2" upper="2.2" effort="8.0" velocity="4.0"/>
+    </joint>
+
+    <link name="leg${leg}_upper_link">
+      <visual>
+        <origin xyz="0 0 ${-upper_leg_length / 2.0}" rpy="0 0 0"/>
+        <geometry>
+          <cylinder radius="${leg_radius}" length="${upper_leg_length}"/>
+        </geometry>
+        <material name="dogzilla_leg_material"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 ${-upper_leg_length / 2.0}" rpy="0 0 0"/>
+        <geometry>
+          <cylinder radius="${leg_radius}" length="${upper_leg_length}"/>
+        </geometry>
+      </collision>
+    </link>
+
+    <joint name="leg${leg}_motor2_joint" type="revolute">
+      <origin xyz="0 ${side * hip_offset} 0" rpy="0 0 0"/>
+      <parent link="leg${leg}_hip_link"/>
+      <child link="leg${leg}_upper_link"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="-2.2" upper="2.2" effort="8.0" velocity="4.0"/>
+    </joint>
+
+    <link name="leg${leg}_lower_link">
+      <visual>
+        <origin xyz="0 0 ${-lower_leg_length / 2.0}" rpy="0 0 0"/>
+        <geometry>
+          <cylinder radius="${leg_radius}" length="${lower_leg_length}"/>
+        </geometry>
+        <material name="dogzilla_leg_material"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 ${-lower_leg_length / 2.0}" rpy="0 0 0"/>
+        <geometry>
+          <cylinder radius="${leg_radius}" length="${lower_leg_length}"/>
+        </geometry>
+      </collision>
+    </link>
+
+    <joint name="leg${leg}_motor3_joint" type="revolute">
+      <origin xyz="0 0 ${-upper_leg_length}" rpy="0 0 0"/>
+      <parent link="leg${leg}_upper_link"/>
+      <child link="leg${leg}_lower_link"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="-2.2" upper="2.2" effort="8.0" velocity="4.0"/>
+    </joint>
+
+    <link name="leg${leg}_foot_link">
+      <visual>
+        <geometry>
+          <sphere radius="${foot_radius}"/>
+        </geometry>
+        <material name="dogzilla_foot_material"/>
+      </visual>
+      <collision>
+        <geometry>
+          <sphere radius="${foot_radius}"/>
+        </geometry>
+      </collision>
+    </link>
+
+    <joint name="leg${leg}_foot_joint" type="fixed">
+      <origin xyz="0 0 ${-lower_leg_length}" rpy="0 0 0"/>
+      <parent link="leg${leg}_lower_link"/>
+      <child link="leg${leg}_foot_link"/>
+    </joint>
+  </xacro:macro>
+</robot>
