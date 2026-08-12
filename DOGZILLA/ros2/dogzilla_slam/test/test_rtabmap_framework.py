@@ -226,11 +226,45 @@ def test_shadow_deployment_is_separate_and_has_no_motion_ownership():
     assert 'reconcile_camera_calibration' in command_source
     assert 'timeout --signal=INT --kill-after=30s 1800s' in command_source
     assert '--intrinsics /calibration/camera.yaml' in command_source
-    assert 'shadow_validate --duration "$1"' in command_source
+    assert 'ros2 run dogzilla_slam shadow_validate' in command_source
+    assert 'shadow-health-report.json' in command_source
+    assert 'shadow-route-check [SECONDS] [MIN_METRES]' in command_source
+    assert 'shadow-db-check [SESSION]' in command_source
+    assert '/rtabmap_shadow/info' in shadow_service
+    assert 'ros2 topic echo /rtabmap_shadow/info' in shadow_service
+    assert '--no-daemon --spin-time 2 --once' in shadow_service
+    assert 'm.ref_id > 0 and len(m.wm_state) > 0' in shadow_service
+    shadow_start_body = command_source.split(
+        'start_visual_shadow() {', 1
+    )[1].split('\n}\n', 1)[0]
+    assert shadow_start_body.index('require_valid_camera_model') < (
+        shadow_start_body.index('start_mapping "$@"')
+    )
+    assert shadow_start_body.index('start_mapping "$@"') < (
+        shadow_start_body.index('compose up')
+    )
     shadow_check_body = command_source.split('check_shadow() {', 1)[1].split(
         '\n}\n', 1
     )[0]
     assert 'set -e' in shadow_check_body
+    route_check_body = command_source.split(
+        'check_shadow_route() {', 1
+    )[1].split('\n}\n', 1)[0]
+    assert '--require-loop-closure' in route_check_body
+    assert '--minimum-travel-metres "$2"' in route_check_body
+    assert '--maximum-return-metres 0.75' in route_check_body
+    assert 'shadow-route-report.json' in route_check_body
+    assert 'route-camera-report.json' in route_check_body
+    assert '/cmd_vel' not in route_check_body
+    assert 'safe_base' not in route_check_body
+    database_check_body = command_source.split(
+        'check_shadow_database() {', 1
+    )[1].split('\n}\n', 1)[0]
+    assert 'database_validate' in database_check_body
+    assert '--expected-version 0.23.7' in database_check_body
+    assert 'shadow-database-report.json' in database_check_body
+    assert 'shadow_is_running' in database_check_body
+    assert '/cmd_vel' not in database_check_body
     assert 'rtabmap-slam=' in package_lock
     assert 'rtabmap-msgs=' in package_lock
     assert 'a180538def5056d89563f7275baaa7c3fae01316' in dockerfile
@@ -257,3 +291,7 @@ def test_future_runtime_dependencies_are_declared():
 
     setup_source = (PACKAGE_ROOT / 'setup.py').read_text()
     assert 'shadow_validate = dogzilla_slam.shadow_validate:main' in setup_source
+    assert (
+        'database_validate = dogzilla_slam.database_validate:main'
+        in setup_source
+    )

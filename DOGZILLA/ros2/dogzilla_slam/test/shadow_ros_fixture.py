@@ -1,5 +1,6 @@
 """Deterministic ROS fixture for no-hardware shadow integration testing."""
 
+import argparse
 import math
 
 from geometry_msgs.msg import TransformStamped
@@ -7,6 +8,7 @@ from nav_msgs.msg import Odometry
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
+from rtabmap_msgs.msg import Info
 from sensor_msgs.msg import CameraInfo
 from sensor_msgs.msg import Image
 from sensor_msgs.msg import LaserScan
@@ -30,8 +32,9 @@ def quaternion_from_euler(roll, pitch, yaw):
 
 
 class ShadowFixture(Node):
-    def __init__(self):
+    def __init__(self, simulate_route=False, publish_info=False):
         super().__init__('dogzilla_shadow_test_fixture')
+        self._simulate_route = simulate_route
         self._image_publisher = self.create_publisher(
             Image, '/camera/image_rect', qos_profile_sensor_data
         )
@@ -46,6 +49,13 @@ class ShadowFixture(Node):
             '/rtabmap_shadow/odom_input',
             qos_profile_sensor_data,
         )
+        self._info_publisher = None
+        if publish_info:
+            self._info_publisher = self.create_publisher(
+                Info,
+                '/rtabmap_shadow/info',
+                qos_profile_sensor_data,
+            )
         self._static_broadcaster = StaticTransformBroadcaster(self)
         self._transform_broadcaster = TransformBroadcaster(self)
         self._publish_static_transforms()
@@ -87,6 +97,7 @@ class ShadowFixture(Node):
 
     def _publish(self):
         stamp = self.get_clock().now().to_msg()
+        x, y = self._route_position()
 
         image = Image()
         image.header.stamp = stamp
@@ -126,6 +137,8 @@ class ShadowFixture(Node):
         odometry.header.stamp = stamp
         odometry.header.frame_id = 'odom'
         odometry.child_frame_id = 'base_link'
+        odometry.pose.pose.position.x = x
+        odometry.pose.pose.position.y = y
         odometry.pose.pose.orientation.w = 1.0
         odometry.pose.covariance[0] = 0.02 ** 2
         odometry.pose.covariance[7] = 0.02 ** 2
@@ -141,6 +154,8 @@ class ShadowFixture(Node):
         odom_transform = TransformStamped()
         odom_transform.header = odometry.header
         odom_transform.child_frame_id = 'base_link'
+        odom_transform.transform.translation.x = x
+        odom_transform.transform.translation.y = y
         odom_transform.transform.rotation.w = 1.0
         self._transform_broadcaster.sendTransform(odom_transform)
 
@@ -160,12 +175,48 @@ class ShadowFixture(Node):
                 for index in range(360)
             ]
             self._scan_publisher.publish(scan)
+        if self._info_publisher is not None and self._tick % 20 == 0:
+            info = Info()
+            info.header.stamp = stamp
+            info.header.frame_id = 'rtabmap_shadow_map'
+            info.ref_id = self._tick // 20 + 1
+            info.wm_state = [info.ref_id]
+            if self._simulate_route and self._tick == 100:
+                info.loop_closure_id = 1
+            self._info_publisher.publish(info)
         self._tick += 1
 
+    def _route_position(self):
+        if not self._simulate_route:
+            return 0.0, 0.0
+        route_tick = max(0, min(self._tick - 20, 80))
+        side = min(route_tick // 20, 3)
+        fraction = (route_tick % 20) / 20.0
+        if route_tick == 80:
+            return 0.0, 0.0
+        if side == 0:
+            return fraction, 0.0
+        if side == 1:
+            return 1.0, fraction
+        if side == 2:
+            return 1.0 - fraction, 1.0
+        return 0.0, 1.0 - fraction
 
-def main():
+
+def parse_arguments(args=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--simulate-route', action='store_true')
+    parser.add_argument('--publish-info', action='store_true')
+    return parser.parse_args(args)
+
+
+def main(args=None):
+    arguments = parse_arguments(args)
     rclpy.init()
-    node = ShadowFixture()
+    node = ShadowFixture(
+        simulate_route=arguments.simulate_route,
+        publish_info=arguments.publish_info,
+    )
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

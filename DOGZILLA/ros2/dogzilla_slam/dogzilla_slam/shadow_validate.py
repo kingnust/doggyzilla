@@ -14,6 +14,9 @@ from rtabmap_msgs.msg import Info
 from sensor_msgs.msg import Image
 from sensor_msgs.msg import LaserScan
 
+from dogzilla_slam.validation_report import make_validation_report
+from dogzilla_slam.validation_report import write_json_report
+
 
 @dataclass(frozen=True)
 class TimedSample:
@@ -36,6 +39,8 @@ class OdomSample(TimedSample):
     child_frame_id: str
     pose_valid: bool
     covariance_valid: bool
+    x: float = 0.0
+    y: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -43,6 +48,7 @@ class InfoSample(TimedSample):
     ref_id: int
     loop_closure_id: int
     working_memory_size: int
+    proximity_detection_id: int = 0
 
 
 def stamp_nanoseconds(message):
@@ -75,6 +81,19 @@ def nearest_errors(reference_stamps, candidate_stamps):
             nearby.append(candidates[index - 1])
         errors.append(min(abs(stamp - other) for other in nearby) / 1e9)
     return errors
+
+
+def samples_in_window(samples, window_samples):
+    """Return samples whose stamps overlap a reference capture window."""
+    if not samples or not window_samples:
+        return []
+    start_stamp = min(sample.stamp_ns for sample in window_samples)
+    end_stamp = max(sample.stamp_ns for sample in window_samples)
+    return [
+        sample
+        for sample in samples
+        if start_stamp <= sample.stamp_ns <= end_stamp
+    ]
 
 
 class ShadowValidator(Node):
@@ -179,6 +198,8 @@ class ShadowValidator(Node):
             message.child_frame_id,
             pose_valid,
             covariance_valid,
+            position.x,
+            position.y,
         ))
 
     def _receive_info(self, message):
@@ -190,6 +211,7 @@ class ShadowValidator(Node):
             message.ref_id,
             message.loop_closure_id,
             len(message.wm_state),
+            message.proximity_detection_id,
         ))
 
 
@@ -287,6 +309,133 @@ def _validate_alignment(label, reference_stamps, candidate_stamps):
     return failures
 
 
+def route_metrics(odometry, segment_deadband=0.02):
+    """Return deadbanded path length, return distance, and largest raw step."""
+    unique_positions = []
+    seen_stamps = set()
+    for sample in odometry:
+        if sample.stamp_ns in seen_stamps:
+            continue
+        seen_stamps.add(sample.stamp_ns)
+        unique_positions.append((sample.x, sample.y))
+    if len(unique_positions) < 2:
+        return 0.0, 0.0, 0.0
+
+    raw_steps = [
+        math.hypot(later[0] - earlier[0], later[1] - earlier[1])
+        for earlier, later in zip(unique_positions, unique_positions[1:])
+    ]
+    anchor = unique_positions[0]
+    path_length = 0.0
+    for position in unique_positions[1:]:
+        distance = math.hypot(
+            position[0] - anchor[0],
+            position[1] - anchor[1],
+        )
+        if distance >= segment_deadband:
+            path_length += distance
+            anchor = position
+    return_distance = math.hypot(
+        unique_positions[-1][0] - unique_positions[0][0],
+        unique_positions[-1][1] - unique_positions[0][1],
+    )
+    return path_length, return_distance, max(raw_steps)
+
+
+def route_evidence(odometry, info):
+    path_length, return_distance, maximum_step = route_metrics(odometry)
+    route_info = samples_in_window(info, odometry)
+    global_closures = sorted({
+        (sample.ref_id, sample.loop_closure_id)
+        for sample in route_info
+        if sample.ref_id > 0 and sample.loop_closure_id > 0
+    })
+    proximity_detections = sorted({
+        (sample.ref_id, sample.proximity_detection_id)
+        for sample in route_info
+        if sample.ref_id > 0 and sample.proximity_detection_id > 0
+    })
+    return {
+        'path_length_metres': path_length,
+        'return_distance_metres': return_distance,
+        'maximum_odometry_step_metres': maximum_step,
+        'global_loop_closures': [
+            {'ref_id': ref_id, 'matched_id': matched_id}
+            for ref_id, matched_id in global_closures
+        ],
+        'proximity_detections': [
+            {'ref_id': ref_id, 'matched_id': matched_id}
+            for ref_id, matched_id in proximity_detections
+        ],
+    }
+
+
+def validate_route(
+    odometry,
+    info,
+    minimum_travel_metres,
+    maximum_return_metres,
+):
+    """Validate a manually driven route without issuing movement commands."""
+    failures = []
+    evidence = route_evidence(odometry, info)
+    path_length = evidence['path_length_metres']
+    return_distance = evidence['return_distance_metres']
+    maximum_step = evidence['maximum_odometry_step_metres']
+    global_closures = evidence['global_loop_closures']
+    proximity_detections = evidence['proximity_detections']
+    print(f'Deadbanded odometry path: {path_length:.3f} m')
+    print(f'Return distance from route start: {return_distance:.3f} m')
+    print(f'Maximum odometry step: {maximum_step:.3f} m')
+    print(f'Unique global loop closures: {len(global_closures)}')
+    print(f'Unique proximity detections: {len(proximity_detections)}')
+
+    if path_length < minimum_travel_metres:
+        failures.append(
+            f'route travelled only {path_length:.3f}m; '
+            f'need {minimum_travel_metres:.3f}m'
+        )
+    if return_distance > maximum_return_metres:
+        failures.append(
+            f'route ended {return_distance:.3f}m from its start; '
+            f'must be within {maximum_return_metres:.3f}m'
+        )
+    if maximum_step > 0.50:
+        failures.append(
+            f'odometry jumped {maximum_step:.3f}m in one update'
+        )
+    if not global_closures:
+        failures.append('RTAB detected no global loop closure on the route')
+    return failures
+
+
+def report_measurements(images, scans, odometry, info):
+    total_ranges = sum(sample.total_ranges for sample in scans)
+    finite_ranges = sum(sample.finite_ranges for sample in scans)
+    references = {sample.ref_id for sample in info if sample.ref_id > 0}
+    return {
+        'image_messages': len(images),
+        'scan_messages': len(scans),
+        'odometry_messages': len(odometry),
+        'rtab_info_messages': len(info),
+        'unique_odometry_timestamps': len({
+            sample.stamp_ns for sample in odometry
+        }),
+        'unique_rtab_processing_timestamps': len({
+            sample.stamp_ns for sample in info
+        }),
+        'unique_rtab_reference_ids': len(references),
+        'maximum_working_memory_nodes': max(
+            (sample.working_memory_size for sample in info),
+            default=0,
+        ),
+        'finite_lidar_ratio': (
+            finite_ranges / total_ranges if total_ranges else 0.0
+        ),
+        'route': route_evidence(odometry, info),
+    }
+
+
 def validate(images, scans, odometry, info, duration):
     failures = []
     failures.extend(_validate_timing(
@@ -374,24 +523,34 @@ def validate(images, scans, odometry, info, duration):
         ))
 
     if info:
-        references = {sample.ref_id for sample in info if sample.ref_id >= 0}
+        unique_info_stamps = len({sample.stamp_ns for sample in info})
+        references = {sample.ref_id for sample in info if sample.ref_id > 0}
         loop_closures = sum(
             sample.loop_closure_id > 0 for sample in info
         )
         maximum_memory = max(sample.working_memory_size for sample in info)
+        print(f'Unique RTAB processing timestamps: {unique_info_stamps}')
         print(f'RTAB reference IDs observed: {len(references)}')
         print(f'RTAB working-memory nodes: {maximum_memory}')
         print(f'RTAB loop closures observed: {loop_closures}')
+        if unique_info_stamps < 2:
+            failures.append('RTAB processing timestamp did not advance')
         if not references:
             failures.append('RTAB reports no successfully processed node')
         if maximum_memory <= 0:
             failures.append('RTAB working memory is empty')
         if images:
-            failures.extend(_validate_alignment(
-                'RTAB-to-image',
-                [sample.stamp_ns for sample in info],
-                [sample.stamp_ns for sample in images],
-            ))
+            aligned_info = samples_in_window(info, images)
+            if not aligned_info:
+                failures.append(
+                    'RTAB and image timestamp windows do not overlap'
+                )
+            else:
+                failures.extend(_validate_alignment(
+                    'RTAB-to-image',
+                    [sample.stamp_ns for sample in aligned_info],
+                    [sample.stamp_ns for sample in images],
+                ))
     else:
         failures.append('RTAB produced no Info messages')
 
@@ -408,9 +567,29 @@ def parse_arguments(args=None):
         default='/rtabmap_shadow/odom_input',
     )
     parser.add_argument('--info-topic', default='/rtabmap_shadow/info')
+    parser.add_argument(
+        '--require-loop-closure',
+        action='store_true',
+        help='require a manually driven route and a global RTAB loop closure',
+    )
+    parser.add_argument(
+        '--minimum-travel-metres',
+        type=float,
+        default=1.0,
+    )
+    parser.add_argument(
+        '--maximum-return-metres',
+        type=float,
+        default=0.75,
+    )
+    parser.add_argument('--report-json')
     arguments = parser.parse_args(args)
     if arguments.duration <= 0.0:
         parser.error('--duration must be positive')
+    if arguments.minimum_travel_metres <= 0.0:
+        parser.error('--minimum-travel-metres must be positive')
+    if arguments.maximum_return_metres <= 0.0:
+        parser.error('--maximum-return-metres must be positive')
     return arguments
 
 
@@ -434,6 +613,45 @@ def main(args=None):
             node.info,
             arguments.duration,
         )
+        if arguments.require_loop_closure:
+            failures.extend(validate_route(
+                node.odometry,
+                node.info,
+                arguments.minimum_travel_metres,
+                arguments.maximum_return_metres,
+            ))
+        if arguments.report_json:
+            kind = (
+                'visual-shadow-route'
+                if arguments.require_loop_closure
+                else 'visual-shadow-health'
+            )
+            write_json_report(
+                arguments.report_json,
+                make_validation_report(
+                    kind,
+                    {
+                        'duration_seconds': arguments.duration,
+                        'global_loop_closure_required': (
+                            arguments.require_loop_closure
+                        ),
+                        'minimum_travel_metres': (
+                            arguments.minimum_travel_metres
+                        ),
+                        'maximum_return_metres': (
+                            arguments.maximum_return_metres
+                        ),
+                    },
+                    report_measurements(
+                        node.images,
+                        node.scans,
+                        node.odometry,
+                        node.info,
+                    ),
+                    failures,
+                ),
+            )
+            print(f'Visual shadow report: {arguments.report_json}')
         if failures:
             print('Visual shadow validation: FAILED')
             for failure in failures:

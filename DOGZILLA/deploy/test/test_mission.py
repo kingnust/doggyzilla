@@ -160,7 +160,10 @@ class MissionCommandTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         calls = self._calls()
-        self.assertLess(calls.index("map:navigate room1 --headless"), calls.index("web:start room1"))
+        self.assertLess(
+            calls.index("map:navigate room1 --headless"),
+            calls.index("web:start room1"),
+        )
         self.assertIn("web:start room1:log=/logs/sessions/session-123", calls)
         self.assertIn("docker:exec dogzilla_navigation", calls)
         state = (self.root / "logs" / "mission-current").read_text(encoding="utf-8")

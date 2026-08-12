@@ -201,9 +201,12 @@ services:
           topics="$$(ros2 topic list --no-daemon --spin-time 2)" &&
           nodes="$$(ros2 node list --no-daemon --spin-time 2)" &&
           for topic in /camera/image_rect /camera/camera_info
-          /rtabmap_shadow/odom_input /scan; do
+          /rtabmap_shadow/odom_input /rtabmap_shadow/info /scan; do
           grep -qx "$${topic}" <<< "$${topics}" || exit 1; done &&
-          grep -qx /rtabmap_shadow/rtabmap_mono <<< "$${nodes}"'
+          grep -qx /rtabmap_shadow/rtabmap_mono <<< "$${nodes}" &&
+          timeout 5 ros2 topic echo /rtabmap_shadow/info
+          --no-daemon --spin-time 2 --once
+          --filter "m.ref_id > 0 and len(m.wm_state) > 0" >/dev/null'
       interval: 10s
       timeout: 8s
       retries: 5

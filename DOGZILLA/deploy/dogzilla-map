@@ -19,6 +19,7 @@ CALIBRATION_FILE="${REPO_ROOT}/calibration/imu.json"
 CAMERA_INTRINSICS_FILE="${REPO_ROOT}/calibration/camera.yaml"
 CAMERA_EXTRINSICS_FILE="${REPO_ROOT}/calibration/camera_extrinsics.yaml"
 CAMERA_MODEL_HELPER="${REPO_ROOT}/ros2/dogzilla_slam/dogzilla_slam/camera_model.py"
+DATABASE_VALIDATE_PACKAGE="${REPO_ROOT}/ros2/dogzilla_slam"
 CAMERA_CALIBRATION_STATE="${REPO_ROOT}/logs/camera-calibration-current"
 CAMERA_CALIBRATION_XHOST_STATE="${REPO_ROOT}/logs/camera-calibration-xhost"
 DESKTOP_TEMPLATE="${DEPLOY_DIR}/desktop/dogzilla-mapping.desktop"
@@ -54,6 +55,10 @@ usage() {
         '                        Save measured XYZ metres and RPY degrees.' \
         '  shadow-check [SECONDS]' \
         '                        Validate the active calibrated shadow stream.' \
+        '  shadow-route-check [SECONDS] [MIN_METRES]' \
+        '                        Require travel, return, and a global loop closure.' \
+        '  shadow-db-check [SESSION]' \
+        '                        Check a stopped RTAB database; default is latest.' \
         '  drive                 Start controller-only mode; LiDAR stays off.' \
         '  localize [MAP] [--rviz|--headless] [--imu]' \
         '                        Localize on MAP (default: test1), without Nav2.' \
@@ -1124,11 +1129,79 @@ check_shadow() {
             --image-topic /camera/image_rect \
             --duration "$1" \
             --require-calibration \
-            --intrinsics /calibration/camera.yaml
+            --intrinsics /calibration/camera.yaml \
+            --report-json "$ROS_LOG_DIR/shadow-camera-report.json"
         ros2 node list --no-daemon --spin-time 2 \
             | grep -qx /rtabmap_shadow/rtabmap_mono
-        ros2 run dogzilla_slam shadow_validate --duration "$1"
+        ros2 run dogzilla_slam shadow_validate \
+            --duration "$1" \
+            --report-json "$ROS_LOG_DIR/shadow-health-report.json"
     ' _ "${duration}"
+}
+
+check_shadow_route() {
+    local duration="${1:-120}"
+    local minimum_travel="${2:-1.0}"
+    if [[ ! "${duration}" =~ ^[0-9]+([.][0-9]+)?$ \
+        || ! "${minimum_travel}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+        printf 'SECONDS and MIN_METRES must be positive numbers.\n' >&2
+        exit 1
+    fi
+    if ! shadow_is_running || ! container_is_running; then
+        printf 'Visual shadow mapping is not running.\n' >&2
+        exit 1
+    fi
+    printf '%s\n' \
+        'Route check is read-only and will not move the robot.' \
+        'Drive a loop, revisit the starting view, then stop near the start.'
+    compose exec --no-TTY "${SHADOW_SERVICE_NAME}" bash -lc '
+        source /opt/ros/humble/setup.bash
+        source /root/yahboomcar_ws/install/setup.bash
+        set -e
+        ros2 run dogzilla_slam camera_validate \
+            --image-topic /camera/image_rect \
+            --duration 5 \
+            --require-calibration \
+            --intrinsics /calibration/camera.yaml \
+            --report-json "$ROS_LOG_DIR/route-camera-report.json"
+        printf "Camera gate passed. Begin the route now.\n"
+        ros2 run dogzilla_slam shadow_validate \
+            --duration "$1" \
+            --require-loop-closure \
+            --minimum-travel-metres "$2" \
+            --maximum-return-metres 0.75 \
+            --report-json "$ROS_LOG_DIR/shadow-route-report.json"
+    ' _ "${duration}" "${minimum_travel}"
+}
+
+check_shadow_database() {
+    local session_name="${1:-latest}"
+    local session_directory
+    local database_path
+    local report_path
+
+    if shadow_is_running; then
+        printf 'Stop visual shadow mode before checking its database.\n' >&2
+        printf 'Run "dogzilla stop" first.\n' >&2
+        exit 1
+    fi
+    if [[ "${session_name}" == latest ]]; then
+        session_directory="${REPO_ROOT}/logs/latest"
+    elif [[ "${session_name}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+        session_directory="${REPO_ROOT}/logs/sessions/${session_name}"
+    else
+        printf 'SESSION may contain only letters, numbers, dot, dash, and underscore.\n' >&2
+        exit 1
+    fi
+    database_path="${session_directory}/rtabmap_mono_shadow.db"
+    report_path="${session_directory}/shadow-database-report.json"
+    require_command python3
+    PYTHONPATH="${DATABASE_VALIDATE_PACKAGE}${PYTHONPATH:+:${PYTHONPATH}}" \
+        python3 -m dogzilla_slam.database_validate \
+            --database "${database_path}" \
+            --expected-version 0.23.7 \
+            --minimum-nodes 1 \
+            --report-json "${report_path}"
 }
 
 start_drive() {
@@ -1622,6 +1695,12 @@ main() {
             ;;
         shadow-check)
             check_shadow "${2:-10}"
+            ;;
+        shadow-route-check)
+            check_shadow_route "${2:-120}" "${3:-1.0}"
+            ;;
+        shadow-db-check)
+            check_shadow_database "${2:-latest}"
             ;;
         drive)
             start_drive

@@ -116,8 +116,15 @@ valid COMMIT result.
 metres and RPY degrees without manual formatting. `dogzilla shadow-check 10`
 validates calibrated rectified data, the exact live CameraInfo matrices, scan,
 odometry, timestamp alignment, usable LiDAR returns, and real RTAB `Info`
-activity after shadow mode starts. See `docs/URDF_RTABMAP_MONO.md` for the camera
-contract, transform ownership, measurements, and remaining gates.
+activity after shadow mode starts. After that passes, `dogzilla
+shadow-route-check 120 1.0` passively verifies a manually driven closed route,
+minimum travel, return distance, odometry continuity, and a true global loop
+closure. It never publishes movement commands. See
+`docs/URDF_RTABMAP_MONO.md` for the camera contract, transform ownership,
+measurements, and remaining gates. Health and route commands atomically retain
+machine-readable reports in the current ROS session directory.
+After stopping shadow mode, `dogzilla shadow-db-check` verifies the saved SQLite
+database read-only and stores `shadow-database-report.json` beside those logs.
 
 ## Legacy manual-container workflow
 

@@ -118,8 +118,14 @@ must not be treated as a control, collision, or kinematics model.
    `dogzilla camera-extrinsics --measured ...` with the physical values.
 3. Run `dogzilla shadow --headless`, then `dogzilla shadow-check 10` while the
    robot is stationary.
-4. Record a new camera-enabled route and compare real RTAB loop closures with
-   Cartographer before relying on the visual database.
+4. In a second test, run `dogzilla shadow-route-check 120 1.0` in one terminal
+   and `dogzilla teleop slow` in another. Drive a closed route, revisit a
+   textured starting view, and stop near the start. The read-only observer must
+   report at least one global RTAB loop closure before relying on the visual
+   database.
+5. Run `dogzilla stop`, then `dogzilla shadow-db-check`. The saved database must
+   pass SQLite integrity, RTAB 0.23.7 schema, node-data, statistics, and link
+   consistency checks.
 
 Existing PGM/YAML/PBStream maps remain usable because their frame names and
 working sensor transforms have not changed. They contain no historical camera
@@ -130,7 +136,7 @@ recording or mapping run after deployment.
 
 Current validation passes:
 
-- 98 source and deployment tests plus ROS Python/launch style validation
+- 115 source and deployment tests plus ROS Python/launch style validation
 - installed-image package discovery for the pinned camera overlay and DOGZILLA
   package
 - Xacro expansion to 21 links/20 joints normally and 19/18 in shadow mode
@@ -144,9 +150,16 @@ Current validation passes:
 - missing-calibration refusal before any mapping or hardware service starts
 - guarded intrinsic/extrinsic writers that cannot replace an existing file
   with a cancelled, malformed, implausible, or unacknowledged measurement
+- read-only route acceptance logic that distinguishes global loop closures from
+  proximity detections and rejects insufficient travel, poor return, and large
+  odometry jumps
+- atomic JSON health and route reports under the current session log, including
+  failed measurements and rejection reasons
+- clean Docker SIGINT persistence and read-only integrity checking across an
+  RTAB database restart
 
-Still unverified are calibrated rectification quality, combined live
+Still unverified are calibrated rectification quality, combined physical
 camera/scan/odometry synchronization, CPU/temperature during the full stack,
-visual features while moving, loop-closure precision, and long-duration
+visual features while moving, real loop-closure precision, and long-duration
 database behavior. Those require the two physical camera calibration files;
 the deployment does not invent them or bypass the gate.

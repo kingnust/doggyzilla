@@ -189,13 +189,57 @@ compares the live CameraInfo matrices with the installed YAML. It then samples
 the complete pipeline for ten seconds: image, scan, scan-matched odometry, and
 RTAB `Info`. It rejects stale or sparse streams, bad LiDAR metadata, unusable
 ranges, missing odometry covariance, weak timestamp overlap, or a running RTAB
-node that has not successfully processed data. It reports loop closures, but
-does not require one while the robot is stationary. Stop both services and the
-LiDAR safely with:
+node whose processing timestamp does not advance. Docker reports the shadow
+service healthy only after receiving an RTAB message with a processed reference
+node and non-empty working memory. The validator reports loop closures, but
+does not require one while the robot is stationary.
+
+Both validators write atomic JSON evidence into the current session directory:
+`shadow-camera-report.json` and `shadow-health-report.json`. A failed check also
+writes a report, so its measurements and exact rejection reasons are retained.
+
+After the stationary check passes, test an actual closed route with two Pi
+terminals. In terminal 1, start the passive observer:
+
+```bash
+dogzilla shadow-route-check 120 1.0
+```
+
+`120` is the route observation time in seconds after a five-second camera
+gate. `1.0` is the minimum scan-odometry path length in metres. Wait until it
+prints `Begin the route now.` In terminal 2, open slow keyboard control:
+
+```bash
+dogzilla teleop slow
+```
+
+Drive at least one metre, return within 0.75 m of the starting position, and
+point the camera toward a previously seen, textured view. Stop the robot before
+terminal 1 finishes. The route passes only if all synchronized streams remain
+healthy, odometry has no half-metre jump, and RTAB reports a global
+`loop_closure_id`. A proximity detection alone does not pass. The observer
+never publishes `/cmd_vel` and cannot move the robot. It stores
+`route-camera-report.json` and `shadow-route-report.json` beside the ROS logs;
+`logs/latest` points to that session from the host.
+
+Stop both services and the LiDAR safely with:
 
 ```bash
 dogzilla stop
 ```
+
+After RTAB has stopped and finished saving, validate the latest database:
+
+```bash
+dogzilla shadow-db-check
+```
+
+This opens the database read-only, runs SQLite `quick_check`, verifies the
+pinned RTAB database version, required tables, saved nodes, Node/Data
+relationships, Statistics rows, and Link references. It writes
+`shadow-database-report.json` into `logs/latest`. To inspect an older session,
+pass its directory name from `logs/sessions`, for example `dogzilla
+shadow-db-check 20260812T120000Z`.
 
 Without both camera calibration files, `shadow` exits before starting mapping
 or opening any hardware. Normal `start`, `drive`, `localize`, and `navigate`

@@ -13,6 +13,8 @@ from sensor_msgs.msg import Image
 
 from dogzilla_slam.camera_model import CameraModelError
 from dogzilla_slam.camera_model import validate_intrinsics
+from dogzilla_slam.validation_report import make_validation_report
+from dogzilla_slam.validation_report import write_json_report
 
 
 @dataclass(frozen=True)
@@ -211,6 +213,52 @@ def validate(
     return failures
 
 
+def report_measurements(node):
+    measurements = {
+        'image_messages': len(node.images),
+        'camera_info_messages': len(node.camera_info),
+    }
+    if node.images:
+        measurements.update({
+            'image_width': node.images[-1].width,
+            'image_height': node.images[-1].height,
+            'image_frame_id': node.images[-1].frame_id,
+            'image_encoding': node.images[-1].encoding,
+        })
+    if len(node.images) >= 2:
+        elapsed = (
+            node.received_monotonic[-1] - node.received_monotonic[0]
+        )
+        stamps = [sample.stamp_ns for sample in node.images]
+        ages = [
+            (received_stamp - message_stamp) / 1e9
+            for received_stamp, message_stamp in zip(
+                node.received_ros_ns,
+                stamps,
+            )
+        ]
+        measurements.update({
+            'rate_hz': (
+                (len(node.images) - 1) / elapsed if elapsed > 0.0 else 0.0
+            ),
+            'maximum_timestamp_age_seconds': max(ages),
+            'mean_timestamp_age_seconds': sum(ages) / len(ages),
+            'maximum_timestamp_gap_seconds': max(
+                (later - earlier) / 1e9
+                for earlier, later in zip(stamps, stamps[1:])
+            ),
+        })
+    if node.camera_info:
+        latest = node.camera_info[-1]
+        measurements['camera_info_has_intrinsics'] = bool(
+            latest.k[0] > 0.0
+            and latest.k[4] > 0.0
+            and latest.p[0] > 0.0
+            and latest.p[5] > 0.0
+        )
+    return measurements
+
+
 def parse_arguments(args=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('--image-topic', default='/camera/image_raw')
@@ -218,6 +266,7 @@ def parse_arguments(args=None):
     parser.add_argument('--duration', type=float, default=8.0)
     parser.add_argument('--require-calibration', action='store_true')
     parser.add_argument('--intrinsics')
+    parser.add_argument('--report-json')
     arguments = parser.parse_args(args)
     if arguments.duration <= 0.0:
         parser.error('--duration must be positive')
@@ -231,8 +280,28 @@ def main(args=None):
         try:
             expected_intrinsics = validate_intrinsics(arguments.intrinsics)
         except CameraModelError as exc:
+            failure = f'Camera validation setup failed: {exc}'
+            if arguments.report_json:
+                write_json_report(
+                    arguments.report_json,
+                    make_validation_report(
+                        'camera',
+                        {
+                            'duration_seconds': arguments.duration,
+                            'calibration_required': (
+                                arguments.require_calibration
+                            ),
+                            'intrinsics_file': arguments.intrinsics,
+                        },
+                        {
+                            'image_messages': 0,
+                            'camera_info_messages': 0,
+                        },
+                        [failure],
+                    ),
+                )
             raise SystemExit(
-                f'Camera validation setup failed: {exc}'
+                failure
             ) from exc
     rclpy.init()
     node = CameraValidator(
@@ -252,6 +321,23 @@ def main(args=None):
             arguments.require_calibration,
             expected_intrinsics,
         )
+        if arguments.report_json:
+            write_json_report(
+                arguments.report_json,
+                make_validation_report(
+                    'camera',
+                    {
+                        'duration_seconds': arguments.duration,
+                        'calibration_required': (
+                            arguments.require_calibration
+                        ),
+                        'intrinsics_file': arguments.intrinsics,
+                    },
+                    report_measurements(node),
+                    failures,
+                ),
+            )
+            print(f'Camera report: {arguments.report_json}')
         if failures:
             print('Camera validation: FAILED')
             for failure in failures:

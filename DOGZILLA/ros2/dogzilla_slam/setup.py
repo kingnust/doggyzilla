@@ -48,6 +48,7 @@ setup(
         'console_scripts': [
             'camera_model = dogzilla_slam.camera_model:main',
             'camera_validate = dogzilla_slam.camera_validate:main',
+            'database_validate = dogzilla_slam.database_validate:main',
             'imu_calibrate = dogzilla_slam.imu_calibrate:main',
             'imu_corrector = dogzilla_slam.imu_corrector:main',
             'imu_validate = dogzilla_slam.imu_validate:main',

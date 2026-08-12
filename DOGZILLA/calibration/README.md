@@ -56,4 +56,7 @@ numbers merely to bypass the deployment gate.
 The deployment command rejects the example and all missing, malformed,
 implausible, or zero-intrinsic files before opening the camera or starting
 mapping. `shadow-check` also compares the live `CameraInfo` matrices against
-the exact installed `camera.yaml`.
+the exact installed `camera.yaml`. After the stationary check passes, use
+`dogzilla shadow-route-check 120 1.0` while manually driving a closed route in
+a second terminal. That observer is read-only and requires a global RTAB loop
+closure; a local proximity detection does not pass.
