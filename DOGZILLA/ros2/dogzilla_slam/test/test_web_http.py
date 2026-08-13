@@ -99,6 +99,19 @@ class FakeGateway:
             'runs': [0, 400],
         }
 
+    def get_vision_frame(self):
+        return b'\xff\xd8fake-jpeg\xff\xd9'
+
+    def set_vision_mode(self, body):
+        if body.get('mode') == 'qr-action':
+            raise ValidationError('unsupported action mode')
+        return {
+            'mode': body.get('mode', 'raw'),
+            'color': body.get('color', 'red'),
+            'state': 'requested',
+            'action_output': 'disabled',
+        }
+
     def list_locations(self):
         return list(self.locations.values())
 
@@ -272,6 +285,38 @@ class WebHTTPTest(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertTrue(safety['estop_latched'])
+
+    def test_authenticated_vision_frame_and_safe_mode_request(self):
+        status, headers, payload = request(
+            self.server,
+            'GET',
+            '/api/v1/vision/frame.jpg',
+            authorized=True,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(headers['Content-Type'], 'image/jpeg')
+        self.assertTrue(payload.startswith(b'\xff\xd8'))
+
+        status, _, value = request(
+            self.server,
+            'POST',
+            '/api/v1/vision/mode',
+            {'mode': 'color-track', 'color': 'blue'},
+            authorized=True,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(value['mode'], 'color-track')
+        self.assertEqual(value['action_output'], 'disabled')
+
+        status, _, value = request(
+            self.server,
+            'POST',
+            '/api/v1/vision/mode',
+            {'mode': 'qr-action', 'color': 'red'},
+            authorized=True,
+        )
+        self.assertEqual(status, 400)
+        self.assertIn('action', value['error'])
 
     def test_map_preview_and_named_location_lifecycle(self):
         status, _, map_payload = request(

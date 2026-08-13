@@ -2,6 +2,7 @@
 
 from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import Twist
+import json
 from nav2_msgs.action import ComputePathToPose, NavigateToPose
 from nav_msgs.msg import OccupancyGrid, Odometry
 import math
@@ -18,7 +19,8 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.qos import qos_profile_sensor_data
 from rclpy.time import Time
-from sensor_msgs.msg import BatteryState, JointState
+from sensor_msgs.msg import BatteryState, CompressedImage, JointState
+from std_msgs.msg import String
 from tf2_ros import Buffer, TransformException, TransformListener
 
 from .web_core import build_location_payload
@@ -33,6 +35,8 @@ from .web_core import TelemetryCache
 from .web_core import utc_now
 from .web_core import ValidationError
 from .web_http import GatewayHTTPServer
+from .vision_core import validate_request
+from .vision_core import VisionConfigurationError
 
 
 class DogzillaWebGateway(Node):
@@ -99,6 +103,9 @@ class DogzillaWebGateway(Node):
         self._linear_speed = 0.0
         self._angular_speed = 0.0
         self._waiting_for_map_pose = False
+        self._vision_frame = None
+        self._vision_frame_received = 0.0
+        self._vision_status_signature = None
         self._graph = {
             'mode': 'stopped',
             'nodes': [],
@@ -122,6 +129,32 @@ class DogzillaWebGateway(Node):
             qos_profile_sensor_data,
         )
         self.create_subscription(Odometry, '/odom', self._on_odometry, 10)
+        self.create_subscription(
+            String,
+            '/vision/detections',
+            self._on_vision_detections,
+            10,
+        )
+        vision_status_qos = QoSProfile(depth=1)
+        vision_status_qos.reliability = ReliabilityPolicy.RELIABLE
+        vision_status_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
+        self.create_subscription(
+            String,
+            '/vision/status',
+            self._on_vision_status,
+            vision_status_qos,
+        )
+        self.create_subscription(
+            CompressedImage,
+            '/vision/annotated/compressed',
+            self._on_vision_frame,
+            qos_profile_sensor_data,
+        )
+        self._vision_command_publisher = self.create_publisher(
+            String,
+            '/vision/mode_command',
+            10,
+        )
         self.create_subscription(
             OccupancyGrid,
             '/map',
@@ -212,6 +245,52 @@ class DogzillaWebGateway(Node):
                 float(message.twist.twist.linear.y),
             )
             self._angular_speed = float(message.twist.twist.angular.z)
+
+    @staticmethod
+    def _json_message(message, label):
+        try:
+            value = json.loads(message.data)
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise ValueError(f'invalid {label} JSON: {exc}') from exc
+        if not isinstance(value, dict):
+            raise ValueError(f'{label} must be a JSON object')
+        return value
+
+    def _on_vision_detections(self, message):
+        try:
+            value = self._json_message(message, 'vision detection')
+        except ValueError as exc:
+            self.get_logger().warn(str(exc))
+            return
+        self.telemetry.update('vision', value)
+
+    def _on_vision_status(self, message):
+        try:
+            value = self._json_message(message, 'vision status')
+        except ValueError as exc:
+            self.get_logger().warn(str(exc))
+            return
+        self.telemetry.update('vision_status', value)
+        signature = json.dumps(value, sort_keys=True, separators=(',', ':'))
+        with self._lock:
+            changed = signature != self._vision_status_signature
+            self._vision_status_signature = signature
+        if changed:
+            self.events.publish('vision.status', value)
+
+    def _on_vision_frame(self, message):
+        if message.format.lower() not in {'jpeg', 'jpg'}:
+            self.get_logger().warn(
+                f'Ignoring unsupported annotated image format: {message.format}'
+            )
+            return
+        frame = bytes(message.data)
+        if not frame or len(frame) > 4 * 1024 * 1024:
+            self.get_logger().warn('Ignoring empty or oversized vision frame')
+            return
+        with self._lock:
+            self._vision_frame = frame
+            self._vision_frame_received = time.monotonic()
 
     @staticmethod
     def _quaternion_yaw(quaternion):
@@ -368,6 +447,38 @@ class DogzillaWebGateway(Node):
 
     def get_map(self):
         return self.occupancy_map.payload()
+
+    def get_vision_frame(self):
+        """Return the newest annotated JPEG while it is still live."""
+        with self._lock:
+            frame = self._vision_frame
+            age = time.monotonic() - self._vision_frame_received
+        if frame is None:
+            raise ConflictError('vision frame is unavailable')
+        if age > 3.0:
+            raise ConflictError(f'vision frame is stale ({age:.1f}s old)')
+        return frame
+
+    def set_vision_mode(self, value):
+        """Publish one validated detection-only configuration request."""
+        try:
+            requested = validate_request(value)
+        except VisionConfigurationError as exc:
+            raise ValidationError(str(exc)) from exc
+        message = String()
+        message.data = json.dumps(
+            requested,
+            separators=(',', ':'),
+            allow_nan=False,
+        )
+        self._vision_command_publisher.publish(message)
+        response = {
+            **requested,
+            'state': 'requested',
+            'action_output': 'disabled',
+        }
+        self.events.publish('vision.requested', response)
+        return response
 
     def list_locations(self):
         return self.store.list_locations(self.map_name)

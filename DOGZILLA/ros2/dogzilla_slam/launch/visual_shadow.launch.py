@@ -6,8 +6,11 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.actions import IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
@@ -56,6 +59,23 @@ def generate_launch_description():
                 'use_sim_time': use_sim_time,
                 'camera_info_url': LaunchConfiguration('camera_info_url'),
             }.items(),
+        ),
+        Node(
+            package='dogzilla_slam',
+            executable='vision_node',
+            name='dogzilla_vision',
+            parameters=[{
+                'use_sim_time': ParameterValue(
+                    use_sim_time,
+                    value_type=bool,
+                ),
+                'image_topic': '/camera/image_raw',
+                'mode': 'raw',
+                'color': 'red',
+                'process_hz': 10.0,
+            }],
+            condition=IfCondition(enabled),
+            output='screen',
         ),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(description_launch),

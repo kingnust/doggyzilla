@@ -9,6 +9,8 @@ DOCKER_COMMAND="${DOGZILLA_MISSION_DOCKER_COMMAND:-docker}"
 COMPOSE_FILE="${REPO_ROOT}/deploy/compose.yaml"
 STATE_FILE="${REPO_ROOT}/logs/mission-current"
 NAVIGATION_CONTAINER="dogzilla_navigation"
+SHADOW_CONTAINER="dogzilla_visual_shadow"
+VISION_CONTAINER="dogzilla_vision"
 WEB_CONTAINER="dogzilla_web"
 STARTUP_TIMEOUT="${DOGZILLA_MISSION_STARTUP_TIMEOUT:-120}"
 
@@ -86,6 +88,8 @@ assert_runtime_is_free() {
         dogzilla_mapping \
         dogzilla_drive \
         "${NAVIGATION_CONTAINER}" \
+        "${SHADOW_CONTAINER}" \
+        "${VISION_CONTAINER}" \
         "${WEB_CONTAINER}"; do
         if container_is_active "${container_name}"; then
             printf 'Cannot start Mission Mode: %s is already running.\n' \

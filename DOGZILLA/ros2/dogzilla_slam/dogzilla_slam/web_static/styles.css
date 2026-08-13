@@ -100,6 +100,21 @@ main { padding-top: 2rem; }
 .task-name { display: block; min-height: 2.5rem; font-size: 1.05rem; line-height: 1.25; }
 
 .map-editor-panel { margin-top: 1rem; }
+.vision-panel { margin-top: 1rem; }
+.vision-heading { align-items: center; }
+.vision-heading .subtle { max-width: 48rem; margin: .45rem 0 0; font-size: .82rem; }
+.vision-grid { display: grid; grid-template-columns: minmax(0, 1fr) 18rem; gap: 1.25rem; margin-top: 1.25rem; }
+.vision-stage { position: relative; min-height: 20rem; display: grid; place-items: center; overflow: hidden; border: 1px solid rgba(173, 255, 213, .16); border-radius: 1rem; background: #050a08; }
+#vision-frame { display: none; width: 100%; height: auto; max-height: 32rem; object-fit: contain; }
+#vision-frame.live { display: block; }
+.vision-placeholder { position: absolute; inset: 0; display: grid; place-items: center; padding: 2rem; color: var(--muted); text-align: center; background: radial-gradient(circle, rgba(24, 50, 40, .55), rgba(5, 10, 8, .96)); font-size: .82rem; }
+.vision-controls { display: grid; align-content: start; gap: .55rem; padding-left: 1.25rem; border-left: 1px solid var(--line); }
+.vision-controls label { margin-top: .35rem; color: var(--muted); font-size: .76rem; font-weight: 700; }
+.vision-controls .primary { width: 100%; margin-top: .65rem; }
+.vision-readout { display: grid; gap: .35rem; margin-top: .5rem; padding: .8rem; border: 1px solid var(--line); border-radius: .75rem; background: rgba(0, 0, 0, .14); }
+.vision-readout span, .vision-readout small { color: var(--muted); font-size: .68rem; }
+.vision-readout strong { overflow-wrap: anywhere; font: 700 .78rem "SFMono-Regular", Consolas, monospace; }
+.vision-safety { margin: .25rem 0 0; padding: .55rem .7rem; border: 1px solid rgba(255, 189, 89, .25); border-radius: .6rem; color: var(--amber); background: rgba(255, 189, 89, .07); font-size: .7rem; font-weight: 800; text-align: center; text-transform: uppercase; letter-spacing: .04em; }
 .map-heading { align-items: center; }
 .map-heading .map-instructions { max-width: 44rem; margin: .45rem 0 0; font-size: .82rem; }
 .map-status-cluster { display: grid; justify-items: end; gap: .4rem; }
@@ -187,7 +202,8 @@ button:hover { transform: translateY(-1px); } button:active { transform: transla
   .hero-grid { grid-template-columns: repeat(3, 1fr); }.robot-card { grid-column: 1 / -1; }
 }
 @media (max-width: 800px) {
-  .app-shell { padding: 0 1rem 2rem; }.workspace-grid, .map-editor-grid { grid-template-columns: 1fr; }.field-grid { grid-template-columns: repeat(2, 1fr); }
+  .app-shell { padding: 0 1rem 2rem; }.workspace-grid, .map-editor-grid, .vision-grid { grid-template-columns: 1fr; }.field-grid { grid-template-columns: repeat(2, 1fr); }
+  .vision-controls { padding: 1rem 0 0; border-top: 1px solid var(--line); border-left: 0; }
   .location-sidebar { padding: 1rem 0 0; border-top: 1px solid var(--line); border-left: 0; }
   .save-location-row { grid-template-columns: 1fr auto; }.location-list { grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: none; }
 }

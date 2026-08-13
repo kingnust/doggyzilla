@@ -8,6 +8,7 @@ SERVICE_NAME="mapping"
 DRIVE_SERVICE_NAME="drive"
 NAVIGATION_SERVICE_NAME="navigation"
 SHADOW_SERVICE_NAME="shadow"
+VISION_SERVICE_NAME="vision"
 IMAGE_NAME="dogzilla-mapping:humble"
 BASE_IMAGE_NAME="yahboomtechnology/ros-humble:3.8"
 PINNED_BASE_ALIAS="dogzilla-yahboom-base:3.8-pinned"
@@ -28,6 +29,7 @@ SHUTDOWN_UNIT_SOURCE="${DEPLOY_DIR}/systemd/${SHUTDOWN_UNIT}"
 MISSION_COMMAND="${DEPLOY_DIR}/dogzilla-mission"
 MISSION_STATE_FILE="${REPO_ROOT}/logs/mission-current"
 WEB_COMMAND="${DEPLOY_DIR}/dogzilla-web"
+VISION_STATE_FILE="${REPO_ROOT}/logs/vision-current"
 
 compose() {
     docker compose \
@@ -49,6 +51,10 @@ usage() {
         '                        Map with calibrated mono RTAB shadow mode.' \
         '  camera-check [SECONDS]' \
         '                        Test /dev/video0 without moving the robot.' \
+        '  vision [MODE] [COLOR]' \
+        '                        Start safe Yahboom-style camera recognition.' \
+        '  vision-mode MODE [COLOR]' \
+        '                        Change the live detector; no robot action.' \
         '  camera-calibrate BOARD_SIZE SQUARE_METRES' \
         '                        Calibrate 640x480 intrinsics on the Pi display.' \
         '  camera-extrinsics --measured X Y Z ROLL PITCH YAW' \
@@ -126,6 +132,10 @@ navigation_is_running() {
 
 shadow_is_running() {
     service_is_running "${SHADOW_SERVICE_NAME}"
+}
+
+vision_is_running() {
+    service_is_running "${VISION_SERVICE_NAME}"
 }
 
 service_is_running() {
@@ -383,7 +393,7 @@ run_servo_mode() {
     local mode="$1"
 
     if container_is_running || drive_is_running || navigation_is_running \
-        || shadow_is_running; then
+        || shadow_is_running || vision_is_running; then
         printf 'Stop mapping, localization, or drive mode before using %s.\n' \
             "${mode}" >&2
         printf 'Run "./deploy/dogzilla-map stop" first.\n' >&2
@@ -422,7 +432,7 @@ run_firmware_rest_capture() {
     local confirmation
 
     if container_is_running || drive_is_running || navigation_is_running \
-        || shadow_is_running; then
+        || shadow_is_running || vision_is_running; then
         printf 'Stop mapping, localization, navigation, or drive mode first.\n' >&2
         printf 'Run "./deploy/dogzilla-map stop" first.\n' >&2
         exit 1
@@ -617,7 +627,8 @@ start_mapping() {
     assert_mission_allows_start
     ensure_runtime_directories
     ensure_image
-    if drive_is_running || navigation_is_running || shadow_is_running; then
+    if drive_is_running || navigation_is_running || shadow_is_running \
+        || vision_is_running; then
         printf 'Another DOGZILLA mode is running. Stop it before mapping.\n' >&2
         printf 'Run "./deploy/dogzilla-map stop" first.\n' >&2
         exit 1
@@ -667,7 +678,7 @@ start_mapping() {
 start_visual_shadow() {
     reconcile_camera_calibration
     if container_is_running || drive_is_running || navigation_is_running \
-        || shadow_is_running; then
+        || shadow_is_running || vision_is_running; then
         printf 'Another DOGZILLA mode is running. Stop it before shadow mode.\n' >&2
         printf 'Run "./deploy/dogzilla-map stop" first.\n' >&2
         exit 1
@@ -717,6 +728,103 @@ start_visual_shadow() {
     printf 'RTAB database: logs/sessions/%s/rtabmap_mono_shadow.db\n' \
         "${DOGZILLA_LOG_SESSION}"
     printf 'Run "./deploy/dogzilla-map shadow-check 10" before moving.\n'
+}
+
+validate_vision_mode() {
+    local mode="${1:-raw}"
+    case "${mode}" in
+        raw|color|color-track|face|face-track|qr|line)
+            printf '%s\n' "${mode}"
+            ;;
+        *)
+            printf '%s\n' \
+                'MODE must be raw, color, color-track, face, face-track, qr, or line.' >&2
+            return 2
+            ;;
+    esac
+}
+
+validate_vision_color() {
+    local color="${1:-red}"
+    case "${color}" in
+        red|green|blue|yellow)
+            printf '%s\n' "${color}"
+            ;;
+        *)
+            printf 'COLOR must be red, green, blue, or yellow.\n' >&2
+            return 2
+            ;;
+    esac
+}
+
+start_vision() {
+    local mode
+    local color
+    assert_mission_allows_start
+    mode="$(validate_vision_mode "${1:-raw}")"
+    color="$(validate_vision_color "${2:-red}")"
+    if container_is_running || drive_is_running || navigation_is_running \
+        || shadow_is_running || vision_is_running; then
+        printf 'Another camera or DOGZILLA mode is running. Stop it first.\n' >&2
+        printf 'Run "dogzilla stop" first.\n' >&2
+        return 1
+    fi
+    if [[ ! -c /dev/video0 ]]; then
+        printf 'Camera device is missing: /dev/video0\n' >&2
+        return 1
+    fi
+    ensure_image
+    stop_vendor_application
+    assert_camera_free
+    begin_log_session
+    DOGZILLA_VISION_MODE="${mode}"
+    DOGZILLA_VISION_COLOR="${color}"
+    export DOGZILLA_VISION_MODE DOGZILLA_VISION_COLOR
+    if ! compose up \
+        --detach \
+        --no-build \
+        --force-recreate \
+            "${VISION_SERVICE_NAME}"; then
+        return 1
+    fi
+    printf '%s\n' "${DOGZILLA_LOG_SESSION}" > "${VISION_STATE_FILE}.tmp"
+    mv -f -- "${VISION_STATE_FILE}.tmp" "${VISION_STATE_FILE}"
+    if ! "${WEB_COMMAND}" start; then
+        printf 'Vision dashboard startup failed; stopping the camera service.\n' >&2
+        compose stop --timeout 20 "${VISION_SERVICE_NAME}" || true
+        rm -f -- "${VISION_STATE_FILE}" "${VISION_STATE_FILE}.tmp"
+        return 1
+    fi
+    printf 'DOGZILLA Vision started: mode=%s, color=%s.\n' \
+        "${mode}" "${color}"
+    printf 'Robot action output is disabled; no serial device is exposed.\n'
+    printf 'The authenticated Vision Lab dashboard is starting automatically.\n'
+    printf 'Run "./deploy/dogzilla-web show-token" for its login token.\n'
+}
+
+set_vision_mode() {
+    local mode
+    local color
+    local vision_service
+    mode="$(validate_vision_mode "${1:-}")"
+    color="$(validate_vision_color "${2:-red}")"
+    if vision_is_running; then
+        vision_service="${VISION_SERVICE_NAME}"
+    elif shadow_is_running; then
+        vision_service="${SHADOW_SERVICE_NAME}"
+    else
+        printf 'DOGZILLA Vision or visual-shadow mode is not running.\n' >&2
+        return 1
+    fi
+    compose exec --no-TTY "${vision_service}" bash -lc '
+        source /opt/ros/humble/setup.bash
+        source /root/yahboomcar_ws/install/setup.bash
+        export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-12}"
+        ros2 param set /dogzilla_vision color "$2"
+        ros2 param set /dogzilla_vision mode "$1"
+    ' _ "${mode}" "${color}"
+    printf 'Vision mode requested: %s, color=%s; robot actions remain disabled.\n' \
+        "${mode}" "${color}"
 }
 
 select_local_display() {
@@ -1046,8 +1154,8 @@ check_camera() {
         printf 'Camera device is missing: /dev/video0\n' >&2
         exit 1
     fi
-    if shadow_is_running; then
-        printf 'The shadow service already owns /dev/video0.\n' >&2
+    if shadow_is_running || vision_is_running; then
+        printf 'A DOGZILLA camera service already owns /dev/video0.\n' >&2
         exit 1
     fi
     ensure_image
@@ -1208,7 +1316,8 @@ start_drive() {
     assert_mission_allows_start
     ensure_runtime_directories
     ensure_image
-    if container_is_running || navigation_is_running || shadow_is_running; then
+    if container_is_running || navigation_is_running || shadow_is_running \
+        || vision_is_running; then
         printf 'Mapping/localization is running. Stop it before drive mode.\n' >&2
         printf 'Run "./deploy/dogzilla-map stop" first.\n' >&2
         exit 1
@@ -1297,7 +1406,8 @@ start_navigation() {
     assert_mission_allows_start
     ensure_runtime_directories
     ensure_image
-    if container_is_running || drive_is_running || shadow_is_running; then
+    if container_is_running || drive_is_running || shadow_is_running \
+        || vision_is_running; then
         printf 'Mapping or drive mode is running. Stop it first.\n' >&2
         printf 'Run "./deploy/dogzilla-map stop" first.\n' >&2
         exit 1
@@ -1348,7 +1458,7 @@ run_imu_calibration() {
     local calibration_status
 
     if container_is_running || drive_is_running || navigation_is_running \
-        || shadow_is_running; then
+        || shadow_is_running || vision_is_running; then
         printf 'Stop every DOGZILLA mode before IMU calibration.\n' >&2
         printf 'Run "./deploy/dogzilla-map stop" first.\n' >&2
         exit 1
@@ -1436,7 +1546,11 @@ show_status() {
     fi
     compose ps
     if ! control_service="$(active_control_service)"; then
-        return
+        if vision_is_running; then
+            control_service="${VISION_SERVICE_NAME}"
+        else
+            return
+        fi
     fi
 
     printf '\nActive mode: %s\n' "${control_service}"
@@ -1575,8 +1689,12 @@ save_map() {
 open_shell() {
     local control_service
     if ! control_service="$(active_control_service)"; then
-        printf 'No mapping, localization, or drive mode is running.\n' >&2
-        exit 1
+        if vision_is_running; then
+            control_service="${VISION_SERVICE_NAME}"
+        else
+            printf 'No DOGZILLA ROS mode is running.\n' >&2
+            exit 1
+        fi
     fi
     compose exec "${control_service}" bash -lc '
         source /opt/ros/humble/setup.bash
@@ -1589,10 +1707,17 @@ open_shell() {
 follow_logs() {
     local control_service
     if ! control_service="$(active_control_service)"; then
-        printf 'No mapping, localization, or drive mode is running.\n' >&2
-        exit 1
+        if vision_is_running; then
+            control_service="${VISION_SERVICE_NAME}"
+        else
+            printf 'No DOGZILLA ROS mode is running.\n' >&2
+            exit 1
+        fi
     fi
-    if shadow_is_running; then
+    if vision_is_running && [[ "${control_service}" == "${VISION_SERVICE_NAME}" ]]; then
+        compose logs --follow --tail 200 \
+            "${VISION_SERVICE_NAME}" web
+    elif shadow_is_running; then
         compose logs --follow --tail 200 \
             "${control_service}" "${SHADOW_SERVICE_NAME}"
     else
@@ -1607,12 +1732,29 @@ stop_dogzilla() {
     local mission_was_active=false
     local navigation_was_running=false
     local shadow_was_running=false
+    local vision_was_running=false
     local web_status=0
 
     reconcile_camera_calibration
+    if [[ -f "${VISION_STATE_FILE}" ]]; then
+        vision_was_running=true
+    fi
     if [[ -f "${MISSION_STATE_FILE}" ]]; then
         mission_was_active=true
         printf 'Stopping the Mission Mode web gateway first.\n'
+        if ! "${WEB_COMMAND}" stop; then
+            web_status=1
+        fi
+    fi
+
+    if vision_is_running; then
+        vision_was_running=true
+        printf 'Stopping the camera-only Vision service first.\n'
+        compose stop --timeout 20 "${VISION_SERVICE_NAME}"
+    fi
+    rm -f -- "${VISION_STATE_FILE}" "${VISION_STATE_FILE}.tmp"
+    if service_is_running web && [[ "${mission_was_active}" == false ]]; then
+        printf 'Stopping the standalone web gateway.\n'
         if ! "${WEB_COMMAND}" stop; then
             web_status=1
         fi
@@ -1639,7 +1781,8 @@ stop_dogzilla() {
     if [[ "${mapping_was_running}" == false \
         && "${drive_was_running}" == false \
         && "${navigation_was_running}" == false \
-        && "${shadow_was_running}" == false ]]; then
+        && "${shadow_was_running}" == false \
+        && "${vision_was_running}" == false ]]; then
         printf 'DOGZILLA is already stopped.\n'
     fi
 
@@ -1647,7 +1790,9 @@ stop_dogzilla() {
     # mode never opens ttyAMA1, so it does not need or touch the LiDAR here.
     if [[ "${mapping_was_running}" == true \
         || "${navigation_was_running}" == true \
-        || "${drive_was_running}" == false ]]; then
+        || "${shadow_was_running}" == true \
+        || ("${drive_was_running}" == false \
+            && "${vision_was_running}" == false) ]]; then
         if ! send_lidar_off; then
             lidar_status=1
         fi
@@ -1683,6 +1828,12 @@ main() {
             ;;
         shadow)
             start_visual_shadow "${@:2}"
+            ;;
+        vision)
+            start_vision "${2:-raw}" "${3:-red}"
+            ;;
+        vision-mode)
+            set_vision_mode "${2:-}" "${3:-red}"
             ;;
         camera-check)
             check_camera "${2:-8}"

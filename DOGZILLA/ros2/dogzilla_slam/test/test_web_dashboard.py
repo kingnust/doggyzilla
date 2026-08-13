@@ -68,6 +68,12 @@ class WebDashboardTest(unittest.TestCase):
             'location-name',
             'save-location',
             'location-list',
+            'vision-frame',
+            'vision-mode',
+            'vision-color',
+            'vision-apply',
+            'vision-result',
+            'vision-status',
         ):
             with self.subTest(element_id=element_id):
                 self.assertIn(f'id="{element_id}"', html)

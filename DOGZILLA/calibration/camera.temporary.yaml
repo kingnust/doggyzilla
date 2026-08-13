@@ -1,0 +1,57 @@
+# TEMPORARY ESTIMATE — NOT CHECKERBOARD CALIBRATION.
+#
+# Camera supplied as DCX-BAT53G2V2. The attached Pi reports UVC 05a3:9230.
+# This 640x480 pinhole estimate uses the published 45 degree horizontal and
+# 32 degree vertical FOV for a matching 05a3:9230 VGA module. Distortion is
+# unknown and is deliberately set to zero. Replace this file with camera.yaml
+# produced by `dogzilla camera-calibrate` before judging map accuracy.
+image_width: 640
+image_height: 480
+camera_name: dogzilla_mono
+camera_matrix:
+  rows: 3
+  cols: 3
+  data:
+    - 772.548339959
+    - 0.0
+    - 319.5
+    - 0.0
+    - 836.979466522
+    - 239.5
+    - 0.0
+    - 0.0
+    - 1.0
+distortion_model: plumb_bob
+distortion_coefficients:
+  rows: 1
+  cols: 5
+  data: [0.0, 0.0, 0.0, 0.0, 0.0]
+rectification_matrix:
+  rows: 3
+  cols: 3
+  data:
+    - 1.0
+    - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+    - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+projection_matrix:
+  rows: 3
+  cols: 4
+  data:
+    - 772.548339959
+    - 0.0
+    - 319.5
+    - 0.0
+    - 0.0
+    - 836.979466522
+    - 239.5
+    - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+    - 0.0

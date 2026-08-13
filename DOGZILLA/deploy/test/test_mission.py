@@ -92,6 +92,8 @@ class MissionCommandTest(unittest.TestCase):
                         dogzilla_mapping) marker="${TEST_ROOT}/mapping.running" ;;
                         dogzilla_drive) marker="${TEST_ROOT}/drive.running" ;;
                         dogzilla_navigation) marker="${TEST_ROOT}/navigation.running" ;;
+                        dogzilla_visual_shadow) marker="${TEST_ROOT}/shadow.running" ;;
+                        dogzilla_vision) marker="${TEST_ROOT}/vision.running" ;;
                         dogzilla_web) marker="${TEST_ROOT}/web.running" ;;
                     esac
                     [[ -n "${marker}" && -f "${marker}" ]] || exit 1
@@ -201,6 +203,26 @@ class MissionCommandTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("dogzilla_mapping is already running", result.stderr)
         self.assertNotIn("map:navigate", self._calls())
+
+    def test_active_visual_shadow_is_never_replaced(self) -> None:
+        (self.root / "shadow.running").touch()
+
+        result = self._run("start", "room1")
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("dogzilla_visual_shadow is already running", result.stderr)
+        self.assertNotIn("map:navigate", self._calls())
+        self.assertNotIn("web:start", self._calls())
+
+    def test_active_vision_is_never_replaced(self) -> None:
+        (self.root / "vision.running").touch()
+
+        result = self._run("start", "room1")
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("dogzilla_vision is already running", result.stderr)
+        self.assertNotIn("map:navigate", self._calls())
+        self.assertNotIn("web:start", self._calls())
 
     def test_web_start_failure_rolls_back_navigation_and_removes_state(self) -> None:
         result = self._run("start", "room1", TEST_WEB_START_FAIL="1")

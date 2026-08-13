@@ -81,6 +81,49 @@
           </article>
         </section>
 
+        <section class="panel vision-panel" aria-labelledby="vision-title">
+          <div class="panel-heading vision-heading">
+            <div>
+              <p class="eyebrow">Yahboom lesson integration</p>
+              <h2 id="vision-title">Vision lab</h2>
+              <p class="subtle">Run the DOGZILLA camera lessons through one shared ROS stream. Detection is enabled; automatic walking and servo actions remain disabled.</p>
+            </div>
+            <span id="vision-status" class="pill offline"><span></span>Unavailable</span>
+          </div>
+          <div class="vision-grid">
+            <div class="vision-stage">
+              <img id="vision-frame" alt="Annotated DOGZILLA camera view">
+              <div id="vision-placeholder" class="vision-placeholder">Start a vision or visual-shadow session to see the camera.</div>
+            </div>
+            <div class="vision-controls">
+              <label for="vision-mode">Lesson mode</label>
+              <select id="vision-mode">
+                <option value="raw">Camera display</option>
+                <option value="color">8.1 Color recognition</option>
+                <option value="color-track">8.2 Color tracking</option>
+                <option value="face">8.4 Face detection</option>
+                <option value="face-track">8.5 Face tracking</option>
+                <option value="qr">8.7 QR recognition</option>
+                <option value="line">8.11 Visual line tracking</option>
+              </select>
+              <label for="vision-color">Target color</label>
+              <select id="vision-color">
+                <option value="red">Red</option>
+                <option value="green">Green</option>
+                <option value="blue">Blue</option>
+                <option value="yellow">Yellow</option>
+              </select>
+              <button id="vision-apply" class="primary" type="button">Apply vision mode</button>
+              <div class="vision-readout">
+                <span>Latest result</span>
+                <strong id="vision-result">No detections</strong>
+                <small id="vision-age">No vision telemetry</small>
+              </div>
+              <p class="vision-safety">Action output: disabled</p>
+            </div>
+          </div>
+        </section>
+
         <section class="panel map-editor-panel" aria-labelledby="map-editor-title">
           <div class="panel-heading map-heading">
             <div>

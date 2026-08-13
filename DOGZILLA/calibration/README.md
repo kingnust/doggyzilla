@@ -22,6 +22,12 @@ Visual shadow mapping requires two separate, robot-specific files:
 - `camera_extrinsics.yaml`: the measured `base_link` to `camera_link`
   translation in metres and roll/pitch/yaw in radians.
 
+`camera.temporary.yaml` is a bring-up-only pinhole estimate for the installed
+DCX-BAT53G2V2/USB `05a3:9230` camera. It is intentionally not named
+`camera.yaml`, so it cannot silently satisfy the production shadow gate. Its
+zero distortion values are not measured. See `BASE_LINK.md` for the physical
+axis origin used when measuring camera extrinsics.
+
 Generate the intrinsics from a terminal on the Raspberry Pi monitor:
 
 ```bash

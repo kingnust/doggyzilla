@@ -201,7 +201,8 @@ services:
           topics="$$(ros2 topic list --no-daemon --spin-time 2)" &&
           nodes="$$(ros2 node list --no-daemon --spin-time 2)" &&
           for topic in /camera/image_rect /camera/camera_info
-          /rtabmap_shadow/odom_input /rtabmap_shadow/info /scan; do
+          /rtabmap_shadow/odom_input /rtabmap_shadow/info /scan
+          /vision/status /vision/detections /vision/annotated/compressed; do
           grep -qx "$${topic}" <<< "$${topics}" || exit 1; done &&
           grep -qx /rtabmap_shadow/rtabmap_mono <<< "$${nodes}" &&
           timeout 5 ros2 topic echo /rtabmap_shadow/info
@@ -211,6 +212,52 @@ services:
       timeout: 8s
       retries: 5
       start_period: 45s
+    restart: "no"
+
+  vision:
+    image: dogzilla-mapping:humble
+    platform: linux/arm64
+    container_name: dogzilla_vision
+    init: true
+    network_mode: host
+    ipc: host
+    devices:
+      - /dev/video0:/dev/video0
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-12}
+      ROS_LOG_DIR: ${DOGZILLA_ROS_LOG_DIR:-/logs/vision}
+    volumes:
+      - ./logs:/logs
+    command:
+      - ros2
+      - launch
+      - dogzilla_slam
+      - vision.launch.py
+      - camera_enabled:=true
+      - camera_info_url:=file:///tmp/dogzilla-uncalibrated.yaml
+      - mode:=${DOGZILLA_VISION_MODE:-raw}
+      - color:=${DOGZILLA_VISION_COLOR:-red}
+      - process_hz:=${DOGZILLA_VISION_RATE:-10.0}
+    stop_signal: SIGINT
+    stop_grace_period: 20s
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          bash -lc 'source /opt/ros/humble/setup.bash &&
+          source /root/yahboomcar_ws/install/setup.bash &&
+          topics="$$(ros2 topic list --no-daemon --spin-time 2)" &&
+          nodes="$$(ros2 node list --no-daemon --spin-time 2)" &&
+          for topic in /camera/image_raw /vision/status /vision/detections
+          /vision/annotated/compressed; do
+          grep -qx "$${topic}" <<< "$${topics}" || exit 1; done &&
+          grep -qx /dogzilla_vision <<< "$${nodes}" &&
+          timeout 5 ros2 topic echo /vision/detections
+          --no-daemon --spin-time 2 --once >/dev/null'
+      interval: 10s
+      timeout: 8s
+      retries: 5
+      start_period: 30s
     restart: "no"
 
   web:

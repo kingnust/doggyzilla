@@ -62,6 +62,7 @@ setup(
             'shadow_validate = dogzilla_slam.shadow_validate:main',
             'teleop = dogzilla_slam.teleop:main',
             'tf_odometry = dogzilla_slam.tf_odometry:main',
+            'vision_node = dogzilla_slam.vision_node:main',
             'web_gateway = dogzilla_slam.web_gateway:main',
         ],
     },

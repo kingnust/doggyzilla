@@ -52,7 +52,7 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
         self.send_header('Referrer-Policy', 'no-referrer')
         self.send_header(
             'Content-Security-Policy',
-            "default-src 'self'; img-src 'self' data:; "
+            "default-src 'self'; img-src 'self' data: blob:; "
             "script-src 'self'; style-src 'self'; connect-src 'self'",
         )
         if api:
@@ -69,6 +69,14 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
 
     def _error(self, status, message):
         self._json(status, {'error': str(message)})
+
+    def _jpeg(self, body):
+        self.send_response(HTTPStatus.OK)
+        self.send_header('Content-Type', 'image/jpeg')
+        self.send_header('Content-Length', str(len(body)))
+        self._security_headers(api=True)
+        self.end_headers()
+        self.wfile.write(body)
 
     def _authorized(self):
         header = self.headers.get('Authorization', '')
@@ -147,6 +155,8 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
         try:
             if path == '/api/v1/state':
                 self._json(HTTPStatus.OK, self.server.service.get_state())
+            elif path == '/api/v1/vision/frame.jpg':
+                self._jpeg(self.server.service.get_vision_frame())
             elif path == '/api/v1/map':
                 self._json(HTTPStatus.OK, self.server.service.get_map())
             elif path == '/api/v1/locations':
@@ -216,6 +226,11 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                 self._json(HTTPStatus.OK, self.server.service.emergency_stop())
             elif path == '/api/v1/estop/reset':
                 self._json(HTTPStatus.OK, self.server.service.reset_estop())
+            elif path == '/api/v1/vision/mode':
+                self._json(
+                    HTTPStatus.OK,
+                    self.server.service.set_vision_mode(body),
+                )
             else:
                 self._error(HTTPStatus.NOT_FOUND, 'not found')
         except ValidationError as exc:

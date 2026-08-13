@@ -38,6 +38,10 @@ Pi host
     │   ├── robot-state publisher camera TF; no duplicate LiDAR/IMU TF
     │   ├── TF odometry           reads Cartographer odom -> base_link
     │   └── RTAB-Map              no motion command, serial device, or TF output
+    ├── dogzilla_vision           camera-only Yahboom lesson integration
+    │   ├── OpenCV detectors      color, face, QR, and line modes
+    │   ├── ROS observations      JSON detections + annotated JPEG
+    │   └── no serial devices     cannot move legs or command actions
     └── dogzilla_web              browser mission UI; no serial devices
 ```
 
@@ -47,6 +51,39 @@ motor-angle reads, raw IMU reads, and posture writes never compete for
 `/dev/ttyAMA0`. The device-free web service may run beside navigation.
 The visual shadow service may run only beside mapping. It receives `/scan` and
 scan-matched odometry over ROS but has no access to either serial port.
+
+The standalone Vision service owns only `/dev/video0`. Visual-shadow mode uses
+the same processor inside its existing camera container so RTAB and Vision
+never compete for the camera. See `docs/COMPUTER_VISION.md` for the official
+lesson mapping and safety boundary.
+
+### Yahboom computer-vision lessons
+
+Start a camera-only recognition session and authenticated dashboard:
+
+```bash
+dogzilla vision color red
+```
+
+The first argument is `raw`, `color`, `color-track`, `face`, `face-track`,
+`qr`, or `line`. The optional second argument is `red`, `green`, `blue`, or
+`yellow`. The container receives `/dev/video0` only; it cannot open either
+serial port, start the LiDAR, or move DOGZILLA.
+
+Change the active detector without reopening the camera:
+
+```bash
+dogzilla vision-mode face
+dogzilla vision-mode color-track blue
+dogzilla vision-mode qr
+dogzilla vision-mode line
+```
+
+The dashboard Vision Lab shows the annotated frame and current detections. Its
+frame endpoint uses the same bearer-token authentication as the mission API.
+Color/QR action groups, autonomous line following, obstacle crossing, and
+teaching replay remain disabled until they pass through the single serial
+manager and receive separate physical safety acceptance.
 
 ## First build
 

@@ -19,6 +19,8 @@
   let plannedPath = [];
   let previewTimer = null;
   let previewGeneration = 0;
+  let visionFrameTimer = null;
+  let visionFrameUrl = '';
   const waypoints = { pickup: null, dropoff: null };
 
   async function api(path, options = {}) {
@@ -50,6 +52,9 @@
     sessionStorage.removeItem('dogzillaGatewayToken');
     clearInterval(pollTimer);
     clearTimeout(previewTimer);
+    clearTimeout(visionFrameTimer);
+    if (visionFrameUrl) URL.revokeObjectURL(visionFrameUrl);
+    visionFrameUrl = '';
     if (eventAbort) eventAbort.abort();
     elements.app.classList.add('hidden');
     elements.login.classList.remove('hidden');
@@ -69,6 +74,68 @@
     if (!Number.isFinite(value)) return 'No ROS graph';
     const age = Math.max(0, (Date.now() - value) / 1000);
     return `Graph ${age.toFixed(1)}s ago`;
+  }
+
+  async function refreshVisionFrame() {
+    if (!token) return;
+    if (document.hidden) {
+      visionFrameTimer = setTimeout(refreshVisionFrame, 1000);
+      return;
+    }
+    try {
+      const response = await fetch('/api/v1/vision/frame.jpg', {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store',
+      });
+      if (response.status === 401) {
+        disconnect('The gateway rejected that token.');
+        return;
+      }
+      if (!response.ok) throw new Error('Vision frame unavailable');
+      const nextUrl = URL.createObjectURL(await response.blob());
+      const previousUrl = visionFrameUrl;
+      visionFrameUrl = nextUrl;
+      elements['vision-frame'].src = nextUrl;
+      elements['vision-frame'].classList.add('live');
+      elements['vision-placeholder'].classList.add('hidden');
+      if (previousUrl) URL.revokeObjectURL(previousUrl);
+    } catch (_) {
+      elements['vision-frame'].classList.remove('live');
+      elements['vision-placeholder'].classList.remove('hidden');
+    } finally {
+      if (token) visionFrameTimer = setTimeout(refreshVisionFrame, 250);
+    }
+  }
+
+  function renderVision(telemetry) {
+    const status = telemetry.vision_status;
+    const statusValue = status?.value;
+    const live = Boolean(statusValue) && !status.stale;
+    elements['vision-status'].className = `pill ${live ? 'online' : 'offline'}`;
+    elements['vision-status'].innerHTML = `<span></span>${live ? 'Live' : 'Unavailable'}`;
+    if (statusValue?.mode) elements['vision-mode'].value = statusValue.mode;
+    if (statusValue?.color) elements['vision-color'].value = statusValue.color;
+
+    const vision = telemetry.vision;
+    const result = vision?.value;
+    const detections = Array.isArray(result?.detections) ? result.detections : [];
+    if (!detections.length) {
+      elements['vision-result'].textContent = result?.mode
+        ? `${String(result.mode).replaceAll('-', ' ')} · no target`
+        : 'No detections';
+    } else {
+      const first = detections[0];
+      if (first.kind === 'qr') {
+        elements['vision-result'].textContent = `QR · ${first.text || '(empty)'}`;
+      } else {
+        const offset = Number.isFinite(first.error_x)
+          ? ` · horizontal ${first.error_x.toFixed(2)}`
+          : '';
+        elements['vision-result'].textContent = `${first.kind}${offset}`;
+      }
+    }
+    elements['vision-age'].textContent = ageLabel(vision, 'No vision telemetry');
+    elements['vision-apply'].disabled = !live;
   }
 
   function setMapMessage(message, success = false) {
@@ -423,6 +490,7 @@
   function renderState(state) {
     setConnection(true);
     const telemetry = state.telemetry || {};
+    renderVision(telemetry);
     const safety = state.safety || {};
     const robot = state.robot || {};
     currentMap = state.configuration?.map || telemetry.map?.value?.name || currentMap;
@@ -748,6 +816,8 @@
       clearInterval(pollTimer);
       pollTimer = setInterval(refreshAll, 3000);
       connectEvents();
+      clearTimeout(visionFrameTimer);
+      refreshVisionFrame();
     } catch (error) {
       elements['login-error'].textContent = error.message;
     }
@@ -771,6 +841,21 @@
       showToast('Delivery added to the mission queue.');
       await refreshAll();
     } catch (error) { elements['mission-message'].textContent = error.message; }
+  });
+
+  elements['vision-apply'].addEventListener('click', async () => {
+    elements['vision-apply'].disabled = true;
+    try {
+      const response = await post('/api/v1/vision/mode', {
+        mode: elements['vision-mode'].value,
+        color: elements['vision-color'].value,
+      });
+      showToast(`${response.mode.replaceAll('-', ' ')} requested. Robot actions remain disabled.`);
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      await refreshAll();
+    }
   });
 
   elements.estop.addEventListener('click', async () => {
