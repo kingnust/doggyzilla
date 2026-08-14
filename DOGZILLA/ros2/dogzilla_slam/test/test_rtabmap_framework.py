@@ -207,9 +207,11 @@ def test_shadow_deployment_is_separate_and_has_no_motion_ownership():
         'config', 'mono_camera.yaml'
     ).read_text())
 
-    shadow_service = compose_source.split('  shadow:', 1)[1].split(
-        '\n  web:', 1
-    )[0]
+    compose_document = yaml.safe_load(compose_source)
+    shadow_service = yaml.safe_dump(
+        compose_document['services']['shadow'],
+        sort_keys=True,
+    )
     assert 'visual_shadow.launch.py' in shadow_service
     assert '/dev/video0:/dev/video0' in shadow_service
     assert '/dev/ttyAMA0' not in shadow_service
@@ -231,6 +233,9 @@ def test_shadow_deployment_is_separate_and_has_no_motion_ownership():
     assert 'shadow-route-check [SECONDS] [MIN_METRES]' in command_source
     assert 'shadow-db-check [SESSION]' in command_source
     assert '/rtabmap_shadow/info' in shadow_service
+    assert compose_document['services']['shadow']['healthcheck'][
+        'timeout'
+    ] == '15s'
     assert 'ros2 topic echo /rtabmap_shadow/info' in shadow_service
     assert '--no-daemon --spin-time 2 --once' in shadow_service
     assert 'm.ref_id > 0 and len(m.wm_state) > 0' in shadow_service

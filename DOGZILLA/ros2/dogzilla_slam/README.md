@@ -106,6 +106,13 @@ or collision checking. RTAB-Map is configured to consume a rectified mono
 image and `CameraInfo`, plus Cartographer's scan-matched odometry and MS200
 `/scan`; it publishes no TF and keeps output under `/rtabmap_shadow`.
 
+The package also contains a default-disarmed `vision_control.launch.py` for
+Yahboom lessons that intentionally move the robot. It combines the camera with
+the existing single serial manager; action IDs, QR labels, battery state,
+debounce, target release, cooldown, slow line velocity, and stop timeouts are
+validated at that boundary. Use only the interactive `dogzilla vision-control`
+operator command to set its startup arm gate.
+
 `dogzilla camera-check 12` validates the physical raw camera without exposing
 serial devices. The image builds a checksum-pinned upstream `usb_cam` fix that
 drains the camera at its native rate while publishing at 30 Hz, preventing the

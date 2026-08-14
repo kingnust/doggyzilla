@@ -5,11 +5,15 @@ import shutil
 import subprocess
 import xml.etree.ElementTree as ET
 
+import yaml
+
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 URDF_DIRECTORY = PACKAGE_ROOT / 'urdf'
 ROBOT_XACRO = URDF_DIRECTORY / 'dogzilla_s2.urdf.xacro'
 LEG_XACRO = URDF_DIRECTORY / 'dogzilla_leg.xacro'
+RVIZ_CONFIG = PACKAGE_ROOT / 'rviz' / 'dogzilla_mapping.rviz'
+SHADOW_RVIZ_CONFIG = PACKAGE_ROOT / 'rviz' / 'dogzilla_shadow.rviz'
 XACRO_NAMESPACE = 'http://www.ros.org/wiki/xacro'
 
 
@@ -282,3 +286,40 @@ def test_description_is_packaged_but_not_in_operational_launches():
             PACKAGE_ROOT / 'launch' / launch_name
         ).read_text()
         assert 'robot_description.launch.py' not in operational_source
+
+
+def test_operational_rviz_can_show_urdf_without_shadow_overlay():
+    document = yaml.safe_load(RVIZ_CONFIG.read_text())
+    displays = document['Visualization Manager']['Displays']
+    by_name = {display['Name']: display for display in displays}
+
+    model = by_name['DOGZILLA URDF']
+    assert model['Class'] == 'rviz_default_plugins/RobotModel'
+    assert model['Description Source'] == 'Topic'
+    assert model['Description Topic']['Value'] == '/robot_description'
+    assert model['Description Topic']['Durability Policy'] == (
+        'Transient Local'
+    )
+    assert model['Enabled'] is True
+
+    assert 'RTAB Shadow Occupancy' not in by_name
+    assert by_name['Occupancy Map']['Topic']['Value'] == '/map'
+    assert by_name['Occupancy Map']['Enabled'] is True
+
+
+def test_shadow_rviz_uses_supported_isolated_map_and_frame():
+    document = yaml.safe_load(SHADOW_RVIZ_CONFIG.read_text())
+    manager = document['Visualization Manager']
+    displays = manager['Displays']
+    by_name = {display['Name']: display for display in displays}
+
+    shadow_map = by_name['RTAB Shadow Occupancy']
+    assert shadow_map['Class'] == 'rviz_default_plugins/Map'
+    assert shadow_map['Topic']['Value'] == '/rtabmap_shadow/map'
+    assert shadow_map['Topic']['Durability Policy'] == 'Transient Local'
+    assert shadow_map['Update Topic']['Value'] == ''
+    assert shadow_map['Enabled'] is True
+    assert manager['Global Options']['Fixed Frame'] == 'rtabmap_shadow_map'
+    assert by_name['RTAB Optimized Path']['Topic']['Value'] == (
+        '/rtabmap_shadow/mapPath'
+    )

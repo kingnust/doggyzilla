@@ -20,12 +20,13 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.qos import qos_profile_sensor_data
 from rclpy.time import Time
 from sensor_msgs.msg import BatteryState, CompressedImage, JointState
-from std_msgs.msg import String
+from std_msgs.msg import Bool, String
 from tf2_ros import Buffer, TransformException, TransformListener
 
 from .web_core import build_location_payload
 from .web_core import build_delivery_payload
 from .web_core import build_route_payload
+from .web_core import classify_robot_mode
 from .web_core import ConflictError
 from .web_core import EventBus
 from .web_core import MAP_NAME_PATTERN
@@ -106,6 +107,7 @@ class DogzillaWebGateway(Node):
         self._vision_frame = None
         self._vision_frame_received = 0.0
         self._vision_status_signature = None
+        self._vision_action_status_signature = None
         self._graph = {
             'mode': 'stopped',
             'nodes': [],
@@ -145,6 +147,12 @@ class DogzillaWebGateway(Node):
             vision_status_qos,
         )
         self.create_subscription(
+            String,
+            '/vision/action_status',
+            self._on_vision_action_status,
+            vision_status_qos,
+        )
+        self.create_subscription(
             CompressedImage,
             '/vision/annotated/compressed',
             self._on_vision_frame,
@@ -171,6 +179,11 @@ class DogzillaWebGateway(Node):
         self._priority_stop_publisher = self.create_publisher(
             Twist,
             '/cmd_vel_teleop',
+            10,
+        )
+        self._estop_publisher = self.create_publisher(
+            Bool,
+            '/safety/estop',
             10,
         )
         self._navigate = ActionClient(
@@ -278,10 +291,25 @@ class DogzillaWebGateway(Node):
         if changed:
             self.events.publish('vision.status', value)
 
+    def _on_vision_action_status(self, message):
+        try:
+            value = self._json_message(message, 'vision action status')
+        except ValueError as exc:
+            self.get_logger().warn(str(exc))
+            return
+        self.telemetry.update('vision_action_status', value)
+        signature = json.dumps(value, sort_keys=True, separators=(',', ':'))
+        with self._lock:
+            changed = signature != self._vision_action_status_signature
+            self._vision_action_status_signature = signature
+        if changed:
+            self.events.publish('vision.action_status', value)
+
     def _on_vision_frame(self, message):
         if message.format.lower() not in {'jpeg', 'jpg'}:
             self.get_logger().warn(
-                f'Ignoring unsupported annotated image format: {message.format}'
+                'Ignoring unsupported annotated image format: '
+                f'{message.format}'
             )
             return
         frame = bytes(message.data)
@@ -364,14 +392,7 @@ class DogzillaWebGateway(Node):
     def _refresh_graph(self):
         node_names = sorted(set(self.get_node_names()))
         nav_available = self._navigate.server_is_ready()
-        if nav_available or any('bt_navigator' in name for name in node_names):
-            mode = 'navigation'
-        elif any('cartographer' in name for name in node_names):
-            mode = 'mapping_or_localization'
-        elif any('dogzilla_safe_base' in name for name in node_names):
-            mode = 'drive'
-        else:
-            mode = 'stopped'
+        mode = classify_robot_mode(node_names, nav_available)
         graph = {
             'mode': mode,
             'nodes': node_names,
@@ -424,7 +445,11 @@ class DogzillaWebGateway(Node):
             active_task_id = self._active['task_id'] if self._active else None
             graph = dict(self._graph)
             estop_latched = self._estop_latched
-        active_task = self.store.get(active_task_id) if active_task_id else None
+        active_task = (
+            self.store.get(active_task_id)
+            if active_task_id
+            else None
+        )
         return {
             'time': utc_now(),
             'configuration': {'map': self.map_name},
@@ -644,6 +669,8 @@ class DogzillaWebGateway(Node):
                 self._cancel_requests.add(task_id)
                 self._cancel_reasons[task_id] = 'Emergency stop activated'
         self.events.publish('safety.estop', {'latched': True})
+        self._publish_estop(True)
+        self._publish_stop()
         return self.get_state()['safety']
 
     def reset_estop(self):
@@ -664,7 +691,11 @@ class DogzillaWebGateway(Node):
         with self._lock:
             self._estop_latched = False
         self.events.publish('safety.estop', {'latched': False})
+        self._publish_estop(False)
         return self.get_state()['safety']
+
+    def _publish_estop(self, latched):
+        self._estop_publisher.publish(Bool(data=bool(latched)))
 
     def _publish_stop(self):
         zero = Twist()
@@ -678,6 +709,8 @@ class DogzillaWebGateway(Node):
             active = self._active
         if estop_latched or now < self._stop_until:
             self._publish_stop()
+        if estop_latched:
+            self._publish_estop(True)
 
         if active is not None:
             task_id = active['task_id']
@@ -690,6 +723,7 @@ class DogzillaWebGateway(Node):
                     self._cancel_reasons[task_id] = battery_reason
                 cancel_requested = task_id in self._cancel_requests
             if battery_stop:
+                self._publish_estop(True)
                 self.events.publish(
                     'safety.estop',
                     {
@@ -900,6 +934,7 @@ class DogzillaWebGateway(Node):
             'safety.estop',
             {'latched': True, 'reason': message},
         )
+        self._publish_estop(True)
         self._finish_active('failed', message)
 
     def _finish_active(self, state, error=None):
@@ -920,6 +955,7 @@ class DogzillaWebGateway(Node):
         with self._lock:
             self._estop_latched = True
         for _ in range(3):
+            self._publish_estop(True)
             self._publish_stop()
         self.store.close()
 

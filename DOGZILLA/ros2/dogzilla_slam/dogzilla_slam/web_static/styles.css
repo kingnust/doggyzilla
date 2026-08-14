@@ -115,6 +115,7 @@ main { padding-top: 2rem; }
 .vision-readout span, .vision-readout small { color: var(--muted); font-size: .68rem; }
 .vision-readout strong { overflow-wrap: anywhere; font: 700 .78rem "SFMono-Regular", Consolas, monospace; }
 .vision-safety { margin: .25rem 0 0; padding: .55rem .7rem; border: 1px solid rgba(255, 189, 89, .25); border-radius: .6rem; color: var(--amber); background: rgba(255, 189, 89, .07); font-size: .7rem; font-weight: 800; text-align: center; text-transform: uppercase; letter-spacing: .04em; }
+.vision-safety.armed { border-color: rgba(255, 91, 91, .55); color: #ff8b8b; background: rgba(255, 91, 91, .13); }
 .map-heading { align-items: center; }
 .map-heading .map-instructions { max-width: 44rem; margin: .45rem 0 0; font-size: .82rem; }
 .map-status-cluster { display: grid; justify-items: end; gap: .4rem; }

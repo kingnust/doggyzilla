@@ -1,20 +1,29 @@
-"""Safe, single-owner DOGZILLA movement and raw-IMU serial bridge."""
+"""Safe, single-owner DOGZILLA movement, action, and telemetry bridge."""
 
 import DOGZILLALib as dog
 from geometry_msgs.msg import Twist
+import json
 import math
 import rclpy
+from rclpy.duration import Duration
 from rcl_interfaces.msg import SetParametersResult
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import BatteryState, Imu, JointState
+from std_msgs.msg import Bool, String
 
 from .firmware_rest_capture import FirmwareRestRecorder
 from .firmware_rest_capture import save_capture_atomic
+from .vision_action_policy import execute_firmware_action
+from .vision_action_policy import line_follow_velocity
+from .vision_action_policy import VisionActionPolicyError
+from .vision_action_policy import VisionControlPolicy
+from .vision_action_policy import VisionExecutionSafetyError
 
 
 class SafeBase(Node):
-    """Clamp velocity commands and stop the controller after a short timeout."""
+    """Clamp commands and stop the controller after a short timeout."""
 
     JOINT_NAMES = tuple(
         f'leg{leg}_motor{motor}_joint'
@@ -36,10 +45,11 @@ class SafeBase(Node):
         'head_yaw': (-11.0, 11.0),
     }
 
-    def __init__(self):
-        super().__init__('dogzilla_safe_base')
+    def __init__(self, **kwargs):
+        super().__init__('dogzilla_safe_base', **kwargs)
 
         self.declare_parameter('input_topic', '/cmd_vel')
+        self.declare_parameter('accept_velocity_commands', True)
         self.declare_parameter('max_linear', 0.10)
         self.declare_parameter('max_angular', 0.30)
         self.declare_parameter('command_timeout', 0.60)
@@ -68,6 +78,21 @@ class SafeBase(Node):
         self.declare_parameter('body_height', 105.0)
         self.declare_parameter('head_pitch', 0.0)
         self.declare_parameter('head_yaw', 0.0)
+        self.declare_parameter('vision_control_enabled', False)
+        self.declare_parameter(
+            'vision_detection_topic',
+            '/vision/detections',
+        )
+        self.declare_parameter(
+            'vision_action_status_topic',
+            '/vision/action_status',
+        )
+        self.declare_parameter('vision_required_frames', 5)
+        self.declare_parameter('vision_release_frames', 3)
+        self.declare_parameter('vision_action_cooldown', 8.0)
+        self.declare_parameter('vision_action_guard_seconds', 8.0)
+        self.declare_parameter('vision_line_forward', 0.08)
+        self.declare_parameter('vision_line_maximum_turn', 0.25)
 
         input_topic = self.get_parameter('input_topic').value
         self._max_linear = float(self.get_parameter('max_linear').value)
@@ -91,6 +116,7 @@ class SafeBase(Node):
             self.get_parameter('low_battery_percent').value
         )
         self._movement_inhibited = False
+        self._estop_latched = False
         self._battery_percent = None
         self._battery_failures = 0
         self._joint_failures = 0
@@ -98,16 +124,59 @@ class SafeBase(Node):
             self.get_parameter('joint_state_rate_hz').value
         )
         if not 0.10 <= self._joint_rate_hz_normal <= 5.0:
-            raise ValueError('joint_state_rate_hz must be between 0.10 and 5 Hz')
+            raise ValueError(
+                'joint_state_rate_hz must be between 0.10 and 5 Hz'
+            )
         self._joint_rate_hz_capture = float(
             self.get_parameter('firmware_rest_capture_joint_rate_hz').value
         )
-        if not self._joint_rate_hz_normal <= self._joint_rate_hz_capture <= 5.0:
+        if not (
+            self._joint_rate_hz_normal
+            <= self._joint_rate_hz_capture
+            <= 5.0
+        ):
             raise ValueError(
                 'firmware_rest_capture_joint_rate_hz must be between the '
                 'normal joint rate and 5 Hz'
             )
         self._joint_rate_hz_current = self._joint_rate_hz_normal
+        self._vision_control_enabled = bool(
+            self.get_parameter('vision_control_enabled').value
+        )
+        self._vision_action_deadline = None
+        self._vision_active_action = None
+        self._vision_line_active = False
+        self._vision_status_signature = None
+        self._vision_line_forward = float(
+            self.get_parameter('vision_line_forward').value
+        )
+        self._vision_line_maximum_turn = float(
+            self.get_parameter('vision_line_maximum_turn').value
+        )
+        self._vision_action_guard_seconds = float(
+            self.get_parameter('vision_action_guard_seconds').value
+        )
+        if not 1.0 <= self._vision_action_guard_seconds <= 30.0:
+            raise ValueError(
+                'vision_action_guard_seconds must be between 1 and 30'
+            )
+        # Validate the configured line limits before opening the serial port.
+        line_follow_velocity(
+            {'kind': 'velocity-intent', 'steering_error': 0.0},
+            self._vision_line_forward,
+            self._vision_line_maximum_turn,
+        )
+        self._vision_policy = VisionControlPolicy(
+            required_frames=int(
+                self.get_parameter('vision_required_frames').value
+            ),
+            release_frames=int(
+                self.get_parameter('vision_release_frames').value
+            ),
+            action_cooldown_seconds=float(
+                self.get_parameter('vision_action_cooldown').value
+            ),
+        )
 
         self._firmware_rest_recorder = None
         if bool(self.get_parameter('capture_firmware_rest').value):
@@ -140,15 +209,46 @@ class SafeBase(Node):
         initial_speed_profile = self.get_parameter('speed_profile').value
         self._set_speed_profile(initial_speed_profile, announce=False)
         self.add_on_set_parameters_callback(self._parameters_changed)
-        self._subscription = self.create_subscription(
-            Twist,
-            input_topic,
-            self._apply_command,
+        self._subscription = None
+        if bool(self.get_parameter('accept_velocity_commands').value):
+            self._subscription = self.create_subscription(
+                Twist,
+                input_topic,
+                self._apply_command,
+                10,
+            )
+        self._estop_subscription = self.create_subscription(
+            Bool,
+            '/safety/estop',
+            self._on_estop,
             10,
         )
         self._last_command_time = None
         self._stopped = True
         self._timer = self.create_timer(0.10, self._watchdog)
+
+        self._vision_status_publisher = None
+        self._vision_subscription = None
+        if self._vision_control_enabled:
+            status_qos = QoSProfile(depth=1)
+            status_qos.reliability = ReliabilityPolicy.RELIABLE
+            status_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
+            self._vision_status_publisher = self.create_publisher(
+                String,
+                str(
+                    self.get_parameter(
+                        'vision_action_status_topic'
+                    ).value
+                ),
+                status_qos,
+            )
+            self._vision_subscription = self.create_subscription(
+                String,
+                str(self.get_parameter('vision_detection_topic').value),
+                self._on_vision_detections,
+                10,
+            )
+            self._publish_vision_status('waiting-battery')
 
         self._battery_publisher = None
         self._battery_timer = None
@@ -160,7 +260,9 @@ class SafeBase(Node):
                 self.get_parameter('battery_rate_hz').value
             )
             if not 0.05 <= battery_rate_hz <= 2.0:
-                raise ValueError('battery_rate_hz must be between 0.05 and 2 Hz')
+                raise ValueError(
+                    'battery_rate_hz must be between 0.05 and 2 Hz'
+                )
             if publish_battery:
                 self._battery_publisher = self.create_publisher(
                     BatteryState,
@@ -220,11 +322,18 @@ class SafeBase(Node):
             f'timeout = {self._command_timeout:.2f}s, '
             f'posture controls = {self._posture_control_enabled}'
         )
+        if self._vision_control_enabled:
+            self.get_logger().warn(
+                'VISION CONTROL IS ARMED: only stable allowlisted proposals '
+                'can execute; battery lockout and movement watchdog remain '
+                'active'
+            )
         if self._firmware_rest_recorder is not None:
             self.get_logger().info(
                 'Passive firmware-rest capture enabled: normal joint rate '
                 f'{self._joint_rate_hz_normal:.1f} Hz, near-low rate '
-                f'{self._joint_rate_hz_capture:.1f} Hz; replay remains disabled'
+                f'{self._joint_rate_hz_capture:.1f} Hz; replay remains '
+                'disabled'
             )
 
     def _set_speed_profile(self, profile, announce=True):
@@ -257,7 +366,24 @@ class SafeBase(Node):
                         successful=False,
                         reason='speed_profile must be slow, normal, or high',
                     )
+                if self._vision_control_enabled and profile != 'slow':
+                    return SetParametersResult(
+                        successful=False,
+                        reason=(
+                            'armed vision control is locked to the slow '
+                            'speed profile'
+                        ),
+                    )
                 requested[parameter.name] = profile
+            elif parameter.name == 'vision_control_enabled':
+                if bool(parameter.value) != self._vision_control_enabled:
+                    return SetParametersResult(
+                        successful=False,
+                        reason=(
+                            'vision_control_enabled is startup-only; restart '
+                            'through the guarded operator command'
+                        ),
+                    )
             elif parameter.name in self.POSTURE_LIMITS:
                 if not self._posture_control_enabled:
                     return SetParametersResult(
@@ -325,7 +451,9 @@ class SafeBase(Node):
     def _bound_vendor_read_timeout(self, timeout_s):
         """Limit Yahboom's private one-second serial busy wait."""
         if not 0.01 <= timeout_s <= 0.20:
-            raise ValueError('serial_read_timeout must be between 0.01 and 0.20s')
+            raise ValueError(
+                'serial_read_timeout must be between 0.01 and 0.20s'
+            )
         original_unpack = getattr(self._dog, '_DOGZILLA__unpack')
 
         def bounded_unpack(timeout=timeout_s):
@@ -347,7 +475,7 @@ class SafeBase(Node):
         self._stopped = True
 
     def _apply_command(self, source):
-        if self._movement_inhibited:
+        if self._movement_inhibited or self._estop_latched:
             return
 
         linear_x = self._clamp(source.linear.x, self._max_linear)
@@ -369,6 +497,17 @@ class SafeBase(Node):
         self._stopped = False
 
     def _watchdog(self):
+        if self._vision_action_deadline is not None:
+            now = self.get_clock().now()
+            if now >= self._vision_action_deadline:
+                completed = self._vision_active_action
+                self._vision_action_deadline = None
+                self._vision_active_action = None
+                self.stop()
+                self._publish_vision_status(
+                    'ready',
+                    detail=f'action guard completed: {completed}',
+                )
         if self._last_command_time is None or self._stopped:
             return
 
@@ -380,6 +519,170 @@ class SafeBase(Node):
 
         self.get_logger().warn('Command timeout: stopping DOGZILLA')
         self.stop()
+        if self._vision_control_enabled:
+            self._vision_line_active = False
+            self._publish_vision_status(
+                'ready',
+                detail='velocity watchdog stopped stale vision command',
+            )
+
+    def _on_estop(self, message):
+        if bool(message.data):
+            self._estop_latched = True
+            self._vision_action_deadline = None
+            self._vision_active_action = None
+            self._vision_line_active = False
+            self._vision_policy.reset()
+            self.stop()
+            self._publish_vision_status(
+                'emergency-stop',
+                detail='operator emergency stop is latched',
+            )
+            return
+        if (
+            self._battery_percent is None
+            or self._movement_inhibited
+            or self._battery_percent <= self._low_battery_percent
+        ):
+            self._publish_vision_status(
+                'emergency-stop',
+                detail='emergency stop reset blocked by battery state',
+            )
+            return
+        self._estop_latched = False
+        self._publish_vision_status('ready')
+
+    def _publish_vision_status(self, state, detail=None, decision=None):
+        if self._vision_status_publisher is None:
+            return
+        value = {
+            'schema_version': 1,
+            'armed': True,
+            'state': str(state),
+            'battery_percent': self._battery_percent,
+            'low_battery_percent': self._low_battery_percent,
+            'movement_inhibited': self._movement_inhibited,
+            'estop_latched': self._estop_latched,
+        }
+        if detail:
+            value['detail'] = str(detail)
+        if decision:
+            value['decision'] = {
+                key: decision[key]
+                for key in ('kind', 'name', 'action_id', 'steering_error')
+                if key in decision
+            }
+        serialized = json.dumps(
+            value,
+            sort_keys=True,
+            separators=(',', ':'),
+            allow_nan=False,
+        )
+        if serialized == self._vision_status_signature:
+            return
+        self._vision_status_signature = serialized
+        message = String()
+        message.data = serialized
+        self._vision_status_publisher.publish(message)
+
+    def _on_vision_detections(self, message):
+        """Execute only stable proposals in an explicitly armed session."""
+        try:
+            result = json.loads(message.data)
+        except (TypeError, json.JSONDecodeError) as exc:
+            self._vision_policy.reset()
+            self.stop()
+            self._vision_line_active = False
+            self._publish_vision_status(
+                'rejected',
+                detail=f'invalid detection JSON: {exc}',
+            )
+            return
+
+        proposals = result.get('action_proposals') if isinstance(
+            result,
+            dict,
+        ) else None
+        if not proposals and self._vision_line_active:
+            self.stop()
+            self._vision_line_active = False
+            self._publish_vision_status(
+                'ready',
+                detail='line target lost; stopped',
+            )
+        if self._vision_action_deadline is not None:
+            return
+        if (
+            self._battery_percent is None
+            or self._movement_inhibited
+            or self._estop_latched
+            or self._battery_percent <= self._low_battery_percent
+        ):
+            self._vision_policy.reset()
+            self.stop()
+            self._vision_line_active = False
+            self._publish_vision_status(
+                'blocked',
+                detail=(
+                    'valid battery above the safety threshold and a cleared '
+                    'emergency stop are required'
+                ),
+            )
+            return
+        try:
+            decision = self._vision_policy.observe(
+                result,
+                self.get_clock().now().nanoseconds / 1e9,
+            )
+        except VisionActionPolicyError as exc:
+            self._vision_policy.reset()
+            self.stop()
+            self._vision_line_active = False
+            self._publish_vision_status('rejected', detail=str(exc))
+            return
+        if decision is None:
+            return
+
+        if decision['kind'] == 'velocity-intent':
+            try:
+                forward, turn = line_follow_velocity(
+                    decision,
+                    self._vision_line_forward,
+                    self._vision_line_maximum_turn,
+                )
+            except VisionExecutionSafetyError as exc:
+                self.stop()
+                self._vision_line_active = False
+                self._publish_vision_status('rejected', detail=str(exc))
+                return
+            command = Twist()
+            command.linear.x = forward
+            command.angular.z = turn
+            self._apply_command(command)
+            self._vision_line_active = True
+            self._publish_vision_status('line-following', decision=decision)
+            return
+
+        self._vision_line_active = False
+        try:
+            execute_firmware_action(
+                self._dog,
+                decision,
+                self._battery_percent,
+                self._low_battery_percent,
+                self._movement_inhibited,
+            )
+        except Exception as exc:
+            self.stop()
+            self._publish_vision_status('error', detail=str(exc))
+            return
+        self._stopped = True
+        self._last_command_time = None
+        self._vision_active_action = decision['name']
+        self._vision_action_deadline = self.get_clock().now() + Duration(
+            seconds=self._vision_action_guard_seconds,
+        )
+        self._publish_vision_status('executing', decision=decision)
 
     def _publish_battery(self):
         """Publish battery percentage and cooperate with firmware low power."""
@@ -415,6 +718,15 @@ class SafeBase(Node):
                 )
             if self._battery_publisher is not None:
                 self._battery_publisher.publish(message)
+            self._battery_percent = None
+            if self._vision_control_enabled:
+                self.stop()
+                self._vision_line_active = False
+                self._vision_policy.reset()
+                self._publish_vision_status(
+                    'blocked',
+                    detail='battery telemetry is invalid',
+                )
             return
 
         self._battery_failures = 0
@@ -433,6 +745,10 @@ class SafeBase(Node):
             if not self._movement_inhibited:
                 self.stop()
                 self._movement_inhibited = True
+                self._vision_action_deadline = None
+                self._vision_active_action = None
+                self._vision_line_active = False
+                self._vision_policy.reset()
                 self.get_logger().error(
                     f'Battery {battery}% <= {self._low_battery_percent}%: '
                     'ROS movement inhibited; Yahboom low-battery rest wins'
@@ -444,6 +760,18 @@ class SafeBase(Node):
             self.get_logger().info(
                 f'Battery recovered to {battery}%; ROS movement enabled'
             )
+        if self._vision_control_enabled:
+            if self._estop_latched:
+                state = 'emergency-stop'
+            elif self._movement_inhibited:
+                state = 'blocked'
+            elif self._vision_action_deadline is not None:
+                state = 'executing'
+            elif self._vision_line_active:
+                state = 'line-following'
+            else:
+                state = 'ready'
+            self._publish_vision_status(state)
 
     def _publish_joint_states(self):
         """Publish all motor angles reported by the controller in radians."""

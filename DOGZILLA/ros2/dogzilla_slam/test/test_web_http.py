@@ -103,7 +103,7 @@ class FakeGateway:
         return b'\xff\xd8fake-jpeg\xff\xd9'
 
     def set_vision_mode(self, body):
-        if body.get('mode') == 'qr-action':
+        if body.get('mode') == 'teach':
             raise ValidationError('unsupported action mode')
         return {
             'mode': body.get('mode', 'raw'),
@@ -313,6 +313,17 @@ class WebHTTPTest(unittest.TestCase):
             'POST',
             '/api/v1/vision/mode',
             {'mode': 'qr-action', 'color': 'red'},
+            authorized=True,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(value['mode'], 'qr-action')
+        self.assertEqual(value['action_output'], 'disabled')
+
+        status, _, value = request(
+            self.server,
+            'POST',
+            '/api/v1/vision/mode',
+            {'mode': 'teach', 'color': 'red'},
             authorized=True,
         )
         self.assertEqual(status, 400)

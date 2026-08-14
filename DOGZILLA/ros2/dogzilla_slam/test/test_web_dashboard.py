@@ -74,6 +74,7 @@ class WebDashboardTest(unittest.TestCase):
             'vision-apply',
             'vision-result',
             'vision-status',
+            'vision-safety',
         ):
             with self.subTest(element_id=element_id):
                 self.assertIn(f'id="{element_id}"', html)

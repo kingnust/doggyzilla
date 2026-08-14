@@ -28,6 +28,12 @@ During mapping, the isolated adapter converts Cartographer's existing
 modify TF. A single monocular camera cannot provide dependable absolute scale
 by itself.
 
+The two map views are intentionally separate. `dogzilla rviz` shows
+Cartographer's `/map` with the URDF. While visual shadow mode is running,
+`dogzilla shadow-rviz` shows RTAB's `/rtabmap_shadow/map` in its own
+`rtabmap_shadow_map` frame. The deployment does not fake an identity transform
+between two independently optimized map frames.
+
 This is an appearance-enhanced 2D LiDAR map, not dense 3D reconstruction.
 Reliable dense geometry would require depth, stereo, or another 3D sensor;
 monocular RGB is mainly valuable here for recognizing previously seen places.

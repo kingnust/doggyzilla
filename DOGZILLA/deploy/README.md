@@ -39,13 +39,18 @@ Pi host
     │   ├── TF odometry           reads Cartographer odom -> base_link
     │   └── RTAB-Map              no motion command, serial device, or TF output
     ├── dogzilla_vision           camera-only Yahboom lesson integration
-    │   ├── OpenCV detectors      color, face, QR, and line modes
+    │   ├── OpenCV processors     color, face, QR, line, and disarmed proposals
     │   ├── ROS observations      JSON detections + annotated JPEG
     │   └── no serial devices     cannot move legs or command actions
+    ├── dogzilla_vision_control   explicitly armed camera behavior
+    │   ├── /dev/video0           sole camera owner
+    │   ├── /dev/ttyAMA0          same guarded serial-manager implementation
+    │   ├── fixed allowlist       Yahboom action IDs/names and exact QR labels
+    │   └── safety gates          battery, debounce, release, cooldown, watchdog
     └── dogzilla_web              browser mission UI; no serial devices
 ```
 
-The three serial-owning Compose services are mutually exclusive. Every mode
+The four serial-owning Compose services are mutually exclusive. Every mode
 uses the same serial-manager implementation, so movement, battery reads,
 motor-angle reads, raw IMU reads, and posture writes never compete for
 `/dev/ttyAMA0`. The device-free web service may run beside navigation.
@@ -57,6 +62,10 @@ the same processor inside its existing camera container so RTAB and Vision
 never compete for the camera. See `docs/COMPUTER_VISION.md` for the official
 lesson mapping and safety boundary.
 
+The armed Vision Control service is separate from camera-only Vision. It has
+no LiDAR device, accepts no external velocity topic, and cannot start without
+an interactive typed confirmation from the operator command.
+
 ### Yahboom computer-vision lessons
 
 Start a camera-only recognition session and authenticated dashboard:
@@ -65,25 +74,47 @@ Start a camera-only recognition session and authenticated dashboard:
 dogzilla vision color red
 ```
 
-The first argument is `raw`, `color`, `color-track`, `face`, `face-track`,
-`qr`, or `line`. The optional second argument is `red`, `green`, `blue`, or
-`yellow`. The container receives `/dev/video0` only; it cannot open either
-serial port, start the LiDAR, or move DOGZILLA.
+The first argument is `raw`, `color`, `color-track`, `color-action`, `face`,
+`face-track`, `watchdog`, `qr`, `qr-action`, `line`, or `line-follow`.
+The optional second argument is `red`, `green`, `blue`, or `yellow`. The
+container receives `/dev/video0` only; it cannot open either serial port, start
+the LiDAR, or move DOGZILLA. Action-named modes publish proposals with
+`executed: false`; they do not execute firmware actions or velocity.
 
 Change the active detector without reopening the camera:
 
 ```bash
 dogzilla vision-mode face
 dogzilla vision-mode color-track blue
+dogzilla vision-mode color-action red
+dogzilla vision-mode watchdog
 dogzilla vision-mode qr
+dogzilla vision-mode qr-action
 dogzilla vision-mode line
+dogzilla vision-mode line-follow
 ```
 
 The dashboard Vision Lab shows the annotated frame and current detections. Its
 frame endpoint uses the same bearer-token authentication as the mission API.
-Color/QR action groups, autonomous line following, obstacle crossing, and
-teaching replay remain disabled until they pass through the single serial
-manager and receive separate physical safety acceptance.
+Color/QR/handshake action proposals and line-follow intent are visible but
+remain disarmed in this normal mode.
+
+Run guarded control only on a clear, level floor:
+
+```bash
+dogzilla vision-control color-action red
+```
+
+`vision-control` selects the dedicated camera-plus-serial service.
+`color-action` selects Yahboom lesson 8.3 and `red` maps to firmware stretch
+action 14. The command requires the exact typed confirmation `ARM VISION`.
+Alternative armed modes are `watchdog`, `qr-action`, and `line-follow`.
+Battery validation, five-frame debounce, target release, action cooldown, slow
+line speed, and the movement watchdog are mandatory. `dogzilla stop` disarms
+the session and sends the controller stop path.
+
+Obstacle crossing and teaching replay remain disabled pending separate
+physical safety acceptance.
 
 ## First build
 
@@ -214,6 +245,21 @@ RViz, which is appropriate over SSH. Add `--imu` only when the existing
 ```bash
 dogzilla shadow --headless --imu
 ```
+
+On the Pi monitor, replace `--headless` with `--rviz` to open the operational
+visualization. The `DOGZILLA URDF` display follows `/robot_description` and
+the live `/joint_states`; `Occupancy Map` remains Cartographer's `/map`.
+
+Open RTAB's independent map in a second RViz window:
+
+```bash
+dogzilla shadow-rviz
+```
+
+This view uses RTAB's supported `/rtabmap_shadow/map` topic and
+`rtabmap_shadow_map` frame. It deliberately does not overlay that independently
+optimized frame on Cartographer's `map`, which would imply an alignment that
+the shadow process does not publish.
 
 Before moving the robot, validate all four synchronized inputs:
 

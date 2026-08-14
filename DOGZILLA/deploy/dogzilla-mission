@@ -11,6 +11,7 @@ STATE_FILE="${REPO_ROOT}/logs/mission-current"
 NAVIGATION_CONTAINER="dogzilla_navigation"
 SHADOW_CONTAINER="dogzilla_visual_shadow"
 VISION_CONTAINER="dogzilla_vision"
+VISION_CONTROL_CONTAINER="dogzilla_vision_control"
 WEB_CONTAINER="dogzilla_web"
 STARTUP_TIMEOUT="${DOGZILLA_MISSION_STARTUP_TIMEOUT:-120}"
 
@@ -90,6 +91,7 @@ assert_runtime_is_free() {
         "${NAVIGATION_CONTAINER}" \
         "${SHADOW_CONTAINER}" \
         "${VISION_CONTAINER}" \
+        "${VISION_CONTROL_CONTAINER}" \
         "${WEB_CONTAINER}"; do
         if container_is_active "${container_name}"; then
             printf 'Cannot start Mission Mode: %s is already running.\n' \

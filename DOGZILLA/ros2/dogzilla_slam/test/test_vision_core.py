@@ -4,19 +4,26 @@ import cv2
 import numpy as np
 
 from dogzilla_slam.vision_core import COLOR_PRESETS
+from dogzilla_slam.vision_core import QR_ACTIONS
 from dogzilla_slam.vision_core import validate_request
 from dogzilla_slam.vision_core import VisionConfigurationError
 from dogzilla_slam.vision_core import VisionProcessor
 
 
 class VisionCoreTest(unittest.TestCase):
-    def test_request_accepts_only_supported_read_only_modes(self):
+    def test_request_accepts_detection_and_disarmed_proposal_modes(self):
         self.assertEqual(
             validate_request({'mode': 'color_track', 'color': 'Blue'}),
             {'mode': 'color-track', 'color': 'blue'},
         )
-        with self.assertRaises(VisionConfigurationError):
-            validate_request({'mode': 'qr-action', 'color': 'red'})
+        self.assertEqual(
+            validate_request({'mode': 'qr-action', 'color': 'red'}),
+            {'mode': 'qr-action', 'color': 'red'},
+        )
+        self.assertEqual(
+            validate_request({'mode': 'face-handshake', 'color': 'red'}),
+            {'mode': 'watchdog', 'color': 'red'},
+        )
         with self.assertRaises(VisionConfigurationError):
             validate_request({'mode': 'color', 'color': 'purple'})
 
@@ -32,6 +39,42 @@ class VisionCoreTest(unittest.TestCase):
         self.assertEqual(result['detections'][0]['kind'], 'color')
         self.assertGreater(result['detections'][0]['error_x'], 0.2)
         self.assertEqual(result['action_output'], 'disabled')
+        self.assertEqual(result['action_proposals'], [])
+
+    def test_color_action_matches_yahboom_trigger_but_stays_disarmed(self):
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        cv2.circle(frame, (320, 240), 72, (0, 0, 255), -1)
+
+        _, result = VisionProcessor(
+            mode='color-action',
+            color='red',
+        ).process(frame)
+
+        self.assertEqual(result['action_output'], 'disabled')
+        self.assertEqual(len(result['action_proposals']), 1)
+        proposal = result['action_proposals'][0]
+        self.assertEqual(proposal['action_id'], 14)
+        self.assertEqual(proposal['name'], 'stretch')
+        self.assertTrue(proposal['requires_explicit_arming'])
+        self.assertFalse(proposal['executed'])
+
+    def test_watchdog_matches_installed_notebook_face_trigger(self):
+        class FaceDetector:
+            @staticmethod
+            def detectMultiScale(*_args, **_kwargs):
+                return [(260, 180, 120, 100)]
+
+        processor = VisionProcessor(mode='watchdog')
+        processor._face = FaceDetector()
+
+        _, result = processor.process(
+            np.zeros((480, 640, 3), dtype=np.uint8)
+        )
+
+        self.assertEqual(result['action_output'], 'disabled')
+        self.assertEqual(result['action_proposals'][0]['action_id'], 19)
+        self.assertEqual(result['action_proposals'][0]['name'], 'handshake')
+        self.assertFalse(result['action_proposals'][0]['executed'])
 
     def test_line_detector_uses_yahboom_saved_hsv_range(self):
         frame = np.zeros((480, 640, 3), dtype=np.uint8)
@@ -56,13 +99,46 @@ class VisionCoreTest(unittest.TestCase):
             places=2,
         )
 
+    def test_line_follow_proposes_but_never_executes_velocity(self):
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        midpoint = tuple(
+            (lower + upper) // 2
+            for lower, upper in zip(*(
+                ((55, 214, 183), (125, 253, 255))
+            ))
+        )
+        hsv = np.zeros_like(frame)
+        cv2.rectangle(hsv, (285, 280), (355, 479), midpoint, -1)
+        frame = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+
+        _, result = VisionProcessor(mode='line-follow').process(frame)
+
+        self.assertEqual(result['action_output'], 'disabled')
+        self.assertEqual(len(result['action_proposals']), 1)
+        self.assertEqual(
+            result['action_proposals'][0]['kind'],
+            'velocity-intent',
+        )
+        self.assertFalse(result['action_proposals'][0]['executed'])
+
     def test_blank_frames_produce_json_safe_empty_results(self):
         frame = np.zeros((120, 160, 3), dtype=np.uint8)
-        for mode in ('raw', 'color', 'face', 'qr', 'line'):
+        for mode in (
+            'raw',
+            'color',
+            'color-action',
+            'face',
+            'watchdog',
+            'qr',
+            'qr-action',
+            'line',
+            'line-follow',
+        ):
             with self.subTest(mode=mode):
                 _, result = VisionProcessor(mode=mode).process(frame)
                 self.assertFalse(result['detected'])
                 self.assertEqual(result['detections'], [])
+                self.assertEqual(result['action_proposals'], [])
 
     def test_qr_detector_decodes_generated_payload(self):
         qr = cv2.QRCodeEncoder_create().encode('DOGZILLA TEST')
@@ -74,6 +150,29 @@ class VisionCoreTest(unittest.TestCase):
 
         self.assertTrue(result['detected'])
         self.assertEqual(result['detections'][0]['text'], 'DOGZILLA TEST')
+
+    def test_qr_action_requires_an_exact_allowlisted_phrase(self):
+        def qr_frame(text):
+            qr = cv2.QRCodeEncoder_create().encode(text)
+            qr = cv2.resize(qr, (300, 300), interpolation=cv2.INTER_NEAREST)
+            frame = np.full((480, 640, 3), 255, dtype=np.uint8)
+            frame[90:390, 170:470] = cv2.cvtColor(
+                qr,
+                cv2.COLOR_GRAY2BGR,
+            )
+            return frame
+
+        _, allowed = VisionProcessor(mode='qr-action').process(
+            qr_frame('STAND UP')
+        )
+        _, arbitrary = VisionProcessor(mode='qr-action').process(
+            qr_frame('rm -rf /')
+        )
+
+        self.assertEqual(allowed['action_proposals'][0]['action_id'], 2)
+        self.assertFalse(allowed['action_proposals'][0]['executed'])
+        self.assertEqual(arbitrary['action_proposals'], [])
+        self.assertIn('HANDSHAKE', QR_ACTIONS)
 
     def test_yahboom_color_presets_remain_explicit(self):
         self.assertEqual(

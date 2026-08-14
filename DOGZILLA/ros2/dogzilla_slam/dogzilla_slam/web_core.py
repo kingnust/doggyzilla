@@ -32,6 +32,24 @@ class ConflictError(RuntimeError):
     """Raised when the requested state transition is not currently allowed."""
 
 
+def classify_robot_mode(node_names, nav_available=False):
+    """Return the operator-facing mode represented by the current ROS graph."""
+    names = tuple(str(name) for name in node_names)
+    if bool(nav_available) or any('bt_navigator' in name for name in names):
+        return 'navigation'
+    if any('cartographer' in name for name in names):
+        return 'mapping_or_localization'
+    has_base = any('dogzilla_safe_base' in name for name in names)
+    has_vision = any('dogzilla_vision' in name for name in names)
+    if has_base and has_vision:
+        return 'vision_control'
+    if has_base:
+        return 'drive'
+    if has_vision:
+        return 'vision'
+    return 'stopped'
+
+
 def utc_now():
     """Return a compact, sortable UTC timestamp."""
     return datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace(

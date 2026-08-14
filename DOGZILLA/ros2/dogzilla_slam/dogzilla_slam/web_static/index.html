@@ -86,7 +86,7 @@
             <div>
               <p class="eyebrow">Yahboom lesson integration</p>
               <h2 id="vision-title">Vision lab</h2>
-              <p class="subtle">Run the DOGZILLA camera lessons through one shared ROS stream. Detection is enabled; automatic walking and servo actions remain disabled.</p>
+              <p class="subtle">Run the DOGZILLA camera lessons through one shared ROS stream. Normal Vision is detection-only. A separately confirmed Vision Control session can execute guarded proposals.</p>
             </div>
             <span id="vision-status" class="pill offline"><span></span>Unavailable</span>
           </div>
@@ -101,10 +101,14 @@
                 <option value="raw">Camera display</option>
                 <option value="color">8.1 Color recognition</option>
                 <option value="color-track">8.2 Color tracking</option>
+                <option value="color-action">8.3 Color action proposal</option>
                 <option value="face">8.4 Face detection</option>
                 <option value="face-track">8.5 Face tracking</option>
+                <option value="watchdog">8.6 Watchdog handshake proposal</option>
                 <option value="qr">8.7 QR recognition</option>
+                <option value="qr-action">8.8 QR action proposal</option>
                 <option value="line">8.11 Visual line tracking</option>
+                <option value="line-follow">8.11 Line-follow proposal</option>
               </select>
               <label for="vision-color">Target color</label>
               <select id="vision-color">
@@ -119,7 +123,7 @@
                 <strong id="vision-result">No detections</strong>
                 <small id="vision-age">No vision telemetry</small>
               </div>
-              <p class="vision-safety">Action output: disabled</p>
+              <p id="vision-safety" class="vision-safety">Action output: disabled · proposals are never executed</p>
             </div>
           </div>
         </section>

@@ -6,6 +6,7 @@ import unittest
 from dogzilla_slam.web_core import build_delivery_payload
 from dogzilla_slam.web_core import build_location_payload
 from dogzilla_slam.web_core import build_route_payload
+from dogzilla_slam.web_core import classify_robot_mode
 from dogzilla_slam.web_core import ConflictError
 from dogzilla_slam.web_core import EventBus
 from dogzilla_slam.web_core import OccupancyMap
@@ -24,6 +25,22 @@ def delivery_request():
 
 
 class WebCoreTest(unittest.TestCase):
+    def test_robot_graph_distinguishes_vision_control(self):
+        self.assertEqual(
+            classify_robot_mode(
+                ['/dogzilla_vision', '/dogzilla_safe_base'],
+            ),
+            'vision_control',
+        )
+        self.assertEqual(classify_robot_mode(['/dogzilla_vision']), 'vision')
+        self.assertEqual(
+            classify_robot_mode(
+                ['/dogzilla_vision', '/dogzilla_safe_base', '/bt_navigator'],
+                nav_available=True,
+            ),
+            'navigation',
+        )
+
     def test_delivery_is_normalized_to_two_labeled_waypoints(self):
         payload = build_delivery_payload(delivery_request())
 

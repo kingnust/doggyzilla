@@ -119,6 +119,22 @@
     const vision = telemetry.vision;
     const result = vision?.value;
     const detections = Array.isArray(result?.detections) ? result.detections : [];
+    const proposals = Array.isArray(result?.action_proposals)
+      ? result.action_proposals
+      : [];
+    const actionStatus = telemetry.vision_action_status;
+    const actionValue = actionStatus?.value;
+    const armed = Boolean(actionValue?.armed) && !actionStatus.stale;
+    if (armed) {
+      const state = String(actionValue.state || 'armed').replaceAll('-', ' ');
+      elements['vision-safety'].className = 'vision-safety armed';
+      elements['vision-safety'].textContent = `Action output: ARMED · ${state}`;
+    } else {
+      elements['vision-safety'].className = 'vision-safety';
+      elements['vision-safety'].textContent = (
+        'Action output: disabled · proposals are never executed'
+      );
+    }
     if (!detections.length) {
       elements['vision-result'].textContent = result?.mode
         ? `${String(result.mode).replaceAll('-', ' ')} · no target`
@@ -133,6 +149,11 @@
           : '';
         elements['vision-result'].textContent = `${first.kind}${offset}`;
       }
+    }
+    if (proposals.length) {
+      const proposal = proposals[0];
+      const state = armed ? 'guard evaluating' : 'disarmed';
+      elements['vision-result'].textContent += ` · ${proposal.name} proposed (${state})`;
     }
     elements['vision-age'].textContent = ageLabel(vision, 'No vision telemetry');
     elements['vision-apply'].disabled = !live;

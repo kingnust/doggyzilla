@@ -6,16 +6,29 @@ import time
 import cv2
 import numpy as np
 
+from .vision_action_policy import COLOR_ACTIONS
+from .vision_action_policy import QR_ACTIONS
+
 
 VISION_MODES = (
     'raw',
     'color',
     'color-track',
+    'color-action',
     'face',
     'face-track',
+    'watchdog',
     'qr',
+    'qr-action',
     'line',
+    'line-follow',
 )
+
+VISION_MODE_ALIASES = {
+    # The installed notebook is named face_handshake, while Yahboom's public
+    # lesson index calls 8.6 Watchdog.
+    'face-handshake': 'watchdog',
+}
 
 COLOR_PRESETS = {
     # These are the HSV ranges used by Yahboom's DOGZILLA lessons 8.1-8.3.
@@ -35,6 +48,7 @@ class VisionConfigurationError(ValueError):
 def validate_mode(value):
     """Return one normalized supported vision mode."""
     mode = str(value).strip().lower().replace('_', '-')
+    mode = VISION_MODE_ALIASES.get(mode, mode)
     if mode not in VISION_MODES:
         raise VisionConfigurationError(
             f'mode must be one of: {", ".join(VISION_MODES)}'
@@ -137,6 +151,7 @@ class VisionProcessor:
             'image': {'width': int(width), 'height': int(height)},
             'detected': False,
             'detections': [],
+            'action_proposals': [],
             'action_output': 'disabled',
         }
 
@@ -156,14 +171,16 @@ class VisionProcessor:
         height, width = frame.shape[:2]
         result = self._base_result(self.mode, width, height)
 
-        if self.mode in {'color', 'color-track'}:
+        if self.mode in {'color', 'color-track', 'color-action'}:
             self._process_color(frame, annotated, result)
-        elif self.mode in {'face', 'face-track'}:
+        elif self.mode in {'face', 'face-track', 'watchdog'}:
             self._process_face(frame, annotated, result)
-        elif self.mode == 'qr':
+        elif self.mode in {'qr', 'qr-action'}:
             self._process_qr(frame, annotated, result)
-        elif self.mode == 'line':
+        elif self.mode in {'line', 'line-follow'}:
             self._process_line(frame, annotated, result)
+
+        self._add_action_proposals(result)
 
         label = self.mode.replace('-', ' ').upper()
         cv2.putText(
@@ -181,6 +198,91 @@ class VisionProcessor:
             3,
         )
         return annotated, result
+
+    @staticmethod
+    def _firmware_action_proposal(source, action_id, name):
+        return {
+            'kind': 'firmware-action',
+            'source': source,
+            'action_id': int(action_id),
+            'name': str(name),
+            'requires_explicit_arming': True,
+            'executed': False,
+        }
+
+    def _add_action_proposals(self, result):
+        """Attach Yahboom-compatible intent without executing robot motion."""
+        detections = result['detections']
+        width = result['image']['width']
+        height = result['image']['height']
+        proposals = result['action_proposals']
+
+        if self.mode == 'color-action' and detections:
+            target = detections[0]
+            centered = (
+                width * 220.0 / 640.0
+                <= target['x_px']
+                <= width * 420.0 / 640.0
+                and height * 140.0 / 480.0
+                <= target['y_px']
+                <= height * 340.0 / 480.0
+            )
+            if target['radius_px'] > height * 60.0 / 480.0 and centered:
+                action_id, name = COLOR_ACTIONS[self.color]
+                proposals.append(self._firmware_action_proposal(
+                    'yahboom-lesson-8.3',
+                    action_id,
+                    name,
+                ))
+
+        elif self.mode == 'watchdog' and detections:
+            target = detections[0]
+            _, _, face_width, face_height = target['box']
+            centered = (
+                width * 150.0 / 640.0
+                <= target['x_px']
+                <= width * 450.0 / 640.0
+                and height * 100.0 / 480.0
+                <= target['y_px']
+                <= height * 380.0 / 480.0
+            )
+            if (
+                face_width > width * 60.0 / 640.0
+                and face_height > height * 60.0 / 480.0
+                and centered
+            ):
+                proposals.append(self._firmware_action_proposal(
+                    'yahboom-lesson-8.6',
+                    19,
+                    'handshake',
+                ))
+
+        elif self.mode == 'qr-action':
+            for detection in detections:
+                command = str(detection.get('text', '')).strip().upper()
+                action = QR_ACTIONS.get(command)
+                if action is None:
+                    continue
+                action_id, name = action
+                proposal = self._firmware_action_proposal(
+                    'yahboom-lesson-8.8',
+                    action_id,
+                    name,
+                )
+                proposal['matched_text'] = command
+                proposals.append(proposal)
+
+        elif self.mode == 'line-follow' and detections:
+            target = detections[0]
+            proposals.append({
+                'kind': 'velocity-intent',
+                'source': 'yahboom-lessons-8.11-8.12',
+                'name': 'line-follow',
+                'steering_error': target['error_x'],
+                'reference_forward_command': 25,
+                'requires_explicit_arming': True,
+                'executed': False,
+            })
 
     def _process_color(self, frame, annotated, result):
         height, width = frame.shape[:2]
