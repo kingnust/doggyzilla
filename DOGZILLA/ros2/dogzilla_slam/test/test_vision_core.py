@@ -10,6 +10,29 @@ from dogzilla_slam.vision_core import VisionConfigurationError
 from dogzilla_slam.vision_core import VisionProcessor
 
 
+class FakeObjectPerception:
+    def __init__(self, detections):
+        self._detections = detections
+
+    @staticmethod
+    def coverage():
+        return {
+            'requested_classes': ['bottle', 'knife'],
+            'covered_classes': ['bottle', 'knife'],
+            'missing_classes': [],
+            'missing_dangerous_classes': [],
+            'dangerous_coverage_complete': True,
+            'models': ['fixture'],
+        }
+
+    def detect(self, _frame):
+        return list(self._detections)
+
+    @staticmethod
+    def annotate(frame, _detections):
+        return frame.copy()
+
+
 class VisionCoreTest(unittest.TestCase):
     def test_request_accepts_detection_and_disarmed_proposal_modes(self):
         self.assertEqual(
@@ -133,12 +156,51 @@ class VisionCoreTest(unittest.TestCase):
             'qr-action',
             'line',
             'line-follow',
+            'objects',
+            'floor-hazards',
         ):
             with self.subTest(mode=mode):
                 _, result = VisionProcessor(mode=mode).process(frame)
                 self.assertFalse(result['detected'])
                 self.assertEqual(result['detections'], [])
                 self.assertEqual(result['action_proposals'], [])
+
+    def test_object_modes_use_injected_opencv_perception(self):
+        detections = [
+            {
+                'kind': 'object',
+                'label': 'knife',
+                'confidence': 0.88,
+                'box': [200, 300, 80, 100],
+                'floor_candidate': True,
+                'floor_hazard': True,
+                'dangerous': True,
+            },
+            {
+                'kind': 'object',
+                'label': 'bottle',
+                'confidence': 0.71,
+                'box': [10, 20, 30, 80],
+                'floor_candidate': False,
+                'floor_hazard': False,
+                'dangerous': False,
+            },
+        ]
+        perception = FakeObjectPerception(detections)
+
+        _, all_objects = VisionProcessor(
+            mode='objects',
+            object_perception=perception,
+        ).process(np.zeros((480, 640, 3), dtype=np.uint8))
+        _, floor_only = VisionProcessor(
+            mode='floor-hazards',
+            object_perception=perception,
+        ).process(np.zeros((480, 640, 3), dtype=np.uint8))
+
+        self.assertEqual(len(all_objects['detections']), 2)
+        self.assertEqual(len(floor_only['detections']), 1)
+        self.assertEqual(floor_only['floor_hazard_count'], 1)
+        self.assertTrue(all_objects['object_detection']['ready'])
 
     def test_qr_detector_decodes_generated_payload(self):
         qr = cv2.QRCodeEncoder_create().encode('DOGZILLA TEST')

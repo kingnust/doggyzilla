@@ -45,3 +45,11 @@
 **/build/
 **/install/
 **/log/
+/DOGZILLA/models/*.onnx
+/DOGZILLA/models/*.pt
+/DOGZILLA/models/*.weights
+/DOGZILLA/models/*.engine
+/DOGZILLA/models/*.partial*
+/DOGZILLA/models/dogzilla_custom.labels
+/DOGZILLA/models/dogzilla_custom.json
+/DOGZILLA/datasets/

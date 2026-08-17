@@ -109,6 +109,8 @@
                 <option value="qr-action">8.8 QR action proposal</option>
                 <option value="line">8.11 Visual line tracking</option>
                 <option value="line-follow">8.11 Line-follow proposal</option>
+                <option value="objects">Indoor object detection</option>
+                <option value="floor-hazards">Floor hazard detection</option>
               </select>
               <label for="vision-color">Target color</label>
               <select id="vision-color">
@@ -133,7 +135,7 @@
             <div>
               <p class="eyebrow">Visual mission planning</p>
               <h2 id="map-editor-title">Map waypoint editor</h2>
-              <p class="subtle map-instructions">Choose Pickup or Drop-off, then click one free map cell. Set the heading from the form below.</p>
+              <p class="subtle map-instructions">Choose a waypoint or Patrol area, then click free map cells. Patrol areas use three to twelve clicks and never use drag-and-drop.</p>
             </div>
             <div class="map-status-cluster">
               <span id="map-editor-chip" class="map-chip">waiting for map</span>
@@ -146,6 +148,7 @@
               <div class="map-toolbar" role="group" aria-label="Waypoint selection">
                 <button class="target-button active" type="button" data-map-target="pickup"><span class="waypoint-dot pickup"></span>Select pickup</button>
                 <button class="target-button" type="button" data-map-target="dropoff"><span class="waypoint-dot dropoff"></span>Select drop-off</button>
+                <button class="target-button" type="button" data-map-target="patrol"><span class="waypoint-dot patrol"></span>Draw patrol area</button>
                 <button id="use-robot-pose" class="ghost compact" type="button">Use robot position</button>
                 <button id="clear-waypoints" class="ghost compact" type="button">Clear points</button>
               </div>
@@ -159,6 +162,7 @@
                   <span><i class="legend-occupied"></i>Obstacle</span>
                   <span><i class="legend-unknown"></i>Unknown</span>
                   <span><i class="legend-robot"></i>Robot</span>
+                  <span><i class="legend-patrol"></i>Patrol</span>
                 </div>
                 <strong id="route-preview">Select both waypoints to preview the route.</strong>
               </div>
@@ -180,6 +184,44 @@
               </div>
             </aside>
           </div>
+        </section>
+
+        <section class="panel patrol-panel" aria-labelledby="patrol-title">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Coverage mission</p>
+              <h2 id="patrol-title">Patrol area</h2>
+              <p class="subtle">Draw a polygon on the map, preview its safe sweep, then save and queue it. A patrol starts only when localization, battery, Nav2, and floor-hazard vision are ready.</p>
+            </div>
+            <span id="patrol-count" class="map-chip">0 points</span>
+          </div>
+          <div class="patrol-grid">
+            <div class="patrol-fields">
+              <label for="patrol-name">Area name</label>
+              <input id="patrol-name" maxlength="80" value="Room patrol">
+              <label for="patrol-spacing">Sweep spacing (m)</label>
+              <input id="patrol-spacing" type="number" min="0.3" max="3" step="0.1" value="0.6">
+              <label for="patrol-repeats">Repeats</label>
+              <input id="patrol-repeats" type="number" min="1" max="20" step="1" value="1">
+              <label for="patrol-dwell">Wait at each point (s)</label>
+              <input id="patrol-dwell" type="number" min="0" max="30" step="0.5" value="0">
+            </div>
+            <div class="patrol-actions">
+              <label for="patrol-area-list">Saved area</label>
+              <select id="patrol-area-list"><option value="">Draw a new area</option></select>
+              <div class="button-row">
+                <button id="patrol-undo" class="ghost compact" type="button">Undo point</button>
+                <button id="patrol-clear" class="ghost compact" type="button">Clear area</button>
+              </div>
+              <div class="button-row">
+                <button id="patrol-preview-button" class="ghost compact" type="button">Preview sweep</button>
+                <button id="patrol-save" class="primary compact" type="button">Save area</button>
+              </div>
+              <button id="patrol-queue" class="primary" type="button">Queue patrol</button>
+              <button id="patrol-delete" class="danger-link" type="button">Delete saved area</button>
+            </div>
+          </div>
+          <p id="patrol-status" class="form-message" role="status">Choose Draw patrol area, then click at least three points on the map.</p>
         </section>
 
         <section class="workspace-grid">

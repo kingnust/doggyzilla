@@ -164,6 +164,18 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                     HTTPStatus.OK,
                     {'locations': self.server.service.list_locations()},
                 )
+            elif path == '/api/v1/patrol-areas':
+                self._json(
+                    HTTPStatus.OK,
+                    {'patrol_areas': self.server.service.list_patrol_areas()},
+                )
+            elif path == '/api/v1/hazards':
+                query = parse_qs(parsed.query)
+                limit = int(query.get('limit', ['100'])[0])
+                self._json(
+                    HTTPStatus.OK,
+                    {'hazards': self.server.service.list_hazards(limit)},
+                )
             elif path == '/api/v1/tasks':
                 query = parse_qs(parsed.query)
                 limit = int(query.get('limit', ['100'])[0])
@@ -206,11 +218,22 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
             elif path == '/api/v1/tasks/route':
                 task = self.server.service.create_route(body)
                 self._json(HTTPStatus.CREATED, task)
+            elif path == '/api/v1/tasks/patrol':
+                task = self.server.service.create_patrol(body)
+                self._json(HTTPStatus.CREATED, task)
             elif path == '/api/v1/routes/preview':
                 self._json(
                     HTTPStatus.OK,
                     self.server.service.preview_route(body),
                 )
+            elif path == '/api/v1/patrol-areas/preview':
+                self._json(
+                    HTTPStatus.OK,
+                    self.server.service.preview_patrol(body),
+                )
+            elif path == '/api/v1/patrol-areas':
+                area = self.server.service.save_patrol_area(body)
+                self._json(HTTPStatus.OK, area)
             elif path == '/api/v1/locations':
                 location = self.server.service.save_location(body)
                 self._json(HTTPStatus.OK, location)
@@ -236,7 +259,7 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
         except ValidationError as exc:
             self._error(HTTPStatus.BAD_REQUEST, exc)
         except KeyError:
-            self._error(HTTPStatus.NOT_FOUND, 'task not found')
+            self._error(HTTPStatus.NOT_FOUND, 'requested item not found')
         except ConflictError as exc:
             self._error(HTTPStatus.CONFLICT, exc)
         except Exception as exc:  # Keep internal details out of API responses.
@@ -251,15 +274,22 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
         if not self._require_authorized():
             return
         try:
-            prefix = '/api/v1/locations/'
-            if not path.startswith(prefix) or len(path) <= len(prefix):
+            location_prefix = '/api/v1/locations/'
+            patrol_prefix = '/api/v1/patrol-areas/'
+            if path.startswith(location_prefix) and len(path) > len(location_prefix):
+                item_id = path.removeprefix(location_prefix)
+                self.server.service.delete_location(item_id)
+                kind = 'location'
+            elif path.startswith(patrol_prefix) and len(path) > len(patrol_prefix):
+                item_id = path.removeprefix(patrol_prefix)
+                self.server.service.delete_patrol_area(item_id)
+                kind = 'patrol area'
+            else:
                 self._error(HTTPStatus.NOT_FOUND, 'not found')
                 return
-            location_id = path.removeprefix(prefix)
-            self.server.service.delete_location(location_id)
-            self._json(HTTPStatus.OK, {'deleted': location_id})
+            self._json(HTTPStatus.OK, {'deleted': item_id, 'kind': kind})
         except KeyError:
-            self._error(HTTPStatus.NOT_FOUND, 'location not found')
+            self._error(HTTPStatus.NOT_FOUND, 'requested item not found')
         except Exception as exc:  # Keep internal details out of API responses.
             self.server.service.log_exception('DELETE request failed', exc)
             self._error(HTTPStatus.INTERNAL_SERVER_ERROR, 'internal server error')

@@ -75,6 +75,14 @@ class WebDashboardTest(unittest.TestCase):
             'vision-result',
             'vision-status',
             'vision-safety',
+            'patrol-name',
+            'patrol-spacing',
+            'patrol-repeats',
+            'patrol-area-list',
+            'patrol-preview-button',
+            'patrol-save',
+            'patrol-queue',
+            'patrol-status',
         ):
             with self.subTest(element_id=element_id):
                 self.assertIn(f'id="{element_id}"', html)
@@ -89,6 +97,8 @@ class WebDashboardTest(unittest.TestCase):
         self.assertIn('<select id="pickup-yaw"', html)
         self.assertIn('<select id="dropoff-yaw"', html)
         self.assertIn('North · 90°', html)
+        self.assertIn('Draw patrol area', html)
+        self.assertIn("'/api/v1/patrol-areas/preview'", javascript)
 
 
 if __name__ == '__main__':

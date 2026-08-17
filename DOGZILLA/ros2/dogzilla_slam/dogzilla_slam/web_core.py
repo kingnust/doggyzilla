@@ -174,6 +174,182 @@ def build_route_payload(value):
     }
 
 
+def _validate_map_name(value, default='test1'):
+    map_name = _clean_name(value if value is not None else default, 'map', 64)
+    if not MAP_NAME_PATTERN.fullmatch(map_name):
+        raise ValidationError(
+            'map may contain only letters, numbers, dot, underscore, and dash'
+        )
+    return map_name
+
+
+def _segments_intersect(first, second, third, fourth):
+    """Return whether two closed 2-D line segments intersect."""
+
+    def orientation(a, b, c):
+        value = (
+            (b['x'] - a['x']) * (c['y'] - a['y'])
+            - (b['y'] - a['y']) * (c['x'] - a['x'])
+        )
+        if abs(value) < 1e-9:
+            return 0
+        return 1 if value > 0 else -1
+
+    def on_segment(a, b, c):
+        return (
+            min(a['x'], c['x']) - 1e-9 <= b['x']
+            <= max(a['x'], c['x']) + 1e-9
+            and min(a['y'], c['y']) - 1e-9 <= b['y']
+            <= max(a['y'], c['y']) + 1e-9
+        )
+
+    values = (
+        orientation(first, second, third),
+        orientation(first, second, fourth),
+        orientation(third, fourth, first),
+        orientation(third, fourth, second),
+    )
+    if values[0] != values[1] and values[2] != values[3]:
+        return True
+    return (
+        (values[0] == 0 and on_segment(first, third, second))
+        or (values[1] == 0 and on_segment(first, fourth, second))
+        or (values[2] == 0 and on_segment(third, first, fourth))
+        or (values[3] == 0 and on_segment(third, second, fourth))
+    )
+
+
+def validate_patrol_polygon(value):
+    """Validate a simple map-frame polygon used to generate patrol coverage."""
+    if not isinstance(value, list) or not 3 <= len(value) <= 12:
+        raise ValidationError('patrol polygon requires between 3 and 12 points')
+    points = []
+    for index, point in enumerate(value):
+        if not isinstance(point, dict):
+            raise ValidationError(f'polygon[{index}] must be an object')
+        points.append({
+            'x': _finite_number(
+                point.get('x'), f'polygon[{index}].x', -100.0, 100.0
+            ),
+            'y': _finite_number(
+                point.get('y'), f'polygon[{index}].y', -100.0, 100.0
+            ),
+        })
+
+    for index, point in enumerate(points):
+        for other in points[index + 1:]:
+            if math.hypot(point['x'] - other['x'], point['y'] - other['y']) < 0.05:
+                raise ValidationError('patrol polygon points must be 0.05 m apart')
+
+    point_count = len(points)
+    for index in range(point_count):
+        first = points[index]
+        second = points[(index + 1) % point_count]
+        for other_index in range(index + 1, point_count):
+            if other_index in {index, (index + 1) % point_count}:
+                continue
+            if (other_index + 1) % point_count in {index, (index + 1) % point_count}:
+                continue
+            third = points[other_index]
+            fourth = points[(other_index + 1) % point_count]
+            if _segments_intersect(first, second, third, fourth):
+                raise ValidationError('patrol polygon must not cross itself')
+
+    signed_double_area = sum(
+        point['x'] * points[(index + 1) % point_count]['y']
+        - points[(index + 1) % point_count]['x'] * point['y']
+        for index, point in enumerate(points)
+    )
+    area = abs(signed_double_area) / 2.0
+    if not 0.25 <= area <= 250.0:
+        raise ValidationError('patrol polygon area must be between 0.25 and 250 m^2')
+    return points
+
+
+def build_patrol_area_payload(value, default_map='test1'):
+    """Normalize one reusable polygon and its coverage spacing."""
+    if not isinstance(value, dict):
+        raise ValidationError('request body must be a JSON object')
+    name = _clean_name(value.get('name'), 'name')
+    if not name:
+        raise ValidationError('patrol area name is required')
+    return {
+        'map': _validate_map_name(value.get('map'), default_map),
+        'name': name,
+        'polygon': validate_patrol_polygon(value.get('polygon')),
+        'spacing_m': _finite_number(
+            value.get('spacing_m', 0.6), 'spacing_m', 0.3, 3.0
+        ),
+    }
+
+
+def build_patrol_payload(value, area, waypoints):
+    """Build an executable patrol task from a saved area and safe route."""
+    if not isinstance(value, dict):
+        raise ValidationError('request body must be a JSON object')
+    if not isinstance(area, dict):
+        raise ValidationError('saved patrol area is required')
+    repeats = int(_finite_number(value.get('repeats', 1), 'repeats', 1, 20))
+    if float(value.get('repeats', 1)) != repeats:
+        raise ValidationError('repeats must be a whole number')
+    dwell = _finite_number(
+        value.get('dwell_seconds', 0.0), 'dwell_seconds', 0.0, 30.0
+    )
+    normalized_waypoints = []
+    for index, waypoint in enumerate(waypoints):
+        item = dict(waypoint)
+        item['dwell_seconds'] = dwell
+        normalized_waypoints.append(validate_waypoint(item, index))
+    if not 2 <= len(normalized_waypoints) <= 120:
+        raise ValidationError('patrol route requires between 2 and 120 waypoints')
+    return {
+        'kind': 'patrol',
+        'name': _clean_name(value.get('name'), 'name') or area['name'],
+        'map': area['map'],
+        'patrol_area_id': area['id'],
+        'patrol_area_name': area['name'],
+        'repeats': repeats,
+        'waypoints': normalized_waypoints,
+    }
+
+
+def patrol_vision_readiness(status):
+    """Fail closed unless patrol has complete, non-actuating hazard vision."""
+    if not isinstance(status, dict):
+        return False, 'floor-hazard vision status is invalid'
+    if status.get('state') != 'ready':
+        return False, 'floor-hazard vision is not ready'
+    if status.get('action_output') != 'disabled':
+        return False, 'vision action output must be disabled for patrol'
+    if status.get('mode') != 'floor-hazards':
+        return False, 'vision must be in floor-hazards mode for patrol'
+    object_status = status.get('object_detection')
+    if not isinstance(object_status, dict) or not object_status.get(
+        'ready', False
+    ):
+        return False, 'object detector is unavailable for patrol'
+    missing = object_status.get('missing_dangerous_classes')
+    if not isinstance(missing, list) or any(
+        not isinstance(label, str) or not label for label in missing
+    ):
+        return False, 'dangerous-object coverage metadata is invalid'
+    if (
+        object_status.get('dangerous_coverage_complete') is not True
+        or missing
+    ):
+        detail = ', '.join(missing[:8])
+        if len(missing) > 8:
+            detail += f' and {len(missing) - 8} more'
+        suffix = f': {detail}' if detail else ''
+        return False, f'dangerous-object coverage is incomplete{suffix}'
+    models = object_status.get('models')
+    if not isinstance(models, list) or not models or any(
+        not isinstance(model, str) or not model for model in models
+    ):
+        return False, 'object detector model metadata is invalid'
+    return True, 'ready'
+
+
 def build_location_payload(value, default_map='test1'):
     """Normalize one reusable named map location."""
     if not isinstance(value, dict):
@@ -397,6 +573,140 @@ class OccupancyMap:
                         )
         return True
 
+    @staticmethod
+    def _point_error(snapshot, waypoint):
+        column, row = OccupancyMap._world_to_cell(
+            snapshot, waypoint['x'], waypoint['y']
+        )
+        if not (0 <= column < snapshot['width'] and 0 <= row < snapshot['height']):
+            return 'outside the active map'
+        radius = math.ceil(
+            snapshot['minimum_clearance_m'] / snapshot['resolution']
+        )
+        for offset_y in range(-radius, radius + 1):
+            for offset_x in range(-radius, radius + 1):
+                if (
+                    math.hypot(offset_x, offset_y) * snapshot['resolution']
+                    > snapshot['minimum_clearance_m']
+                ):
+                    continue
+                test_column = column + offset_x
+                test_row = row + offset_y
+                if not (
+                    0 <= test_column < snapshot['width']
+                    and 0 <= test_row < snapshot['height']
+                ):
+                    return 'too close to the map boundary'
+                value = snapshot['data'][
+                    test_row * snapshot['width'] + test_column
+                ]
+                if value < 0:
+                    return 'in or too close to unknown space'
+                if value >= snapshot['occupied_threshold']:
+                    return 'in or too close to an obstacle'
+        return None
+
+    def generate_patrol_waypoints(self, polygon, spacing_m, maximum=120):
+        """Generate a deterministic serpentine route inside a safe polygon."""
+        points = validate_patrol_polygon(polygon)
+        spacing = _finite_number(spacing_m, 'spacing_m', 0.3, 3.0)
+        maximum = max(2, min(int(maximum), 500))
+        with self._lock:
+            if self._snapshot is None:
+                raise ConflictError('occupancy map is not available yet')
+            snapshot = dict(self._snapshot)
+            snapshot['origin'] = dict(self._snapshot['origin'])
+
+        edges = [
+            (
+                points[index],
+                points[(index + 1) % len(points)],
+                math.hypot(
+                    points[(index + 1) % len(points)]['x'] - point['x'],
+                    points[(index + 1) % len(points)]['y'] - point['y'],
+                ),
+            )
+            for index, point in enumerate(points)
+        ]
+        edge_start, edge_end, _ = max(edges, key=lambda item: item[2])
+        heading = math.atan2(
+            edge_end['y'] - edge_start['y'],
+            edge_end['x'] - edge_start['x'],
+        )
+        cosine = math.cos(heading)
+        sine = math.sin(heading)
+
+        def to_local(point):
+            return (
+                cosine * point['x'] + sine * point['y'],
+                -sine * point['x'] + cosine * point['y'],
+            )
+
+        local = [to_local(point) for point in points]
+        low_v = min(point[1] for point in local)
+        high_v = max(point[1] for point in local)
+        if high_v - low_v < spacing:
+            scan_values = [(low_v + high_v) / 2.0]
+        else:
+            count = max(1, math.floor((high_v - low_v) / spacing))
+            margin = ((high_v - low_v) - count * spacing) / 2.0
+            scan_values = [low_v + margin + (index + 0.5) * spacing for index in range(count)]
+
+        route = []
+        reverse = False
+        for scan_v in scan_values:
+            intersections = []
+            for index, first in enumerate(local):
+                second = local[(index + 1) % len(local)]
+                if (first[1] <= scan_v < second[1]) or (
+                    second[1] <= scan_v < first[1]
+                ):
+                    ratio = (scan_v - first[1]) / (second[1] - first[1])
+                    intersections.append(first[0] + ratio * (second[0] - first[0]))
+            intersections.sort()
+            scan_points = []
+            for low_u, high_u in zip(intersections[::2], intersections[1::2]):
+                width = high_u - low_u
+                if width <= 0:
+                    continue
+                sample_count = max(1, math.floor(width / spacing))
+                sample_margin = (width - (sample_count - 1) * spacing) / 2.0
+                for sample in range(sample_count):
+                    local_u = low_u + sample_margin + sample * spacing
+                    waypoint = {
+                        'x': cosine * local_u - sine * scan_v,
+                        'y': sine * local_u + cosine * scan_v,
+                    }
+                    if self._point_error(snapshot, waypoint) is None:
+                        scan_points.append(waypoint)
+            if reverse:
+                scan_points.reverse()
+            reverse = not reverse
+            route.extend(scan_points)
+            if len(route) > maximum:
+                raise ValidationError(
+                    f'patrol route exceeds {maximum} safe waypoints; '
+                    'increase spacing'
+                )
+
+        if len(route) < 2:
+            raise ValidationError(
+                'patrol area contains fewer than two safe coverage points'
+            )
+        result = []
+        for index, point in enumerate(route):
+            other = route[index + 1] if index + 1 < len(route) else route[index - 1]
+            yaw = math.atan2(other['y'] - point['y'], other['x'] - point['x'])
+            result.append({
+                'label': f'Patrol {index + 1}',
+                'x': round(point['x'], 4),
+                'y': round(point['y'], 4),
+                'yaw': yaw,
+                'dwell_seconds': 0.0,
+            })
+        self.validate_waypoints(result)
+        return result
+
 
 class TaskStore:
     """Thread-safe SQLite persistence for autonomous task state."""
@@ -444,6 +754,39 @@ class TaskStore:
                     UNIQUE(map_name, name)
                 )
                 '''
+            )
+            self._connection.execute(
+                '''
+                CREATE TABLE IF NOT EXISTS patrol_areas (
+                    id TEXT PRIMARY KEY,
+                    map_name TEXT NOT NULL,
+                    name TEXT COLLATE NOCASE NOT NULL,
+                    polygon TEXT NOT NULL,
+                    spacing_m REAL NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(map_name, name)
+                )
+                '''
+            )
+            self._connection.execute(
+                '''
+                CREATE TABLE IF NOT EXISTS hazard_observations (
+                    id TEXT PRIMARY KEY,
+                    task_id TEXT,
+                    map_name TEXT NOT NULL,
+                    label TEXT NOT NULL,
+                    risk TEXT NOT NULL,
+                    confidence REAL NOT NULL,
+                    box TEXT NOT NULL,
+                    robot_pose TEXT,
+                    created_at TEXT NOT NULL
+                )
+                '''
+            )
+            self._connection.execute(
+                'CREATE INDEX IF NOT EXISTS hazard_map_created_idx '
+                'ON hazard_observations(map_name, created_at)'
             )
             self._connection.execute(
                 '''
@@ -613,6 +956,140 @@ class TaskStore:
             )
             if cursor.rowcount != 1:
                 raise KeyError(location_id)
+
+    @staticmethod
+    def _row_to_patrol_area(row):
+        if row is None:
+            return None
+        return {
+            'id': row['id'],
+            'map': row['map_name'],
+            'name': row['name'],
+            'polygon': json.loads(row['polygon']),
+            'spacing_m': float(row['spacing_m']),
+            'created_at': row['created_at'],
+            'updated_at': row['updated_at'],
+        }
+
+    def save_patrol_area(self, payload):
+        """Create or update a named patrol area within one map."""
+        timestamp = utc_now()
+        area_id = str(uuid.uuid4())
+        polygon_json = json.dumps(
+            payload['polygon'], sort_keys=True, separators=(',', ':')
+        )
+        with self._lock, self._connection:
+            self._connection.execute(
+                '''
+                INSERT INTO patrol_areas (
+                    id, map_name, name, polygon, spacing_m,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(map_name, name) DO UPDATE SET
+                    polygon = excluded.polygon,
+                    spacing_m = excluded.spacing_m,
+                    updated_at = excluded.updated_at
+                ''',
+                (
+                    area_id,
+                    payload['map'],
+                    payload['name'],
+                    polygon_json,
+                    payload['spacing_m'],
+                    timestamp,
+                    timestamp,
+                ),
+            )
+            row = self._connection.execute(
+                'SELECT * FROM patrol_areas WHERE map_name = ? AND name = ?',
+                (payload['map'], payload['name']),
+            ).fetchone()
+        return self._row_to_patrol_area(row)
+
+    def get_patrol_area(self, area_id, map_name):
+        with self._lock:
+            row = self._connection.execute(
+                'SELECT * FROM patrol_areas WHERE id = ? AND map_name = ?',
+                (str(area_id), str(map_name)),
+            ).fetchone()
+        return self._row_to_patrol_area(row)
+
+    def list_patrol_areas(self, map_name):
+        with self._lock:
+            rows = self._connection.execute(
+                'SELECT * FROM patrol_areas WHERE map_name = ? '
+                'ORDER BY name COLLATE NOCASE ASC',
+                (str(map_name),),
+            ).fetchall()
+        return [self._row_to_patrol_area(row) for row in rows]
+
+    def delete_patrol_area(self, area_id, map_name):
+        with self._lock, self._connection:
+            cursor = self._connection.execute(
+                'DELETE FROM patrol_areas WHERE id = ? AND map_name = ?',
+                (str(area_id), str(map_name)),
+            )
+            if cursor.rowcount != 1:
+                raise KeyError(area_id)
+
+    @staticmethod
+    def _row_to_hazard(row):
+        if row is None:
+            return None
+        return {
+            'id': row['id'],
+            'task_id': row['task_id'],
+            'map': row['map_name'],
+            'label': row['label'],
+            'risk': row['risk'],
+            'confidence': float(row['confidence']),
+            'box': json.loads(row['box']),
+            'robot_pose': (
+                json.loads(row['robot_pose']) if row['robot_pose'] else None
+            ),
+            'created_at': row['created_at'],
+        }
+
+    def record_hazard(self, payload):
+        """Persist one confirmed image observation at the robot pose."""
+        observation_id = str(uuid.uuid4())
+        timestamp = utc_now()
+        pose = payload.get('robot_pose')
+        with self._lock, self._connection:
+            self._connection.execute(
+                '''
+                INSERT INTO hazard_observations (
+                    id, task_id, map_name, label, risk, confidence,
+                    box, robot_pose, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''',
+                (
+                    observation_id,
+                    payload.get('task_id'),
+                    payload['map'],
+                    payload['label'],
+                    payload['risk'],
+                    payload['confidence'],
+                    json.dumps(payload['box'], separators=(',', ':')),
+                    json.dumps(pose, separators=(',', ':')) if pose else None,
+                    timestamp,
+                ),
+            )
+            row = self._connection.execute(
+                'SELECT * FROM hazard_observations WHERE id = ?',
+                (observation_id,),
+            ).fetchone()
+        return self._row_to_hazard(row)
+
+    def list_hazards(self, map_name, limit=100):
+        limit = max(1, min(int(limit), 500))
+        with self._lock:
+            rows = self._connection.execute(
+                'SELECT * FROM hazard_observations WHERE map_name = ? '
+                'ORDER BY created_at DESC, rowid DESC LIMIT ?',
+                (str(map_name), limit),
+            ).fetchall()
+        return [self._row_to_hazard(row) for row in rows]
 
     def close(self):
         with self._lock:

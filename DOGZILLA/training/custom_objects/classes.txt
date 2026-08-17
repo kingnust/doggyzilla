@@ -1,0 +1,46 @@
+# Starter catalog for classes not reliably covered by the generic models.
+# Remove categories that are not useful in your rooms before labeling.
+allen key
+battery
+bolt
+breadboard
+caliper
+charger
+circuit board
+clamp
+crimping tool
+electrical tape
+extension cord
+file
+fire extinguisher
+hacksaw
+heat gun
+hex key
+laundry basket
+level
+marker
+multimeter
+notebook
+nut
+oscilloscope
+paint can
+paper
+pencil
+pliers
+power supply
+pry bar
+router
+saw
+screw
+smoke detector
+socket
+soldering iron
+tape measure
+toolbox
+utility knife
+vacuum cleaner
+vise
+washer
+wire
+wire cutter
+work light

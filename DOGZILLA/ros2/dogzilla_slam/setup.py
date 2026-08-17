@@ -24,7 +24,9 @@ setup(
         ),
         (
             os.path.join('share', package_name, 'config'),
-            glob('config/*.lua') + glob('config/*.yaml'),
+            glob('config/*.lua')
+            + glob('config/*.yaml')
+            + glob('config/*.txt'),
         ),
         (
             os.path.join('share', package_name, 'rviz'),
@@ -48,6 +50,7 @@ setup(
         'console_scripts': [
             'camera_model = dogzilla_slam.camera_model:main',
             'camera_validate = dogzilla_slam.camera_validate:main',
+            'dataset_capture = dogzilla_slam.dataset_capture:main',
             'database_validate = dogzilla_slam.database_validate:main',
             'imu_calibrate = dogzilla_slam.imu_calibrate:main',
             'imu_corrector = dogzilla_slam.imu_corrector:main',
@@ -56,6 +59,9 @@ setup(
             'firmware_rest_monitor = '
             'dogzilla_slam.firmware_rest_monitor:main',
             'localization_manager = dogzilla_slam.localization_manager:main',
+            'object_model_validate = '
+            'dogzilla_slam.object_model_validate:main',
+            'object_acceptance = dogzilla_slam.object_acceptance:main',
             'safe_base = dogzilla_slam.safe_base:main',
             'save_map = dogzilla_slam.save_map:main',
             'servo_power = dogzilla_slam.servo_power:main',

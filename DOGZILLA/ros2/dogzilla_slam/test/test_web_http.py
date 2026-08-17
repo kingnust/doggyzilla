@@ -22,6 +22,8 @@ class FakeGateway:
         self.estop = False
         self.exceptions = []
         self.locations = {}
+        self.patrol_areas = {}
+        self.hazards = []
 
     def log_http(self, _message):
         pass
@@ -124,6 +126,33 @@ class FakeGateway:
 
     def delete_location(self, location_id):
         del self.locations[location_id]
+
+    def list_patrol_areas(self):
+        return list(self.patrol_areas.values())
+
+    def save_patrol_area(self, body):
+        area = {'id': 'area-1', **body, 'waypoint_count': 8}
+        self.patrol_areas[area['id']] = area
+        return area
+
+    def delete_patrol_area(self, area_id):
+        del self.patrol_areas[area_id]
+
+    def preview_patrol(self, body):
+        return {
+            'map': body.get('map', 'test1'),
+            'waypoint_count': 8,
+            'coverage_distance_m': 4.2,
+            'waypoints': [{'x': 0, 'y': 0}, {'x': 1, 'y': 0}],
+        }
+
+    def create_patrol(self, body):
+        task = {'id': 'patrol-1', 'state': 'queued', 'payload': body}
+        self.tasks[task['id']] = task
+        return task
+
+    def list_hazards(self, limit):
+        return self.hazards[:limit]
 
     def get_task(self, task_id):
         return self.tasks.get(task_id)
@@ -387,6 +416,63 @@ class WebHTTPTest(unittest.TestCase):
                 self.assertEqual(status, 400)
                 self.assertEqual(payload, {'error': 'pickup required'})
                 self.assertEqual(self.gateway.exceptions, [])
+
+    def test_patrol_area_preview_queue_and_delete(self):
+        area_body = {
+            'map': 'test1',
+            'name': 'Workshop',
+            'spacing_m': 0.6,
+            'polygon': [
+                {'x': 0, 'y': 0},
+                {'x': 2, 'y': 0},
+                {'x': 2, 'y': 1},
+                {'x': 0, 'y': 1},
+            ],
+        }
+        status, _, preview = request(
+            self.server,
+            'POST',
+            '/api/v1/patrol-areas/preview',
+            area_body,
+            authorized=True,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(preview['waypoint_count'], 8)
+
+        status, _, area = request(
+            self.server,
+            'POST',
+            '/api/v1/patrol-areas',
+            area_body,
+            authorized=True,
+        )
+        self.assertEqual(status, 200)
+        status, _, areas = request(
+            self.server,
+            'GET',
+            '/api/v1/patrol-areas',
+            authorized=True,
+        )
+        self.assertEqual(areas['patrol_areas'][0]['id'], area['id'])
+
+        status, _, task = request(
+            self.server,
+            'POST',
+            '/api/v1/tasks/patrol',
+            {'patrol_area_id': area['id'], 'repeats': 2},
+            authorized=True,
+        )
+        self.assertEqual(status, 201)
+        self.assertEqual(task['state'], 'queued')
+
+        status, _, deleted = request(
+            self.server,
+            'DELETE',
+            f"/api/v1/patrol-areas/{area['id']}",
+            authorized=True,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(deleted['kind'], 'patrol area')
 
 
 if __name__ == '__main__':

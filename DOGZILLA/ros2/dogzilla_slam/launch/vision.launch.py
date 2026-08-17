@@ -31,6 +31,23 @@ def generate_launch_description():
         DeclareLaunchArgument('mode', default_value='raw'),
         DeclareLaunchArgument('color', default_value='red'),
         DeclareLaunchArgument('process_hz', default_value='10.0'),
+        DeclareLaunchArgument('object_process_hz', default_value='2.0'),
+        DeclareLaunchArgument(
+            'object_model_path',
+            default_value='/models/yolox_nano.onnx',
+        ),
+        DeclareLaunchArgument(
+            'open_images_model_path',
+            default_value='/models/yolov8n-oiv7.onnx',
+        ),
+        DeclareLaunchArgument(
+            'custom_object_model_path',
+            default_value='/models/dogzilla_custom.onnx',
+        ),
+        DeclareLaunchArgument(
+            'custom_object_labels_path',
+            default_value='/models/dogzilla_custom.labels',
+        ),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(camera_launch),
             launch_arguments={
@@ -53,6 +70,22 @@ def generate_launch_description():
                 'process_hz': ParameterValue(
                     LaunchConfiguration('process_hz'),
                     value_type=float,
+                ),
+                'object_process_hz': ParameterValue(
+                    LaunchConfiguration('object_process_hz'),
+                    value_type=float,
+                ),
+                'object_model_path': LaunchConfiguration(
+                    'object_model_path'
+                ),
+                'open_images_model_path': LaunchConfiguration(
+                    'open_images_model_path'
+                ),
+                'custom_object_model_path': LaunchConfiguration(
+                    'custom_object_model_path'
+                ),
+                'custom_object_labels_path': LaunchConfiguration(
+                    'custom_object_labels_path'
                 ),
             }],
             output='screen',

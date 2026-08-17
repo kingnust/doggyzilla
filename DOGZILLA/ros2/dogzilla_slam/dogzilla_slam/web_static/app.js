@@ -21,6 +21,10 @@
   let previewGeneration = 0;
   let visionFrameTimer = null;
   let visionFrameUrl = '';
+  let patrolPolygon = [];
+  let patrolWaypoints = [];
+  let patrolAreas = [];
+  let selectedPatrolAreaId = '';
   const waypoints = { pickup: null, dropoff: null };
 
   async function api(path, options = {}) {
@@ -131,9 +135,17 @@
       elements['vision-safety'].textContent = `Action output: ARMED · ${state}`;
     } else {
       elements['vision-safety'].className = 'vision-safety';
-      elements['vision-safety'].textContent = (
-        'Action output: disabled · proposals are never executed'
-      );
+      const objectStatus = statusValue?.object_detection;
+      if (objectStatus?.ready && ['objects', 'floor-hazards'].includes(statusValue.mode)) {
+        const missing = objectStatus.missing_dangerous_classes || [];
+        elements['vision-safety'].textContent = missing.length
+          ? `Detection only · missing hazard classes: ${missing.join(', ')}`
+          : 'Detection only · requested hazard classes covered';
+      } else {
+        elements['vision-safety'].textContent = (
+          'Action output: disabled · proposals are never executed'
+        );
+      }
     }
     if (!detections.length) {
       elements['vision-result'].textContent = result?.mode
@@ -143,6 +155,11 @@
       const first = detections[0];
       if (first.kind === 'qr') {
         elements['vision-result'].textContent = `QR · ${first.text || '(empty)'}`;
+      } else if (first.kind === 'object') {
+        const floor = first.floor_candidate ? ' · floor' : '';
+        const confidence = Number(first.confidence);
+        const score = Number.isFinite(confidence) ? ` · ${(confidence * 100).toFixed(0)}%` : '';
+        elements['vision-result'].textContent = `${first.label}${score}${floor} · ${first.risk}`;
       } else {
         const offset = Number.isFinite(first.error_x)
           ? ` · horizontal ${first.error_x.toFixed(2)}`
@@ -303,6 +320,33 @@
     context.restore();
   }
 
+  function drawPatrolPolygon(context) {
+    const screenPoints = patrolPolygon.map(worldToScreen).filter(Boolean);
+    if (!screenPoints.length) return;
+    context.save();
+    context.strokeStyle = '#c78cff';
+    context.fillStyle = 'rgba(199, 140, 255, .12)';
+    context.lineWidth = 2.5;
+    context.beginPath();
+    context.moveTo(screenPoints[0].x, screenPoints[0].y);
+    screenPoints.slice(1).forEach((point) => context.lineTo(point.x, point.y));
+    if (screenPoints.length >= 3) {
+      context.closePath();
+      context.fill();
+    }
+    context.stroke();
+    screenPoints.forEach((point, index) => {
+      context.beginPath();
+      context.arc(point.x, point.y, 5, 0, Math.PI * 2);
+      context.fillStyle = '#c78cff';
+      context.fill();
+      context.fillStyle = '#ffffff';
+      context.font = '700 10px system-ui, sans-serif';
+      context.fillText(String(index + 1), point.x + 7, point.y - 7);
+    });
+    context.restore();
+  }
+
   function drawPose(context, point, color, label, radius = 7) {
     const screen = worldToScreen(point);
     if (!screen) return;
@@ -379,6 +423,10 @@
     } else {
       const direct = [robotPose, waypoints.pickup, waypoints.dropoff].filter(Boolean);
       drawPolyline(context, direct, 'rgba(94, 240, 166, .55)', true);
+    }
+    drawPatrolPolygon(context);
+    if (patrolWaypoints.length > 1) {
+      drawPolyline(context, patrolWaypoints, '#c78cff', true);
     }
     if (robotPose) drawPose(context, robotPose, '#5ef0a6', 'DOGZILLA', 8);
     if (waypoints.pickup) {
@@ -460,8 +508,12 @@
       button.classList.toggle('active', button.dataset.mapTarget === target);
     });
     document.querySelectorAll('.apply-location').forEach((button) => {
-      button.textContent = `Use as ${target === 'pickup' ? 'pickup' : 'drop-off'}`;
+      button.disabled = target === 'patrol';
+      button.textContent = target === 'patrol'
+        ? 'Choose pickup or drop-off'
+        : `Use as ${target === 'pickup' ? 'pickup' : 'drop-off'}`;
     });
+    elements['use-robot-pose'].disabled = target === 'patrol' || !robotPose;
   }
 
   function routePayload() {
@@ -506,6 +558,73 @@
         drawMap();
       }
     }, 350);
+  }
+
+  function patrolAreaPayload() {
+    return {
+      map: currentMap,
+      name: elements['patrol-name'].value.trim(),
+      spacing_m: Number(elements['patrol-spacing'].value),
+      polygon: patrolPolygon.map((point) => ({ x: point.x, y: point.y })),
+    };
+  }
+
+  function clearPatrolPreview() {
+    patrolWaypoints = [];
+    drawMap();
+  }
+
+  function updatePatrolCount() {
+    elements['patrol-count'].textContent = `${patrolPolygon.length} point${patrolPolygon.length === 1 ? '' : 's'}`;
+    elements['patrol-undo'].disabled = !patrolPolygon.length;
+    elements['patrol-clear'].disabled = !patrolPolygon.length;
+  }
+
+  function setPatrolStatus(message, success = false) {
+    elements['patrol-status'].textContent = message;
+    elements['patrol-status'].className = `form-message${success ? ' success' : ''}`;
+  }
+
+  async function previewPatrol(body = patrolAreaPayload()) {
+    if (!body.patrol_area_id && patrolPolygon.length < 3) {
+      throw new Error('Add at least three patrol boundary points first.');
+    }
+    const preview = await post('/api/v1/patrol-areas/preview', body);
+    patrolWaypoints = Array.isArray(preview.waypoints) ? preview.waypoints : [];
+    setPatrolStatus(
+      `Safe sweep: ${preview.waypoint_count} points · ${Number(preview.coverage_distance_m).toFixed(2)} m`,
+      true,
+    );
+    drawMap();
+    return preview;
+  }
+
+  function selectPatrolArea(areaId) {
+    const area = patrolAreas.find((item) => item.id === areaId);
+    selectedPatrolAreaId = area?.id || '';
+    elements['patrol-area-list'].value = selectedPatrolAreaId;
+    elements['patrol-delete'].disabled = !area;
+    if (!area) return;
+    patrolPolygon = area.polygon.map((point) => ({ x: point.x, y: point.y }));
+    elements['patrol-name'].value = area.name;
+    elements['patrol-spacing'].value = area.spacing_m;
+    clearPatrolPreview();
+    updatePatrolCount();
+    setPatrolStatus(`Loaded saved area “${area.name}”. Preview it before queuing.`, true);
+  }
+
+  async function refreshPatrolAreas(preferredId = selectedPatrolAreaId) {
+    const response = await api('/api/v1/patrol-areas');
+    patrolAreas = Array.isArray(response.patrol_areas) ? response.patrol_areas : [];
+    const options = [new Option('Draw a new area', '')];
+    patrolAreas.forEach((area) => options.push(new Option(area.name, area.id)));
+    elements['patrol-area-list'].replaceChildren(...options);
+    const selected = patrolAreas.some((area) => area.id === preferredId)
+      ? preferredId
+      : '';
+    selectedPatrolAreaId = selected;
+    elements['patrol-area-list'].value = selected;
+    elements['patrol-delete'].disabled = !selected;
   }
 
   function renderState(state) {
@@ -571,10 +690,12 @@
 
     const active = state.active_task;
     if (active) {
-      const count = active.payload?.waypoints?.length || 1;
+      const points = active.payload?.waypoints?.length || 1;
+      const repeats = Number(active.payload?.repeats || 1);
+      const count = points * repeats;
       const step = Math.min(count, Number(active.current_step || 0));
       elements['active-task'].textContent = active.name;
-      elements['active-task-detail'].textContent = `${active.state} · stop ${Math.min(step + 1, count)} of ${count}`;
+      elements['active-task-detail'].textContent = `${active.state} · point ${Math.min(step + 1, count)} of ${count}`;
       elements['task-progress'].style.width = `${Math.round((step / count) * 100)}%`;
     } else {
       elements['active-task'].textContent = 'None';
@@ -591,7 +712,8 @@
     elements.estop.disabled = latched;
     elements['reset-estop'].classList.toggle('hidden', !latched);
     elements['submit-mission'].disabled = latched;
-    elements['use-robot-pose'].disabled = !robotPose;
+    elements['patrol-queue'].disabled = latched || !selectedPatrolAreaId;
+    elements['use-robot-pose'].disabled = activeTarget === 'patrol' || !robotPose;
     drawMap();
   }
 
@@ -606,7 +728,7 @@
     state.textContent = task.state;
     const meta = document.createElement('span');
     meta.className = 'task-meta';
-    const total = task.payload?.waypoints?.length || 0;
+    const total = (task.payload?.waypoints?.length || 0) * Number(task.payload?.repeats || 1);
     meta.textContent = `${task.kind} · ${task.current_step}/${total} stops · ${new Date(task.created_at).toLocaleString()}`;
     item.append(name, state, meta);
     if (['queued', 'running', 'cancelling'].includes(task.state)) {
@@ -655,7 +777,10 @@
     const apply = document.createElement('button');
     apply.type = 'button';
     apply.className = 'apply-location';
-    apply.textContent = `Use as ${activeTarget === 'pickup' ? 'pickup' : 'drop-off'}`;
+    apply.disabled = activeTarget === 'patrol';
+    apply.textContent = activeTarget === 'patrol'
+      ? 'Choose pickup or drop-off'
+      : `Use as ${activeTarget === 'pickup' ? 'pickup' : 'drop-off'}`;
     apply.addEventListener('click', () => {
       setWaypoint(activeTarget, location, location.yaw);
       showToast(`${location.name} applied to ${activeTarget}.`);
@@ -696,6 +821,7 @@
         api('/api/v1/state'),
         refreshTasks(),
         refreshLocations(),
+        refreshPatrolAreas(),
       ]);
       renderState(state);
     } catch (error) {
@@ -771,6 +897,35 @@
   elements['map-canvas'].addEventListener('click', (event) => {
     const point = eventToWorld(event);
     if (!point) return;
+    if (activeTarget === 'patrol') {
+      if (patrolPolygon.length >= 12) {
+        setPatrolStatus('A patrol area can contain at most twelve points.');
+        return;
+      }
+      const validation = validateMapPoint(point, 'Patrol boundary point');
+      if (!validation.valid) {
+        setPatrolStatus(validation.reason);
+        return;
+      }
+      if (patrolPolygon.some((item) => Math.hypot(item.x - point.x, item.y - point.y) < 0.05)) {
+        setPatrolStatus('Patrol boundary points must be at least 0.05 m apart.');
+        return;
+      }
+      patrolPolygon.push({ x: point.x, y: point.y });
+      selectedPatrolAreaId = '';
+      elements['patrol-area-list'].value = '';
+      elements['patrol-delete'].disabled = true;
+      clearPatrolPreview();
+      updatePatrolCount();
+      setPatrolStatus(
+        patrolPolygon.length < 3
+          ? `Add ${3 - patrolPolygon.length} more point${patrolPolygon.length === 2 ? '' : 's'}.`
+          : 'Area ready to preview. Add more points or preview the sweep.',
+        patrolPolygon.length >= 3,
+      );
+      event.preventDefault();
+      return;
+    }
     const label = activeTarget === 'pickup' ? 'Pickup' : 'Drop-off';
     const validation = validateMapPoint(point, label);
     if (!validation.valid) {
@@ -787,7 +942,7 @@
   if (window.ResizeObserver) new ResizeObserver(drawMap).observe(elements['map-stage']);
 
   elements['use-robot-pose'].addEventListener('click', () => {
-    if (!robotPose) return;
+    if (!robotPose || activeTarget === 'patrol') return;
     setWaypoint(activeTarget, robotPose, robotPose.yaw);
   });
 
@@ -804,11 +959,103 @@
     drawMap();
   });
 
+  elements['patrol-undo'].addEventListener('click', () => {
+    patrolPolygon.pop();
+    selectedPatrolAreaId = '';
+    elements['patrol-area-list'].value = '';
+    elements['patrol-delete'].disabled = true;
+    clearPatrolPreview();
+    updatePatrolCount();
+    setPatrolStatus('Last patrol boundary point removed.');
+  });
+
+  elements['patrol-clear'].addEventListener('click', () => {
+    patrolPolygon = [];
+    patrolWaypoints = [];
+    selectedPatrolAreaId = '';
+    elements['patrol-area-list'].value = '';
+    elements['patrol-delete'].disabled = true;
+    updatePatrolCount();
+    setPatrolStatus('Choose Draw patrol area, then click at least three points on the map.');
+    drawMap();
+  });
+
+  elements['patrol-area-list'].addEventListener('change', async (event) => {
+    selectPatrolArea(event.currentTarget.value);
+    if (!selectedPatrolAreaId) return;
+    try {
+      await previewPatrol({ patrol_area_id: selectedPatrolAreaId });
+    } catch (error) { setPatrolStatus(error.message); }
+  });
+
+  ['patrol-name', 'patrol-spacing'].forEach((id) => {
+    elements[id].addEventListener('input', () => {
+      if (!selectedPatrolAreaId) return;
+      selectedPatrolAreaId = '';
+      elements['patrol-area-list'].value = '';
+      elements['patrol-delete'].disabled = true;
+      clearPatrolPreview();
+      setPatrolStatus('Area settings changed. Preview and save this version.');
+    });
+  });
+
+  elements['patrol-preview-button'].addEventListener('click', async () => {
+    try {
+      const body = selectedPatrolAreaId
+        ? { patrol_area_id: selectedPatrolAreaId }
+        : patrolAreaPayload();
+      await previewPatrol(body);
+    } catch (error) { setPatrolStatus(error.message); }
+  });
+
+  elements['patrol-save'].addEventListener('click', async () => {
+    try {
+      const area = await post('/api/v1/patrol-areas', patrolAreaPayload());
+      selectedPatrolAreaId = area.id;
+      await refreshPatrolAreas(area.id);
+      await previewPatrol({ patrol_area_id: area.id });
+      showToast(`Patrol area “${area.name}” saved.`);
+    } catch (error) { setPatrolStatus(error.message); }
+  });
+
+  elements['patrol-queue'].addEventListener('click', async () => {
+    if (!selectedPatrolAreaId) {
+      setPatrolStatus('Save the patrol area before queuing it.');
+      return;
+    }
+    try {
+      const task = await post('/api/v1/tasks/patrol', {
+        patrol_area_id: selectedPatrolAreaId,
+        name: elements['patrol-name'].value.trim(),
+        repeats: Number(elements['patrol-repeats'].value),
+        dwell_seconds: Number(elements['patrol-dwell'].value),
+      });
+      setPatrolStatus(`Queued ${task.name}.`, true);
+      showToast('Patrol added to the mission queue.');
+      await refreshAll();
+    } catch (error) { setPatrolStatus(error.message); }
+  });
+
+  elements['patrol-delete'].addEventListener('click', async () => {
+    const area = patrolAreas.find((item) => item.id === selectedPatrolAreaId);
+    if (!area || !window.confirm(`Delete patrol area “${area.name}”?`)) return;
+    try {
+      await api(`/api/v1/patrol-areas/${encodeURIComponent(area.id)}`, { method: 'DELETE' });
+      patrolPolygon = [];
+      patrolWaypoints = [];
+      selectedPatrolAreaId = '';
+      await refreshPatrolAreas();
+      updatePatrolCount();
+      setPatrolStatus('Saved patrol area deleted.');
+      drawMap();
+    } catch (error) { setPatrolStatus(error.message); }
+  });
+
   elements['save-location'].addEventListener('click', async () => {
     const name = elements['location-name'].value.trim();
-    const waypointValue = waypoints[activeTarget];
+    const waypointValue = activeTarget === 'patrol' ? null : waypoints[activeTarget];
     if (!name) { showToast('Enter a location name first.'); return; }
-    if (!waypointValue) { showToast(`Select a ${activeTarget} waypoint first.`); return; }
+    if (!waypointValue) { showToast('Choose and select a pickup or drop-off waypoint first.'); return; }
     const validation = validateMapPoint(waypointValue, name);
     if (!validation.valid) { showToast(validation.reason); return; }
     try {
@@ -829,7 +1076,7 @@
       elements.login.classList.add('hidden');
       elements.app.classList.remove('hidden');
       renderState(state);
-      await Promise.all([refreshTasks(), refreshLocations()]);
+      await Promise.all([refreshTasks(), refreshLocations(), refreshPatrolAreas()]);
       refreshMap(true).catch((error) => {
         elements['map-loading'].textContent = error.message;
         elements['map-loading'].classList.remove('hidden');
@@ -890,6 +1137,8 @@
   });
   elements.refresh.addEventListener('click', refreshAll);
   elements.logout.addEventListener('click', () => disconnect());
+
+  updatePatrolCount();
 
   if (token) {
     elements.token.value = token;

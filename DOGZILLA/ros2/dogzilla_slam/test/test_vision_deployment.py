@@ -32,6 +32,27 @@ class VisionDeploymentTest(unittest.TestCase):
         )
         self.assertNotIn('devices', compose['services']['web'])
 
+    def test_mission_perception_is_camera_only_and_detection_only(self):
+        compose = yaml.safe_load(
+            (REPOSITORY / 'deploy' / 'compose.yaml').read_text()
+        )
+        service = compose['services']['perception']
+        self.assertEqual(service['devices'], ['/dev/video0:/dev/video0'])
+        serialized = yaml.safe_dump(service)
+        self.assertNotIn('/dev/ttyAMA0', serialized)
+        self.assertNotIn('/dev/ttyAMA1', serialized)
+        self.assertNotIn('privileged', service)
+        self.assertIn('vision.launch.py', service['command'])
+        self.assertIn('mode:=floor-hazards', service['command'])
+        self.assertIn('./models:/models:ro', service['volumes'])
+        self.assertIn('./datasets:/datasets', service['volumes'])
+
+        mission = (REPOSITORY / 'deploy' / 'dogzilla-mission').read_text()
+        self.assertIn('start_perception', mission)
+        self.assertIn("'Floor-hazard perception'", mission)
+        stop_body = mission.split('stop_components() {', 1)[1].split('\n}', 1)[0]
+        self.assertIn('stop --timeout 20 perception', stop_body)
+
     def test_armed_vision_control_has_only_camera_and_base_serial(self):
         compose = yaml.safe_load(
             (REPOSITORY / 'deploy' / 'compose.yaml').read_text()
@@ -122,6 +143,44 @@ class VisionDeploymentTest(unittest.TestCase):
         )[0]
         self.assertIn('vision_control_is_running', stop_body)
         self.assertIn('VISION_CONTROL_SERVICE_NAME', stop_body)
+
+    def test_custom_object_workflow_is_camera_only_and_validated(self):
+        compose = yaml.safe_load(
+            (REPOSITORY / 'deploy' / 'compose.yaml').read_text()
+        )
+        vision = compose['services']['vision']
+        self.assertIn('./datasets:/datasets', vision['volumes'])
+        self.assertEqual(vision['devices'], ['/dev/video0:/dev/video0'])
+
+        script = (REPOSITORY / 'deploy' / 'dogzilla-map').read_text()
+        install = script.split(
+            'install_custom_object_model() {',
+            1,
+        )[1].split('\n}\n', 1)[0]
+        self.assertIn('--network none', install)
+        self.assertIn('object_model_validate', install)
+        self.assertIn('vision_device_is_running', install)
+        capture = script.split(
+            'capture_object_dataset() {',
+            1,
+        )[1].split('\n}\n', 1)[0]
+        self.assertIn('python3 -m dogzilla_slam.dataset_capture', capture)
+        self.assertIn('source /opt/ros/humble/setup.bash', capture)
+        self.assertIn('source /root/yahboomcar_ws/install/setup.bash', capture)
+        self.assertNotIn('VISION_CONTROL_SERVICE_NAME', capture)
+        self.assertIn('local label="${1:-}"', capture)
+
+        acceptance = script.split(
+            'check_object_detection() {',
+            1,
+        )[1].split('\n}\n', 1)[0]
+        self.assertIn('python3 -m dogzilla_slam.object_acceptance', acceptance)
+        self.assertIn('Object acceptance refuses armed Vision Control', acceptance)
+        self.assertIn('set_vision_mode "${mode}" red', acceptance)
+        self.assertIn('--minimum-hits 3', acceptance)
+        self.assertIn('source /opt/ros/humble/setup.bash', acceptance)
+        self.assertIn('report_temporary', acceptance)
+        self.assertIn('json.load', acceptance)
 
 
 if __name__ == '__main__':

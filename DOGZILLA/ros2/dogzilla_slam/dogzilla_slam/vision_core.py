@@ -6,6 +6,7 @@ import time
 import cv2
 import numpy as np
 
+from .object_detector import CORE_REQUESTED_CLASSES
 from .vision_action_policy import COLOR_ACTIONS
 from .vision_action_policy import QR_ACTIONS
 
@@ -22,6 +23,8 @@ VISION_MODES = (
     'qr-action',
     'line',
     'line-follow',
+    'objects',
+    'floor-hazards',
 )
 
 VISION_MODE_ALIASES = {
@@ -98,10 +101,17 @@ def _target_payload(x, y, radius, width, height):
 class VisionProcessor:
     """Process BGR frames without owning a camera or robot controller."""
 
-    def __init__(self, mode='raw', color='red', line_hsv=LINE_DEFAULT):
+    def __init__(
+        self,
+        mode='raw',
+        color='red',
+        line_hsv=LINE_DEFAULT,
+        object_perception=None,
+    ):
         self.mode = validate_mode(mode)
         self.color = validate_color(color)
         self.line_hsv = self._validate_hsv_range(line_hsv)
+        self.object_perception = object_perception
         cascade_path = (
             cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
         )
@@ -179,6 +189,8 @@ class VisionProcessor:
             self._process_qr(frame, annotated, result)
         elif self.mode in {'line', 'line-follow'}:
             self._process_line(frame, annotated, result)
+        elif self.mode in {'objects', 'floor-hazards'}:
+            self._process_objects(frame, annotated, result)
 
         self._add_action_proposals(result)
 
@@ -198,6 +210,49 @@ class VisionProcessor:
             3,
         )
         return annotated, result
+
+    def object_status(self):
+        """Return explicit model readiness and requested-class coverage."""
+        if self.object_perception is None:
+            return {
+                'ready': False,
+                'requested_classes': list(CORE_REQUESTED_CLASSES),
+                'covered_classes': [],
+                'missing_classes': list(CORE_REQUESTED_CLASSES),
+                'missing_dangerous_classes': [
+                    label for label in CORE_REQUESTED_CLASSES
+                    if label in {'gun', 'knife', 'nail', 'bolt', 'hammer'}
+                ],
+                'dangerous_coverage_complete': False,
+                'models': [],
+                'reason': 'no object model is loaded',
+            }
+        return {
+            'ready': True,
+            **self.object_perception.coverage(),
+        }
+
+    def _process_objects(self, frame, annotated, result):
+        status = self.object_status()
+        result['object_detection'] = status
+        if self.object_perception is None:
+            return
+        detections = self.object_perception.detect(frame)
+        if self.mode == 'floor-hazards':
+            detections = [
+                detection for detection in detections
+                if detection['floor_candidate']
+            ]
+        rendered = self.object_perception.annotate(frame, detections)
+        annotated[:] = rendered
+        result.update(
+            detected=bool(detections),
+            detections=detections,
+            floor_hazard_count=sum(
+                1 for detection in detections
+                if detection['floor_hazard']
+            ),
+        )
 
     @staticmethod
     def _firmware_action_proposal(source, action_id, name):

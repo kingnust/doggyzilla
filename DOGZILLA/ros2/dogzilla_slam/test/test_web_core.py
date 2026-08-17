@@ -5,11 +5,14 @@ import unittest
 
 from dogzilla_slam.web_core import build_delivery_payload
 from dogzilla_slam.web_core import build_location_payload
+from dogzilla_slam.web_core import build_patrol_area_payload
+from dogzilla_slam.web_core import build_patrol_payload
 from dogzilla_slam.web_core import build_route_payload
 from dogzilla_slam.web_core import classify_robot_mode
 from dogzilla_slam.web_core import ConflictError
 from dogzilla_slam.web_core import EventBus
 from dogzilla_slam.web_core import OccupancyMap
+from dogzilla_slam.web_core import patrol_vision_readiness
 from dogzilla_slam.web_core import TaskStore
 from dogzilla_slam.web_core import TelemetryCache
 from dogzilla_slam.web_core import ValidationError
@@ -25,6 +28,44 @@ def delivery_request():
 
 
 class WebCoreTest(unittest.TestCase):
+    def test_patrol_requires_complete_non_actuating_hazard_coverage(self):
+        status = {
+            'state': 'ready',
+            'mode': 'floor-hazards',
+            'action_output': 'disabled',
+            'object_detection': {
+                'ready': True,
+                'dangerous_coverage_complete': True,
+                'missing_dangerous_classes': [],
+                'models': ['generic', 'custom'],
+            },
+        }
+        self.assertEqual(patrol_vision_readiness(status), (True, 'ready'))
+
+        incomplete = {
+            **status,
+            'object_detection': {
+                **status['object_detection'],
+                'dangerous_coverage_complete': False,
+                'missing_dangerous_classes': ['bolt', 'wire'],
+            },
+        }
+        ready, reason = patrol_vision_readiness(incomplete)
+        self.assertFalse(ready)
+        self.assertIn('bolt, wire', reason)
+
+        contradictory = {
+            **status,
+            'object_detection': {
+                **status['object_detection'],
+                'missing_dangerous_classes': ['bolt'],
+            },
+        }
+        self.assertFalse(patrol_vision_readiness(contradictory)[0])
+
+        armed = {**status, 'action_output': 'enabled'}
+        self.assertFalse(patrol_vision_readiness(armed)[0])
+
     def test_robot_graph_distinguishes_vision_control(self):
         self.assertEqual(
             classify_robot_mode(
@@ -104,6 +145,41 @@ class WebCoreTest(unittest.TestCase):
                 {'map': 'room1', 'name': 'Bad', 'x': math.nan, 'y': 2}
             )
 
+    def test_patrol_polygon_rejects_crossing_and_unsafe_geometry(self):
+        area = build_patrol_area_payload({
+            'map': 'room1',
+            'name': 'Workshop floor',
+            'spacing_m': 0.5,
+            'polygon': [
+                {'x': 0, 'y': 0},
+                {'x': 2, 'y': 0},
+                {'x': 2, 'y': 1},
+                {'x': 0, 'y': 1},
+            ],
+        })
+        self.assertEqual(area['spacing_m'], 0.5)
+        self.assertEqual(len(area['polygon']), 4)
+
+        with self.assertRaisesRegex(ValidationError, 'must not cross'):
+            build_patrol_area_payload({
+                'name': 'Crossed',
+                'polygon': [
+                    {'x': 0, 'y': 0},
+                    {'x': 2, 'y': 2},
+                    {'x': 0, 'y': 2},
+                    {'x': 2, 'y': 0},
+                ],
+            })
+        with self.assertRaisesRegex(ValidationError, 'area must be'):
+            build_patrol_area_payload({
+                'name': 'Tiny',
+                'polygon': [
+                    {'x': 0, 'y': 0},
+                    {'x': 0.1, 'y': 0},
+                    {'x': 0, 'y': 0.1},
+                ],
+            })
+
     def test_occupancy_map_encodes_and_rejects_non_free_goals(self):
         occupancy = OccupancyMap(
             'room1',
@@ -167,6 +243,50 @@ class WebCoreTest(unittest.TestCase):
                 {'label': 'Near wall', 'x': 0.65, 'y': 2.35},
             ])
 
+    def test_occupancy_map_generates_safe_serpentine_patrol(self):
+        occupancy = OccupancyMap('room1', minimum_clearance_m=0.0)
+        cells = [0] * 100
+        cells[5 * 10 + 5] = 100
+        occupancy.update(
+            frame='map',
+            width=10,
+            height=10,
+            resolution=0.25,
+            origin_x=0.0,
+            origin_y=0.0,
+            origin_yaw=0.0,
+            data=cells,
+        )
+        polygon = [
+            {'x': 0.25, 'y': 0.25},
+            {'x': 2.25, 'y': 0.25},
+            {'x': 2.25, 'y': 2.25},
+            {'x': 0.25, 'y': 2.25},
+        ]
+        waypoints = occupancy.generate_patrol_waypoints(polygon, 0.5)
+
+        self.assertGreaterEqual(len(waypoints), 8)
+        self.assertLessEqual(len(waypoints), 120)
+        self.assertTrue(occupancy.validate_waypoints(waypoints))
+        self.assertTrue(all(point['label'].startswith('Patrol ') for point in waypoints))
+        self.assertFalse(
+            any(
+                math.floor(point['x'] / 0.25) == 5
+                and math.floor(point['y'] / 0.25) == 5
+                for point in waypoints
+            )
+        )
+
+        area = {'id': 'area-1', 'map': 'room1', 'name': 'Workshop'}
+        task = build_patrol_payload(
+            {'name': 'Morning patrol', 'repeats': 3, 'dwell_seconds': 1.5},
+            area,
+            waypoints,
+        )
+        self.assertEqual(task['kind'], 'patrol')
+        self.assertEqual(task['repeats'], 3)
+        self.assertEqual(task['waypoints'][0]['dwell_seconds'], 1.5)
+
     def test_task_store_persists_and_recovers_interrupted_tasks(self):
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / 'tasks.sqlite3'
@@ -222,6 +342,56 @@ class WebCoreTest(unittest.TestCase):
             self.assertEqual(store.list_locations('room1'), [])
             with self.assertRaises(KeyError):
                 store.delete_location(first['id'], 'room1')
+            store.close()
+
+    def test_task_store_upserts_and_deletes_patrol_areas(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = TaskStore(Path(directory) / 'tasks.sqlite3')
+            base = build_patrol_area_payload({
+                'map': 'room1',
+                'name': 'Lab floor',
+                'polygon': [
+                    {'x': 0, 'y': 0},
+                    {'x': 2, 'y': 0},
+                    {'x': 2, 'y': 1},
+                    {'x': 0, 'y': 1},
+                ],
+                'spacing_m': 0.5,
+            })
+            first = store.save_patrol_area(base)
+            updated_payload = dict(base)
+            updated_payload['name'] = 'lab FLOOR'
+            updated_payload['spacing_m'] = 0.8
+            updated = store.save_patrol_area(updated_payload)
+
+            self.assertEqual(updated['id'], first['id'])
+            self.assertEqual(updated['spacing_m'], 0.8)
+            self.assertEqual(store.get_patrol_area(first['id'], 'room1'), updated)
+            self.assertEqual(len(store.list_patrol_areas('room1')), 1)
+            store.delete_patrol_area(first['id'], 'room1')
+            self.assertEqual(store.list_patrol_areas('room1'), [])
+            with self.assertRaises(KeyError):
+                store.delete_patrol_area(first['id'], 'room1')
+            store.close()
+
+    def test_task_store_records_hazard_at_robot_observation_pose(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = TaskStore(Path(directory) / 'tasks.sqlite3')
+            observation = store.record_hazard({
+                'task_id': 'patrol-1',
+                'map': 'room1',
+                'label': 'knife',
+                'risk': 'danger',
+                'confidence': 0.88,
+                'box': [10, 20, 30, 40],
+                'robot_pose': {'x': 1.0, 'y': 2.0, 'yaw': 0.2},
+            })
+
+            self.assertEqual(observation['label'], 'knife')
+            self.assertEqual(observation['box'], [10, 20, 30, 40])
+            self.assertEqual(observation['robot_pose']['x'], 1.0)
+            self.assertEqual(store.list_hazards('room1'), [observation])
+            self.assertEqual(store.list_hazards('room2'), [])
             store.close()
 
     def test_event_bus_and_telemetry_cache_return_copies(self):

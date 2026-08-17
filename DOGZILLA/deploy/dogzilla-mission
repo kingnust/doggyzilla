@@ -12,8 +12,13 @@ NAVIGATION_CONTAINER="dogzilla_navigation"
 SHADOW_CONTAINER="dogzilla_visual_shadow"
 VISION_CONTAINER="dogzilla_vision"
 VISION_CONTROL_CONTAINER="dogzilla_vision_control"
+PERCEPTION_CONTAINER="dogzilla_perception"
 WEB_CONTAINER="dogzilla_web"
 STARTUP_TIMEOUT="${DOGZILLA_MISSION_STARTUP_TIMEOUT:-120}"
+OBJECT_MODEL_FILE="${REPO_ROOT}/models/yolox_nano.onnx"
+OBJECT_MODEL_SHA256="c789161ed43c8269fcd4e67c67eeeb4e80c622da2eb296a20bc6007bd18a0b7d"
+OPEN_IMAGES_MODEL_FILE="${REPO_ROOT}/models/yolov8n-oiv7.onnx"
+OPEN_IMAGES_MODEL_SHA256="73c1d27ff67f964b2c43965943fcaa608a09c29a9ea90ff4ef59779c12222870"
 
 usage() {
     printf '%s\n' \
@@ -21,7 +26,7 @@ usage() {
         '' \
         'Commands:' \
         '  start [MAP] [--rviz|--headless] [--imu]' \
-        '                        Start Nav2 and the web dashboard together.' \
+        '                        Start Nav2, hazard vision, and the dashboard.' \
         '  MAP [--rviz|--headless] [--imu]' \
         '                        Shortcut for "mission start MAP ...".' \
         '  status                Show the managed session and both services.' \
@@ -92,6 +97,7 @@ assert_runtime_is_free() {
         "${SHADOW_CONTAINER}" \
         "${VISION_CONTAINER}" \
         "${VISION_CONTROL_CONTAINER}" \
+        "${PERCEPTION_CONTAINER}" \
         "${WEB_CONTAINER}"; do
         if container_is_active "${container_name}"; then
             printf 'Cannot start Mission Mode: %s is already running.\n' \
@@ -161,6 +167,10 @@ verify_ros_readiness() {
         for topic in /scan /map /odom /battery_state /joint_states; do
             grep -qx "${topic}" <<< "${topics}"
         done
+        for topic in /vision/status /vision/detections
+        /vision/annotated/compressed; do
+            grep -qx "${topic}" <<< "${topics}"
+        done
         actions="$(ros2 action list)"
         for action in /navigate_to_pose /compute_path_to_pose; do
             grep -qx "${action}" <<< "${actions}"
@@ -173,10 +183,48 @@ verify_ros_readiness() {
     '
 }
 
+verify_object_model() {
+    if [[ ! -f "${OBJECT_MODEL_FILE}" ]] \
+        || ! printf '%s  %s\n' \
+            "${OBJECT_MODEL_SHA256}" "${OBJECT_MODEL_FILE}" \
+            | sha256sum --check --status; then
+        printf 'The verified floor-object model is not installed.\n' >&2
+        printf 'Run "dogzilla object-model-install", then retry.\n' >&2
+        return 1
+    fi
+    if [[ ! -f "${OPEN_IMAGES_MODEL_FILE}" ]] \
+        || ! printf '%s  %s\n' \
+            "${OPEN_IMAGES_MODEL_SHA256}" "${OPEN_IMAGES_MODEL_FILE}" \
+            | sha256sum --check --status; then
+        printf 'The verified Open Images object model is not installed.\n' >&2
+        printf 'Run "dogzilla object-model-install", then retry.\n' >&2
+        return 1
+    fi
+}
+
+start_perception() {
+    if [[ ! -c /dev/video0 ]]; then
+        printf 'Mission camera is missing: /dev/video0\n' >&2
+        return 1
+    fi
+    verify_object_model
+    "${DOCKER_COMMAND}" compose \
+        --project-directory "${REPO_ROOT}" \
+        --file "${COMPOSE_FILE}" \
+        up --detach --no-build --force-recreate perception
+}
+
 stop_components() {
     local status=0
     set +e
     "${WEB_COMMAND}" stop
+    if (($? != 0)); then
+        status=1
+    fi
+    "${DOCKER_COMMAND}" compose \
+        --project-directory "${REPO_ROOT}" \
+        --file "${COMPOSE_FILE}" \
+        stop --timeout 20 perception
     if (($? != 0)); then
         status=1
     fi
@@ -221,6 +269,11 @@ start_mission() {
     validate_timeout
     validate_map_name "${map_name}"
     assert_runtime_is_free
+    verify_object_model
+    if [[ ! -c /dev/video0 ]]; then
+        printf 'Mission camera is missing: /dev/video0\n' >&2
+        exit 1
+    fi
 
     if [[ -e "${STATE_FILE}" ]]; then
         printf 'A previous Mission Mode state file exists: %s\n' \
@@ -250,9 +303,11 @@ start_mission() {
         return 1
     fi
     export DOGZILLA_ROS_LOG_DIR="/logs/sessions/${session}"
+    start_perception
     "${WEB_COMMAND}" start "${map_name}"
 
     wait_for_healthy "${NAVIGATION_CONTAINER}" 'Navigation'
+    wait_for_healthy "${PERCEPTION_CONTAINER}" 'Floor-hazard perception'
     wait_for_healthy "${WEB_CONTAINER}" 'Web gateway'
     if ! verify_ros_readiness; then
         printf 'Mission Mode ROS readiness checks failed.\n' >&2
@@ -266,6 +321,7 @@ start_mission() {
         'Mission Mode is ready.' \
         "Map: ${map_name}" \
         "ROS logs: logs/sessions/${session}" \
+        'Floor-hazard perception is detection-only and camera based.' \
         'No movement has been queued automatically.' \
         'Use "./deploy/dogzilla-map mission token" for browser login.'
 }
@@ -286,7 +342,7 @@ follow_mission_logs() {
     "${DOCKER_COMMAND}" compose \
         --project-directory "${REPO_ROOT}" \
         --file "${COMPOSE_FILE}" \
-        logs --follow --tail 200 navigation web
+        logs --follow --tail 200 navigation perception web
 }
 
 main() {

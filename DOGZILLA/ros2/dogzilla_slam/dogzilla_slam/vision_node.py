@@ -1,12 +1,14 @@
 """ROS 2 camera-topic processor for safe DOGZILLA vision lessons."""
 
 import json
+import os
 import threading
 import time
 
 import cv2
 import numpy as np
 import rclpy
+from ament_index_python.packages import get_package_share_directory
 from rcl_interfaces.msg import SetParametersResult
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
@@ -14,6 +16,13 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CompressedImage, Image
 from std_msgs.msg import String
 
+from .object_detector import CORE_REQUESTED_CLASSES
+from .object_detector import load_labels
+from .object_detector import OPEN_IMAGES_V7_RELEVANT_CLASSES
+from .object_detector import ObjectDetectorError
+from .object_detector import ObjectPerception
+from .object_detector import YoloV8OpenCvDetector
+from .object_detector import YoloXOpenCvDetector
 from .vision_core import validate_request
 from .vision_core import VisionConfigurationError
 from .vision_core import VisionProcessor
@@ -60,19 +69,53 @@ class DogzillaVisionNode(Node):
         self.declare_parameter('mode', 'raw')
         self.declare_parameter('color', 'red')
         self.declare_parameter('process_hz', 10.0)
+        self.declare_parameter('object_process_hz', 2.0)
         self.declare_parameter('jpeg_quality', 75)
+        package_share = get_package_share_directory('dogzilla_slam')
+        self.declare_parameter(
+            'object_model_path',
+            '/models/yolox_nano.onnx',
+        )
+        self.declare_parameter(
+            'object_labels_path',
+            os.path.join(package_share, 'config', 'coco80.txt'),
+        )
+        self.declare_parameter(
+            'open_images_model_path',
+            '/models/yolov8n-oiv7.onnx',
+        )
+        self.declare_parameter(
+            'custom_object_model_path',
+            '/models/dogzilla_custom.onnx',
+        )
+        self.declare_parameter(
+            'custom_object_labels_path',
+            '/models/dogzilla_custom.labels',
+        )
+        self.declare_parameter('object_confidence', 0.35)
+        self.declare_parameter('object_nms', 0.45)
 
         mode = str(self.get_parameter('mode').value)
         color = str(self.get_parameter('color').value)
-        self._processor = VisionProcessor(mode=mode, color=color)
+        object_perception = self._load_object_perception()
+        self._processor = VisionProcessor(
+            mode=mode,
+            color=color,
+            object_perception=object_perception,
+        )
         self._lock = threading.RLock()
         self._last_process = 0.0
         self._sequence = 0
         self._frame_failures = 0
         self._process_hz = float(self.get_parameter('process_hz').value)
+        self._object_process_hz = float(
+            self.get_parameter('object_process_hz').value
+        )
         self._jpeg_quality = int(self.get_parameter('jpeg_quality').value)
         if not 1.0 <= self._process_hz <= 30.0:
             raise ValueError('process_hz must be between 1 and 30')
+        if not 0.2 <= self._object_process_hz <= 10.0:
+            raise ValueError('object_process_hz must be between 0.2 and 10')
         if not 40 <= self._jpeg_quality <= 95:
             raise ValueError('jpeg_quality must be between 40 and 95')
 
@@ -119,6 +162,124 @@ class DogzillaVisionNode(Node):
             'robot action output disabled'
         )
 
+    def _load_object_perception(self):
+        confidence = float(self.get_parameter('object_confidence').value)
+        nms = float(self.get_parameter('object_nms').value)
+        detectors = []
+        configurations = (
+            (
+                'coco-yolox-nano',
+                str(self.get_parameter('object_model_path').value),
+                str(self.get_parameter('object_labels_path').value),
+                False,
+            ),
+        )
+        for name, model_path, labels_path, optional in configurations:
+            model_exists = os.path.isfile(model_path)
+            labels_exist = os.path.isfile(labels_path)
+            if optional and not model_exists and not labels_exist:
+                continue
+            if not model_exists or not labels_exist:
+                self.get_logger().warn(
+                    f'Object model {name} is incomplete: model={model_exists}, '
+                    f'labels={labels_exist}'
+                )
+                continue
+            try:
+                detector = YoloXOpenCvDetector(
+                    model_path,
+                    load_labels(labels_path),
+                    name=name,
+                    confidence_threshold=confidence,
+                    nms_threshold=nms,
+                )
+            except (ObjectDetectorError, ValueError) as exc:
+                self.get_logger().error(
+                    f'Object model {name} was not loaded: {exc}'
+                )
+                continue
+            detectors.append(detector)
+            self.get_logger().info(
+                f'Loaded object model {name}: '
+                f'{len(detector.metadata.labels)} classes'
+            )
+        open_images_path = str(
+            self.get_parameter('open_images_model_path').value
+        )
+        if os.path.isfile(open_images_path):
+            try:
+                detector = YoloV8OpenCvDetector(
+                    open_images_path,
+                    OPEN_IMAGES_V7_RELEVANT_CLASSES,
+                    name='open-images-yolov8-nano',
+                    confidence_threshold=confidence,
+                    nms_threshold=nms,
+                )
+            except (ObjectDetectorError, ValueError) as exc:
+                self.get_logger().error(
+                    f'Open Images model was not loaded: {exc}'
+                )
+            else:
+                detectors.append(detector)
+                self.get_logger().info(
+                    'Loaded Open Images model for indoor, tool, and hazard '
+                    'coverage'
+                )
+        custom_model_path = str(
+            self.get_parameter('custom_object_model_path').value
+        )
+        custom_labels_path = str(
+            self.get_parameter('custom_object_labels_path').value
+        )
+        custom_model_exists = os.path.isfile(custom_model_path)
+        custom_labels_exist = os.path.isfile(custom_labels_path)
+        if custom_model_exists and custom_labels_exist:
+            try:
+                custom_labels = load_labels(custom_labels_path)
+                detector = YoloV8OpenCvDetector(
+                    custom_model_path,
+                    dict(enumerate(custom_labels)),
+                    name='dogzilla-custom-yolov8',
+                    input_size=416,
+                    output_class_count=len(custom_labels),
+                    confidence_threshold=confidence,
+                    nms_threshold=nms,
+                )
+                # A blank inference verifies the graph and output dimensions.
+                # Declared labels alone must never make patrol coverage ready.
+                detector.detect(np.full((416, 416, 3), 114, dtype=np.uint8))
+            except (ObjectDetectorError, ValueError) as exc:
+                self.get_logger().error(
+                    f'Custom YOLOv8 model was not loaded: {exc}'
+                )
+            else:
+                detectors.append(detector)
+                self.get_logger().info(
+                    'Loaded custom YOLOv8 object model: '
+                    f'{len(custom_labels)} classes'
+                )
+        elif custom_model_exists or custom_labels_exist:
+            self.get_logger().warn(
+                'Custom object model is incomplete: '
+                f'model={custom_model_exists}, labels={custom_labels_exist}'
+            )
+        if not detectors:
+            self.get_logger().warn(
+                'No object model is ready; object modes will report unavailable'
+            )
+            return None
+        perception = ObjectPerception(
+            detectors,
+            requested_classes=CORE_REQUESTED_CLASSES,
+        )
+        missing = perception.coverage()['missing_dangerous_classes']
+        if missing:
+            self.get_logger().warn(
+                'Dangerous-object coverage is incomplete; custom model needed '
+                f'for: {", ".join(missing)}'
+            )
+        return perception
+
     def _status(self, state, error=None):
         value = {
             'schema_version': 1,
@@ -126,7 +287,9 @@ class DogzillaVisionNode(Node):
             'mode': self._processor.mode,
             'color': self._processor.color,
             'process_hz': self._process_hz,
+            'object_process_hz': self._object_process_hz,
             'action_output': 'disabled',
+            'object_detection': self._processor.object_status(),
         }
         if error:
             value['error'] = str(error)
@@ -183,7 +346,12 @@ class DogzillaVisionNode(Node):
 
     def _on_image(self, message):
         now = time.monotonic()
-        if now - self._last_process < 1.0 / self._process_hz:
+        rate = (
+            self._object_process_hz
+            if self._processor.mode in {'objects', 'floor-hazards'}
+            else self._process_hz
+        )
+        if now - self._last_process < 1.0 / rate:
             return
         self._last_process = now
         try:

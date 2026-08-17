@@ -10,6 +10,7 @@ NAVIGATION_SERVICE_NAME="navigation"
 SHADOW_SERVICE_NAME="shadow"
 VISION_SERVICE_NAME="vision"
 VISION_CONTROL_SERVICE_NAME="vision_control"
+PERCEPTION_SERVICE_NAME="perception"
 IMAGE_NAME="dogzilla-mapping:humble"
 BASE_IMAGE_NAME="yahboomtechnology/ros-humble:3.8"
 PINNED_BASE_ALIAS="dogzilla-yahboom-base:3.8-pinned"
@@ -31,6 +32,13 @@ MISSION_COMMAND="${DEPLOY_DIR}/dogzilla-mission"
 MISSION_STATE_FILE="${REPO_ROOT}/logs/mission-current"
 WEB_COMMAND="${DEPLOY_DIR}/dogzilla-web"
 VISION_STATE_FILE="${REPO_ROOT}/logs/vision-current"
+OBJECT_MODEL_DIR="${REPO_ROOT}/models"
+OBJECT_MODEL_FILE="${OBJECT_MODEL_DIR}/yolox_nano.onnx"
+OBJECT_MODEL_URL="https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/yolox_nano.onnx"
+OBJECT_MODEL_SHA256="c789161ed43c8269fcd4e67c67eeeb4e80c622da2eb296a20bc6007bd18a0b7d"
+OPEN_IMAGES_MODEL_FILE="${OBJECT_MODEL_DIR}/yolov8n-oiv7.onnx"
+OPEN_IMAGES_MODEL_URL="https://github.com/CVHub520/X-AnyLabeling/releases/download/v2.3.7/yolov8n-oiv7.onnx"
+OPEN_IMAGES_MODEL_SHA256="73c1d27ff67f964b2c43965943fcaa608a09c29a9ea90ff4ef59779c12222870"
 
 compose() {
     docker compose \
@@ -58,6 +66,14 @@ usage() {
         '                        Explicitly arm guarded Yahboom-style motion.' \
         '  vision-mode MODE [COLOR]' \
         '                        Change detector; an armed session stays armed.' \
+        '  object-model-install  Install the pinned OpenCV-DNN base model.' \
+        '  object-model-custom-install MODEL LABELS' \
+        '                        Validate and atomically install custom weights.' \
+        '  object-model-status   Show base/custom class coverage readiness.' \
+        '  object-check LABEL [SECONDS] [--floor]' \
+        '                        Require repeated live camera detections.' \
+        '  object-dataset-capture LABEL [COUNT] [INTERVAL]' \
+        '                        Save spaced raw frames; never moves the robot.' \
         '  camera-calibrate BOARD_SIZE SQUARE_METRES' \
         '                        Calibrate 640x480 intrinsics on the Pi display.' \
         '  camera-extrinsics --measured X Y Z ROLL PITCH YAW' \
@@ -109,8 +125,10 @@ ensure_runtime_directories() {
         "${REPO_ROOT}/maps" \
         "${REPO_ROOT}/logs/sessions" \
         "${REPO_ROOT}/calibration" \
+        "${REPO_ROOT}/datasets" \
         "${REPO_ROOT}/profiles/captures" \
-        "${REPO_ROOT}/profiles/validated"
+        "${REPO_ROOT}/profiles/validated" \
+        "${OBJECT_MODEL_DIR}"
 }
 
 assert_mission_allows_start() {
@@ -146,8 +164,12 @@ vision_control_is_running() {
     service_is_running "${VISION_CONTROL_SERVICE_NAME}"
 }
 
+perception_is_running() {
+    service_is_running "${PERCEPTION_SERVICE_NAME}"
+}
+
 vision_device_is_running() {
-    vision_is_running || vision_control_is_running
+    vision_is_running || vision_control_is_running || perception_is_running
 }
 
 service_is_running() {
@@ -747,7 +769,7 @@ start_visual_shadow() {
 validate_vision_mode() {
     local mode="${1:-raw}"
     case "${mode}" in
-        raw|color|color-track|color-action|face|face-track|watchdog|qr|qr-action|line|line-follow)
+        raw|color|color-track|color-action|face|face-track|watchdog|qr|qr-action|line|line-follow|objects|floor-hazards)
             printf '%s\n' "${mode}"
             ;;
         face-handshake)
@@ -755,10 +777,322 @@ validate_vision_mode() {
             ;;
         *)
             printf '%s\n' \
-                'MODE must be raw, color, color-track, color-action, face, face-track, watchdog, qr, qr-action, line, or line-follow.' >&2
+                'MODE must be raw, color, color-track, color-action, face, face-track, watchdog, qr, qr-action, line, line-follow, objects, or floor-hazards.' >&2
             return 2
             ;;
     esac
+}
+
+object_model_is_valid() {
+    [[ -f "${OBJECT_MODEL_FILE}" ]] \
+        && printf '%s  %s\n' \
+            "${OBJECT_MODEL_SHA256}" "${OBJECT_MODEL_FILE}" \
+            | sha256sum --check --status
+}
+
+open_images_model_is_valid() {
+    [[ -f "${OPEN_IMAGES_MODEL_FILE}" ]] \
+        && printf '%s  %s\n' \
+            "${OPEN_IMAGES_MODEL_SHA256}" "${OPEN_IMAGES_MODEL_FILE}" \
+            | sha256sum --check --status
+}
+
+install_object_model() {
+    local temporary
+    require_command curl
+    require_command sha256sum
+    mkdir -p "${OBJECT_MODEL_DIR}"
+    if object_model_is_valid; then
+        printf 'Pinned YOLOX-Nano model is already installed: %s\n' \
+            "${OBJECT_MODEL_FILE}"
+    else
+        temporary="${OBJECT_MODEL_FILE}.partial.$$"
+        printf 'Downloading the pinned 3.7 MB YOLOX-Nano ONNX model.\n'
+        if ! curl --fail --location --silent --show-error \
+            "${OBJECT_MODEL_URL}" --output "${temporary}"; then
+            rm -f -- "${temporary}"
+            return 1
+        fi
+        if ! printf '%s  %s\n' "${OBJECT_MODEL_SHA256}" "${temporary}" \
+            | sha256sum --check --status; then
+            printf 'Downloaded YOLOX model failed its SHA-256 check.\n' >&2
+            rm -f -- "${temporary}"
+            return 1
+        fi
+        chmod 0644 "${temporary}"
+        mv -f -- "${temporary}" "${OBJECT_MODEL_FILE}"
+        printf 'Installed verified OpenCV-DNN model: %s\n' \
+            "${OBJECT_MODEL_FILE}"
+    fi
+
+    if open_images_model_is_valid; then
+        printf 'Pinned Open Images model is already installed: %s\n' \
+            "${OPEN_IMAGES_MODEL_FILE}"
+        return 0
+    fi
+    temporary="${OPEN_IMAGES_MODEL_FILE}.partial.$$"
+    printf '%s\n' \
+        'Downloading the pinned 14.1 MB Open Images ONNX model.' \
+        'Weights are AGPL-3.0; see models/README.md before redistribution.'
+    if ! curl --fail --location --silent --show-error \
+        "${OPEN_IMAGES_MODEL_URL}" --output "${temporary}"; then
+        rm -f -- "${temporary}"
+        return 1
+    fi
+    if ! printf '%s  %s\n' "${OPEN_IMAGES_MODEL_SHA256}" "${temporary}" \
+        | sha256sum --check --status; then
+        printf 'Downloaded Open Images model failed its SHA-256 check.\n' >&2
+        rm -f -- "${temporary}"
+        return 1
+    fi
+    chmod 0644 "${temporary}"
+    mv -f -- "${temporary}" "${OPEN_IMAGES_MODEL_FILE}"
+    printf 'Installed verified Open Images model: %s\n' \
+        "${OPEN_IMAGES_MODEL_FILE}"
+}
+
+install_custom_object_model() {
+    if (($# != 2)); then
+        printf '%s\n' \
+            'Usage: dogzilla object-model-custom-install MODEL LABELS' >&2
+        return 2
+    fi
+    if vision_device_is_running; then
+        printf '%s\n' \
+            'Stop Mission Mode or vision before replacing object weights.' >&2
+        return 1
+    fi
+
+    local source_model source_labels candidate_model candidate_labels
+    if ! source_model="$(realpath -e -- "$1")" \
+        || [[ ! -f "${source_model}" ]]; then
+        printf 'Custom ONNX model does not exist: %s\n' "$1" >&2
+        return 1
+    fi
+    if ! source_labels="$(realpath -e -- "$2")" \
+        || [[ ! -f "${source_labels}" ]]; then
+        printf 'Custom labels file does not exist: %s\n' "$2" >&2
+        return 1
+    fi
+    candidate_model="${OBJECT_MODEL_DIR}/.custom-candidate-$$.onnx"
+    candidate_labels="${OBJECT_MODEL_DIR}/.custom-candidate-$$.labels"
+    cp -- "${source_model}" "${candidate_model}"
+    cp -- "${source_labels}" "${candidate_labels}"
+    chmod 0644 "${candidate_model}" "${candidate_labels}"
+
+    if ! docker run --rm --network none \
+        --volume "${REPO_ROOT}/ros2/dogzilla_slam:/workspace:ro" \
+        --volume "${OBJECT_MODEL_DIR}:/models:ro" \
+        --workdir /workspace \
+        "${IMAGE_NAME}" \
+        bash -lc \
+        'source /opt/ros/humble/setup.bash &&
+         PYTHONPATH=/workspace python3 -m dogzilla_slam.object_model_validate \
+         "$1" "$2"' \
+        bash "/models/$(basename -- "${candidate_model}")" \
+        "/models/$(basename -- "${candidate_labels}")"; then
+        rm -f -- "${candidate_model}" "${candidate_labels}"
+        printf 'The active custom model was not changed.\n' >&2
+        return 1
+    fi
+
+    mv -f -- "${candidate_labels}" \
+        "${OBJECT_MODEL_DIR}/dogzilla_custom.labels"
+    mv -f -- "${candidate_model}" \
+        "${OBJECT_MODEL_DIR}/dogzilla_custom.onnx"
+    printf '%s\n' \
+        'Installed validated custom YOLOv8 model.' \
+        'Run "dogzilla object-model-status" to confirm class coverage.'
+}
+
+capture_object_dataset() {
+    local label="${1:-}"
+    local count="${2:-60}"
+    local interval="${3:-1.0}"
+    local capture_service
+    if [[ ! "${label}" =~ ^[a-z][a-z0-9_-]{0,31}$ ]]; then
+        printf 'LABEL must match ^[a-z][a-z0-9_-]{0,31}$.\n' >&2
+        return 2
+    fi
+    if [[ ! "${count}" =~ ^[0-9]+$ ]] \
+        || ((count < 1 || count > 500)); then
+        printf 'COUNT must be an integer from 1 to 500.\n' >&2
+        return 2
+    fi
+    if ! python3 -c \
+        'import sys; value=float(sys.argv[1]); assert 0.1 <= value <= 30.0' \
+        "${interval}" 2>/dev/null; then
+        printf 'INTERVAL must be from 0.1 to 30 seconds.\n' >&2
+        return 2
+    fi
+    if perception_is_running; then
+        capture_service="${PERCEPTION_SERVICE_NAME}"
+    elif vision_is_running; then
+        capture_service="${VISION_SERVICE_NAME}"
+    else
+        printf '%s\n' \
+            'Camera perception is not running.' \
+            'Start it with "dogzilla vision raw", then retry.' >&2
+        return 1
+    fi
+    mkdir -p "${REPO_ROOT}/datasets/${label}/unlabeled"
+    compose exec --no-TTY "${capture_service}" \
+        bash -lc '
+            source /opt/ros/humble/setup.bash
+            source /root/yahboomcar_ws/install/setup.bash
+            python3 -m dogzilla_slam.dataset_capture "$@"
+        ' bash \
+            --label "${label}" \
+            --count "${count}" \
+            --interval "${interval}" \
+            --output-root /datasets
+}
+
+check_object_detection() {
+    local label="${1:-}"
+    local duration="${2:-15}"
+    local floor_option="${3:-}"
+    local mode='objects'
+    local report_directory="${REPO_ROOT}/logs/object-checks"
+    local report_file
+    local report_temporary
+    local service
+    local slug
+    local status=0
+    local -a floor_arguments=()
+
+    if (($# < 1 || $# > 3)); then
+        printf '%s\n' \
+            'Usage: dogzilla object-check LABEL [SECONDS] [--floor]' >&2
+        return 2
+    fi
+    if [[ ! "${label}" =~ ^[A-Za-z][A-Za-z0-9_-]{0,39}$ ]]; then
+        printf '%s\n' \
+            'LABEL must use letters, numbers, underscores, or hyphens.' >&2
+        return 2
+    fi
+    if ! python3 -c '
+import math, sys
+value = float(sys.argv[1])
+raise SystemExit(0 if math.isfinite(value) and 2 <= value <= 120 else 1)
+' "${duration}" 2>/dev/null; then
+        printf 'SECONDS must be from 2 to 120.\n' >&2
+        return 2
+    fi
+    case "${floor_option}" in
+        '') ;;
+        --floor)
+            mode='floor-hazards'
+            floor_arguments+=(--require-floor)
+            ;;
+        *)
+            printf 'The only optional flag is --floor.\n' >&2
+            return 2
+            ;;
+    esac
+
+    if vision_control_is_running; then
+        printf '%s\n' \
+            'Object acceptance refuses armed Vision Control.' \
+            'Run "dogzilla stop", then start camera-only vision.' >&2
+        return 1
+    fi
+    if perception_is_running; then
+        if [[ "${mode}" != 'floor-hazards' ]]; then
+            printf '%s\n' \
+                'Mission perception only emits floor-region objects.' \
+                'Use --floor, or test in standalone camera-only Vision.' >&2
+            return 1
+        fi
+        service="${PERCEPTION_SERVICE_NAME}"
+    elif vision_is_running; then
+        service="${VISION_SERVICE_NAME}"
+        set_vision_mode "${mode}" red
+    else
+        printf '%s\n' \
+            'Camera-only Vision is not running.' \
+            'Start it with "dogzilla vision objects", then retry.' >&2
+        return 1
+    fi
+
+    mkdir -p "${report_directory}"
+    slug="${label,,}"
+    slug="${slug//-/_}"
+    report_file="${report_directory}/$(
+        date -u '+%Y%m%dT%H%M%SZ'
+    )-${slug}.json"
+    report_temporary="${report_file}.partial"
+    if compose exec --no-TTY "${service}" \
+        bash -lc '
+            source /opt/ros/humble/setup.bash
+            source /root/yahboomcar_ws/install/setup.bash
+            python3 -m dogzilla_slam.object_acceptance "$@"
+        ' bash \
+            --label "${label}" \
+            --duration "${duration}" \
+            --confidence 0.55 \
+            --minimum-hits 3 \
+            "${floor_arguments[@]}" | tee "${report_temporary}"; then
+        status=0
+    else
+        status=$?
+    fi
+    if ! python3 -c '
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as stream:
+    report = json.load(stream)
+assert report.get("schema_version") == 1
+assert isinstance(report.get("passed"), bool)
+assert isinstance(report.get("label"), str) and report["label"]
+' "${report_temporary}" 2>/dev/null; then
+        rm -f -- "${report_temporary}"
+        printf '%s\n' \
+            'Acceptance process did not produce a valid JSON report.' >&2
+        return 1
+    fi
+    mv -f -- "${report_temporary}" "${report_file}"
+    if ((status == 0)); then
+        printf 'Acceptance report saved: %s\n' "${report_file}"
+        return 0
+    fi
+    printf 'Acceptance failed; report saved: %s\n' "${report_file}" >&2
+    return 1
+}
+
+show_object_model_status() {
+    local custom_labels="${OBJECT_MODEL_DIR}/dogzilla_custom.labels"
+    local custom_model="${OBJECT_MODEL_DIR}/dogzilla_custom.onnx"
+    if object_model_is_valid; then
+        printf 'Base model: ready (bottle, knife, scissors plus COCO classes).\n'
+    else
+        printf 'Base model: missing or checksum mismatch.\n'
+    fi
+    if open_images_model_is_valid; then
+        printf '%s\n' \
+            'Open Images model: ready (tools, hazards, office, and indoor objects).' \
+            'Open Images weights: AGPL-3.0; not stored in Git.'
+    else
+        printf 'Open Images model: missing or checksum mismatch.\n'
+    fi
+    if [[ -s "${custom_model}" && -s "${custom_labels}" ]]; then
+        printf 'Custom YOLOv8 model: present; runtime validates it with OpenCV.\n'
+        printf 'Custom labels: '
+        tr '\n' ',' < "${custom_labels}" | sed 's/,$/\n/'
+    elif [[ -e "${custom_model}" || -e "${custom_labels}" ]]; then
+        printf 'Custom model: incomplete; both .onnx and .labels are required.\n'
+    else
+        printf '%s\n' \
+            'Custom model: not installed.' \
+            'Small engineering hardware coverage remains incomplete.'
+    fi
+}
+
+require_object_model() {
+    if ! object_model_is_valid || ! open_images_model_is_valid; then
+        printf 'The verified object models are not both installed.\n' >&2
+        printf 'Run "dogzilla object-model-install" first.\n' >&2
+        return 1
+    fi
 }
 
 validate_vision_color() {
@@ -795,6 +1129,9 @@ start_vision() {
     assert_mission_allows_start
     mode="$(validate_vision_mode "${1:-raw}")"
     color="$(validate_vision_color "${2:-red}")"
+    if [[ "${mode}" == objects || "${mode}" == floor-hazards ]]; then
+        require_object_model
+    fi
     if container_is_running || drive_is_running || navigation_is_running \
         || shadow_is_running || vision_device_is_running; then
         printf 'Another camera or DOGZILLA mode is running. Stop it first.\n' >&2
@@ -905,16 +1242,22 @@ set_vision_mode() {
     local mode
     local color
     local vision_service
-    mode="$(validate_vision_mode "${1:-}")"
+    if vision_control_is_running; then
+        mode="$(validate_vision_control_mode "${1:-}")"
+    else
+        mode="$(validate_vision_mode "${1:-}")"
+    fi
     color="$(validate_vision_color "${2:-red}")"
     if vision_control_is_running; then
         vision_service="${VISION_CONTROL_SERVICE_NAME}"
     elif vision_is_running; then
         vision_service="${VISION_SERVICE_NAME}"
+    elif perception_is_running; then
+        vision_service="${PERCEPTION_SERVICE_NAME}"
     elif shadow_is_running; then
         vision_service="${SHADOW_SERVICE_NAME}"
     else
-        printf 'DOGZILLA Vision or visual-shadow mode is not running.\n' >&2
+        printf 'DOGZILLA Vision, perception, or visual-shadow mode is not running.\n' >&2
         return 1
     fi
     compose exec --no-TTY "${vision_service}" bash -lc '
@@ -1654,6 +1997,8 @@ show_status() {
     if ! control_service="$(active_control_service)"; then
         if vision_is_running; then
             control_service="${VISION_SERVICE_NAME}"
+        elif perception_is_running; then
+            control_service="${PERCEPTION_SERVICE_NAME}"
         else
             return
         fi
@@ -1822,6 +2167,8 @@ open_shell() {
     if ! control_service="$(active_control_service)"; then
         if vision_is_running; then
             control_service="${VISION_SERVICE_NAME}"
+        elif perception_is_running; then
+            control_service="${PERCEPTION_SERVICE_NAME}"
         else
             printf 'No DOGZILLA ROS mode is running.\n' >&2
             exit 1
@@ -1852,6 +2199,9 @@ follow_logs() {
         && [[ "${control_service}" == "${VISION_SERVICE_NAME}" ]]; then
         compose logs --follow --tail 200 \
             "${VISION_SERVICE_NAME}" web
+    elif perception_is_running; then
+        compose logs --follow --tail 200 \
+            "${control_service}" "${PERCEPTION_SERVICE_NAME}" web
     elif shadow_is_running; then
         compose logs --follow --tail 200 \
             "${control_service}" "${SHADOW_SERVICE_NAME}"
@@ -1867,6 +2217,7 @@ stop_dogzilla() {
     local mission_was_active=false
     local navigation_was_running=false
     local shadow_was_running=false
+    local perception_was_running=false
     local vision_was_running=false
     local web_status=0
 
@@ -1891,6 +2242,12 @@ stop_dogzilla() {
         vision_was_running=true
         printf 'Disarming and stopping the Vision Control service first.\n'
         compose stop --timeout 20 "${VISION_CONTROL_SERVICE_NAME}"
+    fi
+    if perception_is_running; then
+        perception_was_running=true
+        vision_was_running=true
+        printf 'Stopping the Mission Mode floor-hazard camera first.\n'
+        compose stop --timeout 20 "${PERCEPTION_SERVICE_NAME}"
     fi
     rm -f -- "${VISION_STATE_FILE}" "${VISION_STATE_FILE}.tmp"
     if service_is_running web && [[ "${mission_was_active}" == false ]]; then
@@ -1922,6 +2279,7 @@ stop_dogzilla() {
         && "${drive_was_running}" == false \
         && "${navigation_was_running}" == false \
         && "${shadow_was_running}" == false \
+        && "${perception_was_running}" == false \
         && "${vision_was_running}" == false ]]; then
         printf 'DOGZILLA is already stopped.\n'
     fi
@@ -1977,6 +2335,21 @@ main() {
             ;;
         vision-mode)
             set_vision_mode "${2:-}" "${3:-red}"
+            ;;
+        object-model-install)
+            install_object_model
+            ;;
+        object-model-custom-install)
+            install_custom_object_model "${@:2}"
+            ;;
+        object-model-status)
+            show_object_model_status
+            ;;
+        object-check)
+            check_object_detection "${@:2}"
+            ;;
+        object-dataset-capture)
+            capture_object_dataset "${2:-}" "${3:-60}" "${4:-1.0}"
             ;;
         camera-check)
             check_camera "${2:-8}"

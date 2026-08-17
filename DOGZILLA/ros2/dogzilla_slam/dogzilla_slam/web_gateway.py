@@ -25,17 +25,21 @@ from tf2_ros import Buffer, TransformException, TransformListener
 
 from .web_core import build_location_payload
 from .web_core import build_delivery_payload
+from .web_core import build_patrol_area_payload
+from .web_core import build_patrol_payload
 from .web_core import build_route_payload
 from .web_core import classify_robot_mode
 from .web_core import ConflictError
 from .web_core import EventBus
 from .web_core import MAP_NAME_PATTERN
 from .web_core import OccupancyMap
+from .web_core import patrol_vision_readiness
 from .web_core import TaskStore
 from .web_core import TelemetryCache
 from .web_core import utc_now
 from .web_core import ValidationError
 from .web_http import GatewayHTTPServer
+from .object_detector import validate_detection_payload
 from .vision_core import validate_request
 from .vision_core import VisionConfigurationError
 
@@ -75,6 +79,18 @@ class DogzillaWebGateway(Node):
             26.0,
             100.0,
         )
+        self.hazard_minimum_confidence = self._float_environment(
+            'DOGZILLA_WEB_HAZARD_CONFIDENCE',
+            0.55,
+            0.30,
+            0.99,
+        )
+        self.hazard_confirmations = self._integer_environment(
+            'DOGZILLA_WEB_HAZARD_CONFIRMATIONS',
+            3,
+            2,
+            10,
+        )
         database_path = os.environ.get(
             'DOGZILLA_WEB_DATABASE',
             '/data/tasks.sqlite3',
@@ -108,6 +124,11 @@ class DogzillaWebGateway(Node):
         self._vision_frame_received = 0.0
         self._vision_status_signature = None
         self._vision_action_status_signature = None
+        self._hazard_candidate = None
+        self._hazard_candidate_count = 0
+        self._hazard_candidate_time = 0.0
+        self._last_hazard_signature = None
+        self._last_hazard_time = 0.0
         self._graph = {
             'mode': 'stopped',
             'nodes': [],
@@ -275,7 +296,97 @@ class DogzillaWebGateway(Node):
         except ValueError as exc:
             self.get_logger().warn(str(exc))
             return
+        detections = value.get('detections', [])
+        if not isinstance(detections, list) or len(detections) > 100:
+            self.get_logger().warn('Invalid vision detection list ignored')
+            return
+        if value.get('mode') in {'objects', 'floor-hazards'}:
+            try:
+                detections = [
+                    validate_detection_payload(item) for item in detections
+                ]
+            except (TypeError, ValueError) as exc:
+                self.get_logger().warn(f'Invalid object detection ignored: {exc}')
+                return
+            value['detections'] = detections
         self.telemetry.update('vision', value)
+        if value.get('mode') == 'floor-hazards':
+            self._observe_floor_hazards(detections)
+
+    def _observe_floor_hazards(self, detections):
+        """Debounce model results before recording or stopping a patrol."""
+        hazards = [
+            item for item in detections
+            if item.get('floor_hazard') is True
+            and item['confidence'] >= self.hazard_minimum_confidence
+        ]
+        now = time.monotonic()
+        if not hazards:
+            with self._lock:
+                self._hazard_candidate = None
+                self._hazard_candidate_count = 0
+            return
+        strongest = max(hazards, key=lambda item: item['confidence'])
+        signature = strongest['label']
+        with self._lock:
+            continuing = (
+                signature == self._hazard_candidate
+                and now - self._hazard_candidate_time <= 1.5
+            )
+            self._hazard_candidate_count = (
+                self._hazard_candidate_count + 1 if continuing else 1
+            )
+            self._hazard_candidate = signature
+            self._hazard_candidate_time = now
+            confirmed = self._hazard_candidate_count >= self.hazard_confirmations
+            duplicate = (
+                signature == self._last_hazard_signature
+                and now - self._last_hazard_time < 8.0
+            )
+            if confirmed and not duplicate:
+                self._last_hazard_signature = signature
+                self._last_hazard_time = now
+                self._hazard_candidate_count = 0
+        if confirmed and not duplicate:
+            self._handle_confirmed_hazard(strongest)
+
+    def _handle_confirmed_hazard(self, detection):
+        pose = self.telemetry.get('pose', stale_after=3.0)
+        robot_pose = None if pose is None or pose['stale'] else pose['value']
+        with self._lock:
+            active_task_id = self._active['task_id'] if self._active else None
+            active_kind = (
+                self._active['payload']['kind'] if self._active else None
+            )
+        observation = self.store.record_hazard({
+            'task_id': active_task_id,
+            'map': self.map_name,
+            'label': detection['label'],
+            'risk': detection.get('risk', 'danger'),
+            'confidence': detection['confidence'],
+            'box': detection['box'],
+            'robot_pose': robot_pose,
+        })
+        observation['position_semantics'] = (
+            'robot pose when observed; not the object position'
+        )
+        self.events.publish('hazard.confirmed', observation)
+        if active_kind != 'patrol':
+            return
+        reason = (
+            f"Confirmed floor hazard: {detection['label']} "
+            f"({detection['confidence']:.0%})"
+        )
+        with self._lock:
+            self._estop_latched = True
+            self._cancel_requests.add(active_task_id)
+            self._cancel_reasons[active_task_id] = reason
+        self._publish_estop(True)
+        self._publish_stop()
+        self.events.publish(
+            'safety.estop',
+            {'latched': True, 'reason': reason, 'observation': observation},
+        )
 
     def _on_vision_status(self, message):
         try:
@@ -422,7 +533,7 @@ class DogzillaWebGateway(Node):
             )
         return True, 'ready'
 
-    def _task_gate(self):
+    def _task_gate(self, task=None):
         with self._lock:
             if self._estop_latched:
                 return False, 'emergency stop is latched'
@@ -437,7 +548,15 @@ class DogzillaWebGateway(Node):
             return False, 'fresh localization odometry is unavailable'
         if not self.occupancy_map.available():
             return False, 'map telemetry is unavailable'
+        if task is not None and task['kind'] == 'patrol':
+            return self._patrol_vision_gate()
         return True, 'ready'
+
+    def _patrol_vision_gate(self):
+        vision = self.telemetry.get('vision_status', stale_after=5.0)
+        if vision is None or vision['stale']:
+            return False, 'fresh floor-hazard vision status is unavailable'
+        return patrol_vision_readiness(vision['value'])
 
     def get_state(self):
         ready, gate_reason = self._task_gate()
@@ -460,6 +579,8 @@ class DogzillaWebGateway(Node):
                 'minimum_task_battery': self.minimum_battery,
                 'task_ready': ready,
                 'task_gate_reason': gate_reason,
+                'hazard_confidence': self.hazard_minimum_confidence,
+                'hazard_confirmations': self.hazard_confirmations,
             },
             'active_task': active_task,
         }
@@ -490,6 +611,15 @@ class DogzillaWebGateway(Node):
             requested = validate_request(value)
         except VisionConfigurationError as exc:
             raise ValidationError(str(exc)) from exc
+        with self._lock:
+            patrol_active = (
+                self._active is not None
+                and self._active['payload']['kind'] == 'patrol'
+            )
+        if patrol_active and requested['mode'] != 'floor-hazards':
+            raise ConflictError(
+                'cannot leave floor-hazards mode during an active patrol'
+            )
         message = String()
         message.data = json.dumps(
             requested,
@@ -525,6 +655,77 @@ class DogzillaWebGateway(Node):
     def delete_location(self, location_id):
         self.store.delete_location(location_id, self.map_name)
         self.events.publish('location.deleted', {'id': location_id})
+
+    def list_patrol_areas(self):
+        return self.store.list_patrol_areas(self.map_name)
+
+    def save_patrol_area(self, value):
+        payload = build_patrol_area_payload(value, default_map=self.map_name)
+        self._validate_active_map(payload)
+        waypoints = self.occupancy_map.generate_patrol_waypoints(
+            payload['polygon'], payload['spacing_m']
+        )
+        area = self.store.save_patrol_area(payload)
+        area['waypoint_count'] = len(waypoints)
+        self.events.publish('patrol_area.saved', area)
+        return area
+
+    def delete_patrol_area(self, area_id):
+        self.store.delete_patrol_area(area_id, self.map_name)
+        self.events.publish('patrol_area.deleted', {'id': area_id})
+
+    def _patrol_area_and_waypoints(self, value):
+        if not isinstance(value, dict):
+            raise ValidationError('request body must be a JSON object')
+        area_id = str(value.get('patrol_area_id', '')).strip()
+        if not area_id:
+            raise ValidationError('patrol_area_id is required')
+        area = self.store.get_patrol_area(area_id, self.map_name)
+        if area is None:
+            raise KeyError(area_id)
+        waypoints = self.occupancy_map.generate_patrol_waypoints(
+            area['polygon'], area['spacing_m']
+        )
+        return area, waypoints
+
+    def preview_patrol(self, value):
+        """Return deterministic coverage points without moving the robot."""
+        if isinstance(value, dict) and value.get('patrol_area_id'):
+            area, waypoints = self._patrol_area_and_waypoints(value)
+        else:
+            payload = build_patrol_area_payload(
+                value, default_map=self.map_name
+            )
+            self._validate_active_map(payload)
+            area = {**payload, 'id': None}
+            waypoints = self.occupancy_map.generate_patrol_waypoints(
+                area['polygon'], area['spacing_m']
+            )
+        distance = sum(
+            math.hypot(
+                current['x'] - previous['x'],
+                current['y'] - previous['y'],
+            )
+            for previous, current in zip(waypoints, waypoints[1:])
+        )
+        return {
+            'map': self.map_name,
+            'area': area,
+            'waypoints': waypoints,
+            'waypoint_count': len(waypoints),
+            'coverage_distance_m': round(distance, 3),
+            'generated_at': utc_now(),
+        }
+
+    def create_patrol(self, value):
+        area, waypoints = self._patrol_area_and_waypoints(value)
+        payload = build_patrol_payload(value, area, waypoints)
+        task = self.store.create(payload)
+        self.events.publish('task.created', task)
+        return task
+
+    def list_hazards(self, limit=100):
+        return self.store.list_hazards(self.map_name, limit)
 
     def _validate_active_map(self, payload):
         if payload['map'] != self.map_name:
@@ -715,20 +916,33 @@ class DogzillaWebGateway(Node):
         if active is not None:
             task_id = active['task_id']
             battery_ready, battery_reason = self._battery_gate()
+            patrol_vision_ready = True
+            patrol_vision_reason = 'ready'
+            if active['payload']['kind'] == 'patrol':
+                patrol_vision_ready, patrol_vision_reason = (
+                    self._patrol_vision_gate()
+                )
             with self._lock:
-                battery_stop = not battery_ready and not self._estop_latched
-                if battery_stop:
+                safety_stop = (
+                    (not battery_ready or not patrol_vision_ready)
+                    and not self._estop_latched
+                )
+                safety_reason = (
+                    battery_reason if not battery_ready
+                    else patrol_vision_reason
+                )
+                if safety_stop:
                     self._estop_latched = True
                     self._cancel_requests.add(task_id)
-                    self._cancel_reasons[task_id] = battery_reason
+                    self._cancel_reasons[task_id] = safety_reason
                 cancel_requested = task_id in self._cancel_requests
-            if battery_stop:
+            if safety_stop:
                 self._publish_estop(True)
                 self.events.publish(
                     'safety.estop',
                     {
                         'latched': True,
-                        'reason': battery_reason,
+                        'reason': safety_reason,
                     },
                 )
             if cancel_requested:
@@ -747,7 +961,7 @@ class DogzillaWebGateway(Node):
         task = self.store.next_queued()
         if task is None:
             return
-        ready, _ = self._task_gate()
+        ready, _ = self._task_gate(task)
         if not ready:
             return
         self._begin_task(task)
@@ -757,6 +971,7 @@ class DogzillaWebGateway(Node):
             'task_id': task['id'],
             'payload': task['payload'],
             'step': 0,
+            'cycle': 0,
             'goal_handle': None,
             'sending': False,
             'cancel_sent': False,
@@ -856,6 +1071,8 @@ class DogzillaWebGateway(Node):
                 self._active['step']
             ]
             waypoint_count = len(self._active['payload']['waypoints'])
+            repeats = int(self._active['payload'].get('repeats', 1))
+            cycle = self._active['cycle']
             self._active['goal_handle'] = None
             self._active['sending'] = False
         if cancel_requested or status == GoalStatus.STATUS_CANCELED:
@@ -877,12 +1094,30 @@ class DogzillaWebGateway(Node):
                 return
             self._active['step'] += 1
             next_step = self._active['step']
+            next_cycle = self._active['cycle']
+            if next_step >= waypoint_count and next_cycle + 1 < repeats:
+                next_cycle += 1
+                self._active['cycle'] = next_cycle
+                self._active['step'] = 0
+                next_step = 0
             self._active['dwell_until'] = (
                 time.monotonic() + dwell if dwell > 0 else None
             )
-        self.store.update(task_id, current_step=next_step)
+        completed_steps = next_cycle * waypoint_count + next_step
+        self.store.update(task_id, current_step=completed_steps)
         if next_step >= waypoint_count:
             self._finish_active('completed')
+        elif next_cycle > cycle:
+            self.events.publish(
+                'task.patrol_cycle_completed',
+                {
+                    'task_id': task_id,
+                    'completed_cycle': cycle + 1,
+                    'total_cycles': repeats,
+                },
+            )
+            if dwell <= 0:
+                self._send_current_waypoint()
         elif dwell <= 0:
             self._send_current_waypoint()
 
