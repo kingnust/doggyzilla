@@ -38,6 +38,8 @@ services:
       - full_mapping.launch.py
       - rviz:=${DOGZILLA_RVIZ:-false}
       - use_imu:=${DOGZILLA_USE_IMU:-false}
+      - body_height:=${DOGZILLA_BODY_HEIGHT:-105.0}
+      - apply_startup_body_height:=${DOGZILLA_APPLY_STARTUP_BODY_HEIGHT:-false}
       - configuration_basename:=${DOGZILLA_CONFIGURATION_BASENAME:-dogzilla_2d.lua}
       - calibration_file:=/calibration/imu.json
     stop_signal: SIGINT

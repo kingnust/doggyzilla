@@ -56,9 +56,9 @@ usage() {
         'Commands:' \
         '  doctor                Check Docker, devices, display, and disk space.' \
         '  build                 Build the pinned dogzilla-mapping image.' \
-        '  start [--rviz|--headless] [--imu]' \
-        '                        Start hardware and Cartographer together.' \
-        '  shadow [--rviz|--headless] [--imu]' \
+        '  start [normal|low] [--rviz|--headless] [--imu]' \
+        '                        Map at normal posture, or guarded 75 mm low.' \
+        '  shadow [normal|low] [--rviz|--headless] [--imu]' \
         '                        Map with calibrated mono RTAB shadow mode.' \
         '  camera-check [SECONDS]' \
         '                        Test /dev/video0 without moving the robot.' \
@@ -538,8 +538,12 @@ assert_serial_ports_free() {
 configure_start_options() {
     local display_mode='auto'
     local option
+    local posture_selected=false
     DOGZILLA_USE_IMU=false
     DOGZILLA_CONFIGURATION_BASENAME='dogzilla_2d.lua'
+    DOGZILLA_BODY_HEIGHT='105.0'
+    DOGZILLA_APPLY_STARTUP_BODY_HEIGHT=false
+    DOGZILLA_POSTURE_PROFILE='normal'
 
     for option in "$@"; do
         case "${option}" in
@@ -552,6 +556,23 @@ configure_start_options() {
             --imu)
                 DOGZILLA_USE_IMU=true
                 DOGZILLA_CONFIGURATION_BASENAME='dogzilla_2d_imu.lua'
+                ;;
+            normal)
+                if [[ "${posture_selected}" == true ]]; then
+                    printf 'Choose only one posture: normal or low.\n' >&2
+                    exit 1
+                fi
+                posture_selected=true
+                ;;
+            low)
+                if [[ "${posture_selected}" == true ]]; then
+                    printf 'Choose only one posture: normal or low.\n' >&2
+                    exit 1
+                fi
+                posture_selected=true
+                DOGZILLA_BODY_HEIGHT='75.0'
+                DOGZILLA_APPLY_STARTUP_BODY_HEIGHT=true
+                DOGZILLA_POSTURE_PROFILE='low'
                 ;;
             *)
                 printf 'Unknown start option: %s\n' "${option}" >&2
@@ -579,7 +600,10 @@ configure_start_options() {
     DOGZILLA_DISPLAY="${DISPLAY:-}"
     export \
         DOGZILLA_CONFIGURATION_BASENAME \
+        DOGZILLA_BODY_HEIGHT \
+        DOGZILLA_APPLY_STARTUP_BODY_HEIGHT \
         DOGZILLA_DISPLAY \
+        DOGZILLA_POSTURE_PROFILE \
         DOGZILLA_RVIZ \
         DOGZILLA_USE_IMU
 }
@@ -703,7 +727,29 @@ start_mapping() {
         return 1
     fi
 
+    if [[ "${DOGZILLA_POSTURE_PROFILE}" == 'low' ]] \
+        && ! compose exec --no-TTY "${SERVICE_NAME}" bash -lc '
+            source /opt/ros/humble/setup.bash
+            source /root/yahboomcar_ws/install/setup.bash
+            timeout 30 bash -c '\''
+                until ros2 param get /dogzilla_safe_base body_height \
+                        2>/dev/null \
+                    | grep -Eq "Double value is: 75(\\.0+)?$"; do
+                    sleep 0.5
+                done
+            '\''
+        '; then
+        printf 'Low-posture startup did not complete; stopping safely.\n' >&2
+        stop_dogzilla
+        return 1
+    fi
+
     printf 'DOGZILLA mapping started.\n'
+    if [[ "${DOGZILLA_POSTURE_PROFILE}" == 'low' ]]; then
+        printf 'Posture profile: low (guarded 75 mm startup).\n'
+    else
+        printf 'Posture profile: normal firmware/default stance.\n'
+    fi
     if [[ "${DOGZILLA_USE_IMU}" == 'true' ]]; then
         printf 'Fusion profile: calibrated IMU + LiDAR scan matching.\n'
     else
@@ -1139,10 +1185,12 @@ show_object_model_status() {
     else
         printf '%s\n' \
             'Custom model: not installed.' \
-            'Small engineering hardware coverage remains incomplete.'
+            'Custom training is optional for additional local classes.'
     fi
     if [[ -s "${YOLOE_MODEL_FILE}" && -s "${YOLOE_LABELS_FILE}" ]]; then
-        printf 'Pretrained YOLOE small-hazard model: present.\n'
+        printf '%s\n' \
+            'Pretrained YOLOE small-hazard model: present.' \
+            'Static prompt coverage is ready; real-camera acceptance is still required.'
         printf 'YOLOE labels: '
         tr '\n' ',' < "${YOLOE_LABELS_FILE}" | sed 's/,$/\n/'
     elif [[ -e "${YOLOE_MODEL_FILE}" || -e "${YOLOE_LABELS_FILE}" ]]; then

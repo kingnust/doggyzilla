@@ -25,6 +25,10 @@ def generate_launch_description():
     command_timeout = LaunchConfiguration('command_timeout')
     speed_level = LaunchConfiguration('speed_level')
     turn_level = LaunchConfiguration('turn_level')
+    body_height = LaunchConfiguration('body_height')
+    apply_startup_body_height = LaunchConfiguration(
+        'apply_startup_body_height'
+    )
     posture_control_enabled = LaunchConfiguration('posture_control_enabled')
     use_imu = LaunchConfiguration('use_imu')
 
@@ -34,6 +38,12 @@ def generate_launch_description():
         DeclareLaunchArgument('command_timeout', default_value='0.60'),
         DeclareLaunchArgument('speed_level', default_value='1'),
         DeclareLaunchArgument('turn_level', default_value='1'),
+        DeclareLaunchArgument('body_height', default_value='105.0'),
+        DeclareLaunchArgument(
+            'apply_startup_body_height',
+            default_value='false',
+            description='Apply a guarded body-height transition at startup.',
+        ),
         DeclareLaunchArgument(
             'posture_control_enabled',
             default_value='false',
@@ -59,6 +69,11 @@ def generate_launch_description():
                 ),
                 'speed_level': ParameterValue(speed_level, value_type=int),
                 'turn_level': ParameterValue(turn_level, value_type=int),
+                'body_height': ParameterValue(body_height, value_type=float),
+                'apply_startup_body_height': ParameterValue(
+                    apply_startup_body_height,
+                    value_type=bool,
+                ),
                 'posture_control_enabled': ParameterValue(
                     posture_control_enabled,
                     value_type=bool,

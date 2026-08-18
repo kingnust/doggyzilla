@@ -71,6 +71,7 @@ def main(argv=None):
         dynamic=False,
         simplify=False,
         nms=False,
+        end2end=False,
         batch=1,
         device=arguments.device,
     ))
@@ -87,6 +88,8 @@ def main(argv=None):
         'checkpoint': arguments.checkpoint,
         'input_size': 640,
         'mask_channels': 32,
+        'end_to_end': False,
+        'runtime': 'opencv-dnn-raw',
         'training_performed': False,
         'labels': list(prompts),
         'model_sha256': sha256_file(model_target),

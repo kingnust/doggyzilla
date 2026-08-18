@@ -5,6 +5,7 @@ from geometry_msgs.msg import Twist
 import json
 import math
 import rclpy
+import time
 from rclpy.duration import Duration
 from rcl_interfaces.msg import SetParametersResult
 from rclpy.node import Node
@@ -23,6 +24,39 @@ from .vision_action_policy import line_follow_velocity
 from .vision_action_policy import VisionActionPolicyError
 from .vision_action_policy import VisionControlPolicy
 from .vision_action_policy import VisionExecutionSafetyError
+
+
+NORMAL_BODY_HEIGHT = 105.0
+
+
+def startup_height_sequence(target, reference=NORMAL_BODY_HEIGHT, step=5.0):
+    """Return bounded absolute heights for one smooth startup transition."""
+    target = float(target)
+    reference = float(reference)
+    step = float(step)
+    if not all(math.isfinite(value) for value in (target, reference, step)):
+        raise ValueError('startup body-height values must be finite')
+    if step <= 0.0:
+        raise ValueError('startup body-height step must be positive')
+    lower, upper = SafeBase.POSTURE_LIMITS['body_height']
+    if not lower <= target <= upper:
+        raise ValueError(
+            f'body_height must be between {lower:.0f} and {upper:.0f}'
+        )
+    if not lower <= reference <= upper:
+        raise ValueError(
+            f'startup reference must be between {lower:.0f} and {upper:.0f}'
+        )
+
+    heights = []
+    current = reference
+    direction = 1.0 if target > reference else -1.0
+    while abs(target - current) > step:
+        current += direction * step
+        heights.append(current)
+    if abs(target - current) > 1e-9:
+        heights.append(target)
+    return tuple(heights)
 
 
 class SafeBase(Node):
@@ -74,6 +108,8 @@ class SafeBase(Node):
         self.declare_parameter('firmware_rest_capture_joint_rate_hz', 5.0)
         self.declare_parameter('posture_control_enabled', False)
         self.declare_parameter('body_height', 105.0)
+        self.declare_parameter('apply_startup_body_height', False)
+        self.declare_parameter('startup_body_height_step_delay', 0.08)
         self.declare_parameter('head_pitch', 0.0)
         self.declare_parameter('head_yaw', 0.0)
         self.declare_parameter('vision_control_enabled', False)
@@ -108,6 +144,17 @@ class SafeBase(Node):
             self.get_parameter('posture_control_enabled').value
         )
         self._body_height = float(self.get_parameter('body_height').value)
+        self._apply_startup_body_height = bool(
+            self.get_parameter('apply_startup_body_height').value
+        )
+        self._startup_body_height_step_delay = float(
+            self.get_parameter('startup_body_height_step_delay').value
+        )
+        if not 0.04 <= self._startup_body_height_step_delay <= 0.50:
+            raise ValueError(
+                'startup_body_height_step_delay must be from 0.04 to 0.50s'
+            )
+        startup_height_sequence(self._body_height)
         self._head_pitch = float(self.get_parameter('head_pitch').value)
         self._head_yaw = float(self.get_parameter('head_yaw').value)
         self._low_battery_percent = int(
@@ -279,6 +326,9 @@ class SafeBase(Node):
             # Check before the executor can accept its first movement command.
             self._publish_battery()
 
+        if self._apply_startup_body_height:
+            self._apply_guarded_startup_body_height()
+
         publish_joint_states = bool(
             self.get_parameter('publish_joint_states').value
         )
@@ -339,6 +389,39 @@ class SafeBase(Node):
                 f'{self._joint_rate_hz_capture:.1f} Hz; replay remains '
                 'disabled'
             )
+
+    def _apply_guarded_startup_body_height(self):
+        """Lower the body only with valid battery data and stopped motion."""
+        if self._battery_percent is None:
+            self.stop()
+            if self._dog.ser.is_open:
+                self._dog.ser.close()
+            raise RuntimeError(
+                'startup posture requires valid battery telemetry'
+            )
+        if self._movement_inhibited:
+            self.stop()
+            if self._dog.ser.is_open:
+                self._dog.ser.close()
+            raise RuntimeError(
+                'startup posture blocked by low-battery movement lockout'
+            )
+
+        heights = startup_height_sequence(self._body_height)
+        self.stop()
+        try:
+            for height in heights:
+                self._dog.translation('z', height)
+                time.sleep(self._startup_body_height_step_delay)
+        except Exception:
+            self.stop()
+            if self._dog.ser.is_open:
+                self._dog.ser.close()
+            raise
+        self.get_logger().info(
+            f'Startup posture ready at {self._body_height:.0f} mm '
+            f'after {len(heights)} guarded step(s)'
+        )
 
     def _set_motion_levels(
         self,

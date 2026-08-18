@@ -20,6 +20,7 @@ class FakeController:
     def __init__(self, battery=80):
         self.battery = battery
         self.calls = []
+        self.translation_calls = []
         self.ser = FakeSerial()
 
     def _DOGZILLA__unpack(self, timeout=1.0):
@@ -51,6 +52,10 @@ class FakeController:
 
     def action(self, action_id):
         self.calls.append(('action', action_id))
+
+    def translation(self, axis, value):
+        self.calls.append(('translation', axis, value))
+        self.translation_calls.append((axis, value))
 
 
 def detection_message(proposal=None):
@@ -89,12 +94,13 @@ def line_proposal(error=0.5):
 def base_factory(monkeypatch):
     nodes = []
 
-    def create(controller, *, vision_control=True):
+    def create(controller, *, vision_control=True, extra_overrides=()):
         monkeypatch.setattr(
             safe_base.dog,
             'DOGZILLA',
             lambda: controller,
         )
+        monkeypatch.setattr(safe_base.time, 'sleep', lambda _seconds: None)
         rclpy.init()
         node = safe_base.SafeBase(
             parameter_overrides=[
@@ -105,7 +111,7 @@ def base_factory(monkeypatch):
                 Parameter('capture_firmware_rest', value=False),
                 Parameter('publish_joint_states', value=False),
                 Parameter('battery_rate_hz', value=0.1),
-            ],
+            ] + list(extra_overrides),
         )
         nodes.append(node)
         controller.calls.clear()
@@ -132,6 +138,57 @@ def test_real_safe_base_callback_executes_after_debounce(base_factory):
     assert node._vision_active_action == 'handshake'
     assert node._vision_action_deadline is not None
     assert node._subscription is None
+
+
+def test_low_mapping_startup_uses_guarded_five_mm_steps(base_factory):
+    controller = FakeController(battery=80)
+    node = base_factory(
+        controller,
+        vision_control=False,
+        extra_overrides=[
+            Parameter('body_height', value=75.0),
+            Parameter('apply_startup_body_height', value=True),
+        ],
+    )
+
+    assert node._body_height == pytest.approx(75.0)
+    assert controller.translation_calls == [
+        ('z', 100.0),
+        ('z', 95.0),
+        ('z', 90.0),
+        ('z', 85.0),
+        ('z', 80.0),
+        ('z', 75.0),
+    ]
+
+
+def test_startup_height_sequence_is_smooth_and_bounded():
+    assert safe_base.startup_height_sequence(75.0) == (
+        100.0,
+        95.0,
+        90.0,
+        85.0,
+        80.0,
+        75.0,
+    )
+    assert safe_base.startup_height_sequence(105.0) == ()
+    with pytest.raises(ValueError, match='between 75 and 110'):
+        safe_base.startup_height_sequence(70.0)
+
+
+def test_low_mapping_startup_refuses_existing_battery_lockout(base_factory):
+    controller = FakeController(battery=25)
+    with pytest.raises(RuntimeError, match='low-battery'):
+        base_factory(
+            controller,
+            vision_control=False,
+            extra_overrides=[
+                Parameter('body_height', value=75.0),
+                Parameter('apply_startup_body_height', value=True),
+            ],
+        )
+    assert controller.translation_calls == []
+    assert controller.ser.is_open is False
 
 
 def test_real_safe_base_accepts_intermediate_speed_level(base_factory):

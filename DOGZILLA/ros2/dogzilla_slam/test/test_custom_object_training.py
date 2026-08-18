@@ -14,6 +14,9 @@ TRAINING_SCRIPT = (
 YOLOE_EXPORT_SCRIPT = (
     REPOSITORY / 'training' / 'pretrained_yoloe' / 'export_yoloe.py'
 )
+YOLOE_REQUIREMENTS = (
+    REPOSITORY / 'training' / 'pretrained_yoloe' / 'requirements.txt'
+)
 
 
 def load_training_module():
@@ -111,10 +114,51 @@ class CustomObjectTrainingTest(unittest.TestCase):
             REPOSITORY / 'training' / 'pretrained_yoloe' / 'prompts.txt'
         )
 
+        added_hazards = {
+            'hammer',
+            'wrench',
+            'screwdriver',
+            'pliers',
+            'scissors',
+            'utility knife',
+            'drill',
+            'nut',
+            'washer',
+            'gear',
+            'bearing',
+            'spring',
+            'circuit board',
+            'electrical connector',
+            'broken glass',
+            'metal shaving',
+            'loose cable',
+            'puddle',
+            'exposed wire',
+            'battery',
+        }
+        self.assertEqual(len(prompts), 34)
+        self.assertTrue(added_hazards.issubset(prompts))
         self.assertIn('screw', prompts)
-        self.assertIn('glass shard', prompts)
+        self.assertIn('broken glass', prompts)
+        self.assertNotIn('glass shard', prompts)
         self.assertIn('staple', prompts)
         source = YOLOE_EXPORT_SCRIPT.read_text()
         self.assertIn('model.set_classes', source)
         self.assertIn("format='onnx'", source)
+        self.assertIn('end2end=False', source)
         self.assertNotIn('.train(', source)
+
+    def test_pretrained_yoloe_export_is_pinned_to_cpu_torch(self):
+        requirements = YOLOE_REQUIREMENTS.read_text()
+
+        self.assertIn('https://download.pytorch.org/whl/cpu', requirements)
+        self.assertIn('torch==2.8.0+cpu', requirements)
+        self.assertIn('torchvision==0.23.0', requirements)
+        self.assertIn(
+            'ultralytics.git@3702ebede664e3dd46835400986a885e7022eeb6',
+            requirements,
+        )
+        self.assertIn(
+            'ultralytics/CLIP.git@488e81a6711eea7346872b46ea928b367da8889d',
+            requirements,
+        )

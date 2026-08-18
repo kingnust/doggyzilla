@@ -1,2 +1,13 @@
-ultralytics==8.4.37
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+# Keep export CPU-only on Raspberry Pi and Linux workstations.  Without the
+# explicit +cpu build, the generic ARM64 resolver can select CUDA packages.
+torch==2.8.0+cpu
+torchvision==0.23.0
+# This upstream revision includes the YOLOE-26 end-to-end export fusion fix.
+ultralytics @ git+https://github.com/ultralytics/ultralytics.git@3702ebede664e3dd46835400986a885e7022eeb6
 onnx==1.17.0
+
+# YOLOE uses Ultralytics' CLIP fork to bake prompt embeddings. Pin the exact
+# revision so Ultralytics never falls back to its unbounded auto-installer.
+clip @ git+https://github.com/ultralytics/CLIP.git@488e81a6711eea7346872b46ea928b367da8889d

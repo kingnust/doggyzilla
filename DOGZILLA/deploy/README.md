@@ -149,7 +149,20 @@ From a terminal on the Pi monitor, start mapping with one command:
 
 `start` detects `DISPLAY`: it opens RViz on the Pi desktop and automatically
 uses headless mode over SSH. `--rviz` or `--headless` can override that choice.
-The default remains the tested LiDAR-only profile.
+The default remains the tested LiDAR-only profile at the firmware's normal
+body posture; it sends no body-height command.
+
+For a more stable 75 mm mapping posture, select the explicit low profile:
+
+```bash
+dogzilla start low
+```
+
+`low` stops motion, requires valid battery telemetry above the existing 25%
+lockout, and lowers from 105 mm to 75 mm in guarded 5 mm steps before startup
+is reported complete. Live height/look keys remain disabled during mapping so
+the LiDAR scan plane cannot change accidentally. `normal` may be written
+explicitly, but plain `dogzilla start` is equivalent and remains the default.
 
 From SSH, start without a graphical window:
 

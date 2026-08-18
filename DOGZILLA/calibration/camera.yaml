@@ -1,0 +1,20 @@
+image_width: 640
+image_height: 480
+camera_name: dogzilla_mono
+camera_matrix:
+  rows: 3
+  cols: 3
+  data: [542.84307426470843, 0, 319.99565171993419, 0, 542.51151119269036, 260.34412611811837, 0, 0, 1]
+distortion_model: plumb_bob
+distortion_coefficients:
+  rows: 1
+  cols: 5
+  data: [-0.41515683993720182, 0.18320955373698147, -2.867849546538646e-05, 0.0010663265222987364, 0]
+rectification_matrix:
+  rows: 3
+  cols: 3
+  data: [1, 0, 0, 0, 1, 0, 0, 0, 1]
+projection_matrix:
+  rows: 3
+  cols: 4
+  data: [455.96648028956912, 0, 321.3505453655892, 0, 0, 493.93062050020984, 264.52475226703808, 0, 0, 0, 1, 0]

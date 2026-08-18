@@ -28,6 +28,10 @@ def generate_launch_description():
     command_timeout = LaunchConfiguration('command_timeout')
     speed_level = LaunchConfiguration('speed_level')
     turn_level = LaunchConfiguration('turn_level')
+    body_height = LaunchConfiguration('body_height')
+    apply_startup_body_height = LaunchConfiguration(
+        'apply_startup_body_height'
+    )
     resolution = LaunchConfiguration('resolution')
     rviz = LaunchConfiguration('rviz')
     use_imu = LaunchConfiguration('use_imu')
@@ -40,6 +44,11 @@ def generate_launch_description():
         DeclareLaunchArgument('command_timeout', default_value='0.60'),
         DeclareLaunchArgument('speed_level', default_value='1'),
         DeclareLaunchArgument('turn_level', default_value='1'),
+        DeclareLaunchArgument('body_height', default_value='105.0'),
+        DeclareLaunchArgument(
+            'apply_startup_body_height',
+            default_value='false',
+        ),
         DeclareLaunchArgument('resolution', default_value='0.05'),
         DeclareLaunchArgument('rviz', default_value='false'),
         DeclareLaunchArgument('use_imu', default_value='false'),
@@ -59,6 +68,8 @@ def generate_launch_description():
                 'command_timeout': command_timeout,
                 'speed_level': speed_level,
                 'turn_level': turn_level,
+                'body_height': body_height,
+                'apply_startup_body_height': apply_startup_body_height,
                 'use_imu': use_imu,
             }.items(),
         ),

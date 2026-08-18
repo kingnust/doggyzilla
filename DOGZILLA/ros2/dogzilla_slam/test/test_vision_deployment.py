@@ -159,6 +159,37 @@ class VisionDeploymentTest(unittest.TestCase):
         self.assertIn('return to level 1 when teleop closes', body)
         self.assertIn('reset_motion_levels "${control_service}"', body)
 
+    def test_mapping_low_posture_is_explicit_and_normal_remains_default(self):
+        compose = yaml.safe_load(
+            (REPOSITORY / 'deploy' / 'compose.yaml').read_text()
+        )
+        mapping_command = compose['services']['mapping']['command']
+        self.assertIn(
+            'body_height:=${DOGZILLA_BODY_HEIGHT:-105.0}',
+            mapping_command,
+        )
+        self.assertIn(
+            'apply_startup_body_height:='
+            '${DOGZILLA_APPLY_STARTUP_BODY_HEIGHT:-false}',
+            mapping_command,
+        )
+
+        script = (REPOSITORY / 'deploy' / 'dogzilla-map').read_text()
+        options = script.split('configure_start_options() {', 1)[1].split(
+            '\n}\n',
+            1,
+        )[0]
+        self.assertIn("DOGZILLA_POSTURE_PROFILE='normal'", options)
+        self.assertIn("DOGZILLA_BODY_HEIGHT='105.0'", options)
+        self.assertIn("DOGZILLA_BODY_HEIGHT='75.0'", options)
+        self.assertIn('DOGZILLA_APPLY_STARTUP_BODY_HEIGHT=true', options)
+        start = script.split('start_mapping() {', 1)[1].split(
+            '\n}\n',
+            1,
+        )[0]
+        self.assertIn('ros2 param get /dogzilla_safe_base body_height', start)
+        self.assertIn('Low-posture startup did not complete', start)
+
     def test_custom_object_workflow_is_camera_only_and_validated(self):
         compose = yaml.safe_load(
             (REPOSITORY / 'deploy' / 'compose.yaml').read_text()

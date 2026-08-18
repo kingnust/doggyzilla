@@ -1,16 +1,35 @@
 # Static prompt order. It must match the exported ONNX output class order.
+battery
+bearing
 blade fragment
 bolt
+broken glass
 ceramic shard
+circuit board
+drill
 drill bit
-glass shard
+electrical connector
+exposed wire
+gear
+hammer
+loose cable
 metal shard
+metal shaving
 nail
 needle
+nut
+pliers
+puddle
 razor blade
 screw
+screwdriver
+scissors
 sharp debris
+spring
 splinter
 staple
 thumbtack
+utility knife
+washer
 wire
+wrench
