@@ -2,24 +2,30 @@
 # Remove categories that are not useful in your rooms before labeling.
 allen key
 battery
+blade fragment
 bolt
 breadboard
 caliper
+ceramic shard
 charger
 circuit board
 clamp
 crimping tool
+drill bit
 electrical tape
 extension cord
 file
 fire extinguisher
+glass shard
 hacksaw
 heat gun
 hex key
 laundry basket
 level
 marker
+metal shard
 multimeter
+needle
 notebook
 nut
 oscilloscope
@@ -29,13 +35,18 @@ pencil
 pliers
 power supply
 pry bar
+razor blade
 router
 saw
 screw
+sharp debris
 smoke detector
 socket
 soldering iron
+splinter
+staple
 tape measure
+thumbtack
 toolbox
 utility knife
 vacuum cleaner

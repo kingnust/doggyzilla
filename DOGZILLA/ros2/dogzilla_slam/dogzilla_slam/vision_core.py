@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 
 from .object_detector import CORE_REQUESTED_CLASSES
+from .object_detector import DANGEROUS_CLASSES
 from .vision_action_policy import COLOR_ACTIONS
 from .vision_action_policy import QR_ACTIONS
 
@@ -219,10 +220,7 @@ class VisionProcessor:
                 'requested_classes': list(CORE_REQUESTED_CLASSES),
                 'covered_classes': [],
                 'missing_classes': list(CORE_REQUESTED_CLASSES),
-                'missing_dangerous_classes': [
-                    label for label in CORE_REQUESTED_CLASSES
-                    if label in {'gun', 'knife', 'nail', 'bolt', 'hammer'}
-                ],
+                'missing_dangerous_classes': sorted(DANGEROUS_CLASSES),
                 'dangerous_coverage_complete': False,
                 'models': [],
                 'reason': 'no object model is loaded',
@@ -237,7 +235,10 @@ class VisionProcessor:
         result['object_detection'] = status
         if self.object_perception is None:
             return
-        detections = self.object_perception.detect(frame)
+        detections = self.object_perception.detect(
+            frame,
+            focus_floor=self.mode == 'floor-hazards',
+        )
         if self.mode == 'floor-hazards':
             detections = [
                 detection for detection in detections
@@ -251,6 +252,11 @@ class VisionProcessor:
             floor_hazard_count=sum(
                 1 for detection in detections
                 if detection['floor_hazard']
+            ),
+            small_floor_hazard_count=sum(
+                1 for detection in detections
+                if detection.get('small_floor_hazard') is True
+                and detection['floor_candidate']
             ),
         )
 

@@ -1,0 +1,16 @@
+# Static prompt order. It must match the exported ONNX output class order.
+blade fragment
+bolt
+ceramic shard
+drill bit
+glass shard
+metal shard
+nail
+needle
+razor blade
+screw
+sharp debris
+splinter
+staple
+thumbtack
+wire

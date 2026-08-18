@@ -81,6 +81,27 @@ ENGINEERING_CLASSES = (
     'wrench',
 )
 
+# Small hazards need a separate catalog because most are only a few pixels in
+# a full 640x480 frame. Some are supplied by Open Images (for example nail),
+# while the remaining labels can be baked into an optional YOLOE ONNX export.
+SMALL_FLOOR_HAZARD_CLASSES = (
+    'blade fragment',
+    'bolt',
+    'ceramic shard',
+    'drill bit',
+    'glass shard',
+    'metal shard',
+    'nail',
+    'needle',
+    'razor blade',
+    'screw',
+    'sharp debris',
+    'splinter',
+    'staple',
+    'thumbtack',
+    'wire',
+)
+
 GENERAL_INDOOR_CLASSES = (
     'backpack',
     'bed',
@@ -180,6 +201,7 @@ CORE_REQUESTED_CLASSES = tuple(dict.fromkeys(
     ORIGINAL_REQUESTED_CLASSES
     + ENGINEERING_CLASSES
     + GENERAL_INDOOR_CLASSES
+    + SMALL_FLOOR_HAZARD_CLASSES
 ))
 
 DANGEROUS_CLASSES = frozenset({
@@ -223,7 +245,7 @@ DANGEROUS_CLASSES = frozenset({
     'wire',
     'wire cutter',
     'wrench',
-})
+}) | frozenset(SMALL_FLOOR_HAZARD_CLASSES)
 
 CAUTION_CLASSES = frozenset({'scissors'})
 
@@ -252,7 +274,11 @@ INDOOR_CLASSES = frozenset({
     'toothbrush',
     'tv',
     'vase',
-}) | frozenset(ENGINEERING_CLASSES) | frozenset(GENERAL_INDOOR_CLASSES)
+}) | (
+    frozenset(ENGINEERING_CLASSES)
+    | frozenset(GENERAL_INDOOR_CLASSES)
+    | frozenset(SMALL_FLOOR_HAZARD_CLASSES)
+)
 
 LABEL_ALIASES = {
     'alarm clock': 'clock',
@@ -274,6 +300,32 @@ LABEL_ALIASES = {
     'nails': 'nail',
     'nail construction': 'nail',
     'bolts': 'bolt',
+    'blade fragments': 'blade fragment',
+    'broken ceramic': 'ceramic shard',
+    'broken glass': 'glass shard',
+    'ceramic fragment': 'ceramic shard',
+    'ceramic fragments': 'ceramic shard',
+    'ceramic shards': 'ceramic shard',
+    'drill bits': 'drill bit',
+    'glass fragment': 'glass shard',
+    'glass fragments': 'glass shard',
+    'glass shards': 'glass shard',
+    'metal fragment': 'metal shard',
+    'metal fragments': 'metal shard',
+    'metal shards': 'metal shard',
+    'needles': 'needle',
+    'razor': 'razor blade',
+    'razor blades': 'razor blade',
+    'screws': 'screw',
+    'sharp fragment': 'sharp debris',
+    'sharp fragments': 'sharp debris',
+    'splinters': 'splinter',
+    'staples': 'staple',
+    'tack': 'thumbtack',
+    'tacks': 'thumbtack',
+    'thumb tack': 'thumbtack',
+    'thumb tacks': 'thumbtack',
+    'thumbtacks': 'thumbtack',
     'cable': 'wire',
     'cables': 'wire',
     'ceiling fan': 'fan',
@@ -707,6 +759,7 @@ class YoloV8OpenCvDetector:
         confidence_threshold=0.35,
         nms_threshold=0.45,
         maximum_detections=50,
+        output_extra_channels=0,
         network=None,
     ):
         size = int(input_size)
@@ -714,6 +767,7 @@ class YoloV8OpenCvDetector:
         confidence = float(confidence_threshold)
         nms = float(nms_threshold)
         maximum = int(maximum_detections)
+        extra_channels = int(output_extra_channels)
         if size < 160 or size > 1280 or size % 32:
             raise ValueError('input_size must be a multiple of 32 from 160 to 1280')
         if class_count < 1:
@@ -724,6 +778,8 @@ class YoloV8OpenCvDetector:
             raise ValueError('nms_threshold must be from 0.05 to 0.95')
         if not 1 <= maximum <= 300:
             raise ValueError('maximum_detections must be from 1 to 300')
+        if not 0 <= extra_channels <= 256:
+            raise ValueError('output_extra_channels must be from 0 to 256')
         try:
             normalized_map = {
                 int(class_id): canonical_label(label)
@@ -743,6 +799,7 @@ class YoloV8OpenCvDetector:
         self.confidence_threshold = confidence
         self.nms_threshold = nms
         self.maximum_detections = maximum
+        self.output_extra_channels = extra_channels
         self.metadata = DetectorMetadata(
             name=str(name).strip() or 'yolov8',
             labels=tuple(dict.fromkeys(normalized_map.values())),
@@ -795,22 +852,39 @@ class YoloV8OpenCvDetector:
         return blob, ratio, left, top
 
     def _predictions(self, output):
-        predictions = np.asarray(output, dtype=np.float32)
-        if predictions.ndim == 3 and predictions.shape[0] == 1:
-            predictions = predictions[0]
-        if predictions.ndim != 2:
-            raise ObjectDetectorError(
-                f'YOLOv8 output must have two dimensions, got {predictions.shape}'
-            )
-        expected = self.output_class_count + 4
-        if predictions.shape[0] == expected:
-            predictions = predictions.T
-        elif predictions.shape[1] != expected:
-            raise ObjectDetectorError(
-                'YOLOv8 output class count does not match configuration: '
-                f'{predictions.shape} does not contain {expected} channels'
-            )
-        return predictions
+        outputs = output if isinstance(output, (list, tuple)) else (output,)
+        expected = (
+            self.output_class_count + 4 + self.output_extra_channels
+        )
+        shapes = []
+        for candidate in outputs:
+            predictions = np.asarray(candidate, dtype=np.float32)
+            shapes.append(tuple(predictions.shape))
+            if predictions.ndim == 3 and predictions.shape[0] == 1:
+                predictions = predictions[0]
+            if predictions.ndim != 2:
+                continue
+            if predictions.shape[0] == expected:
+                return predictions.T
+            if predictions.shape[1] == expected:
+                return predictions
+        raise ObjectDetectorError(
+            'YOLOv8 output class count does not match configuration: '
+            f'{shapes} does not contain {expected} channels'
+        )
+
+    def _forward(self):
+        get_names = getattr(
+            self._network,
+            'getUnconnectedOutLayersNames',
+            None,
+        )
+        if get_names is None:
+            return self._network.forward()
+        names = tuple(get_names())
+        if len(names) <= 1:
+            return self._network.forward()
+        return self._network.forward(names)
 
     def detect(self, frame):
         """Return selected Open Images detections for one BGR image."""
@@ -821,7 +895,7 @@ class YoloV8OpenCvDetector:
         blob, ratio, pad_left, pad_top = self._preprocess(frame)
         try:
             self._network.setInput(blob)
-            predictions = self._predictions(self._network.forward())
+            predictions = self._predictions(self._forward())
         except cv2.error as exc:
             raise ObjectDetectorError(f'OpenCV object inference failed: {exc}') from exc
 
@@ -891,6 +965,8 @@ class ObjectPerception:
         *,
         floor_roi=DEFAULT_FLOOR_ROI,
         requested_classes=CORE_REQUESTED_CLASSES,
+        floor_scan_columns=2,
+        floor_scan_overlap=0.18,
     ):
         self.detectors = tuple(detectors)
         if not self.detectors:
@@ -905,6 +981,14 @@ class ObjectPerception:
         ):
             raise ValueError('floor_roi needs at least three normalized points')
         self.floor_roi = roi
+        columns = int(floor_scan_columns)
+        overlap = float(floor_scan_overlap)
+        if not 1 <= columns <= 4:
+            raise ValueError('floor_scan_columns must be from 1 to 4')
+        if not 0.0 <= overlap <= 0.45:
+            raise ValueError('floor_scan_overlap must be from 0 to 0.45')
+        self.floor_scan_columns = columns
+        self.floor_scan_overlap = overlap
         self.requested_classes = tuple(
             canonical_label(item) for item in requested_classes
         )
@@ -934,6 +1018,16 @@ class ObjectPerception:
             'missing_dangerous_classes': missing_dangerous,
             'dangerous_coverage_complete': not missing_dangerous,
             'models': [detector.metadata.name for detector in self.detectors],
+            'small_floor_hazard_classes': list(SMALL_FLOOR_HAZARD_CLASSES),
+            'small_floor_hazard_covered_classes': [
+                label for label in SMALL_FLOOR_HAZARD_CLASSES
+                if label in available
+            ],
+            'floor_scan': {
+                'enabled': True,
+                'columns': self.floor_scan_columns,
+                'overlap': self.floor_scan_overlap,
+            },
         }
 
     def _is_floor_candidate(self, box, width, height):
@@ -945,11 +1039,83 @@ class ObjectPerception:
         polygon = np.asarray(self.floor_roi, dtype=np.float32)
         return cv2.pointPolygonTest(polygon, point, False) >= 0
 
-    def detect(self, frame):
+    def _floor_tiles(self, frame):
+        """Return overlapping lower-image crops and their pixel offsets."""
+        height, width = frame.shape[:2]
+        minimum_y = min(point[1] for point in self.floor_roi)
+        top = max(0, min(height - 2, int(math.floor(minimum_y * height))))
+        floor_height = height - top
+        if floor_height < 32 or width < 64:
+            return ()
+
+        columns = self.floor_scan_columns
+        if columns == 1:
+            return ((frame[top:height, 0:width], 0, top, 'floor-tile-1'),)
+        nominal_width = width / columns
+        margin = nominal_width * self.floor_scan_overlap
+        tiles = []
+        for index in range(columns):
+            left = max(0, int(math.floor(index * nominal_width - margin)))
+            right = min(
+                width,
+                int(math.ceil((index + 1) * nominal_width + margin)),
+            )
+            if right - left < 32:
+                continue
+            tiles.append((
+                frame[top:height, left:right],
+                left,
+                top,
+                f'floor-tile-{index + 1}',
+            ))
+        return tuple(tiles)
+
+    @staticmethod
+    def _remap_detections(detections, offset_x, offset_y, scan):
+        remapped = []
+        for item in detections:
+            x, y, width, height = (float(value) for value in item['box'])
+            remapped.append({
+                **item,
+                'box': (x + offset_x, y + offset_y, width, height),
+                'scan': scan,
+            })
+        return remapped
+
+    def _detect_with_floor_focus(self, detector, frame):
+        detections = self._remap_detections(
+            detector.detect(frame),
+            0,
+            0,
+            'full-frame',
+        )
+        labels = frozenset(detector.metadata.labels)
+        if not labels.intersection(SMALL_FLOOR_HAZARD_CLASSES):
+            return detections
+        for tile, offset_x, offset_y, scan in self._floor_tiles(frame):
+            detections.extend(self._remap_detections(
+                detector.detect(tile),
+                offset_x,
+                offset_y,
+                scan,
+            ))
+        return detections
+
+    def detect(self, frame, *, focus_floor=False):
         height, width = frame.shape[:2]
         combined = []
         for detector in self.detectors:
-            combined.extend(detector.detect(frame))
+            if focus_floor:
+                combined.extend(
+                    self._detect_with_floor_focus(detector, frame)
+                )
+            else:
+                combined.extend(self._remap_detections(
+                    detector.detect(frame),
+                    0,
+                    0,
+                    'full-frame',
+                ))
         combined.sort(key=lambda item: float(item['confidence']), reverse=True)
 
         detections = []
@@ -973,6 +1139,7 @@ class ObjectPerception:
                 height,
             )
             dangerous = label in DANGEROUS_CLASSES
+            small_floor_hazard = label in SMALL_FLOOR_HAZARD_CLASSES
             caution = label in CAUTION_CLASSES
             if label == 'gun':
                 risk = 'critical'
@@ -1001,10 +1168,12 @@ class ObjectPerception:
                 'category': 'indoor' if label in INDOOR_CLASSES else 'general',
                 'risk': risk,
                 'dangerous': dangerous,
+                'small_floor_hazard': small_floor_hazard,
                 'floor_candidate': floor_candidate,
                 'floor_hazard': bool(dangerous and floor_candidate),
                 'model': str(item.get('model', 'unknown')),
                 'class_id': int(item.get('class_id', -1)),
+                'scan': str(item.get('scan', 'full-frame')),
                 '_raw_box': (x, y, box_width, box_height),
             }
             detections.append(detection)
@@ -1079,13 +1248,20 @@ def validate_detection_payload(value):
     if any(not isinstance(item, int) or item < 0 for item in box):
         raise ValueError('object detection box values must be non-negative integers')
     dangerous = label in DANGEROUS_CLASSES
+    small_floor_hazard = label in SMALL_FLOOR_HAZARD_CLASSES
     floor_candidate = value.get('floor_candidate') is True
     if value.get('dangerous') is not dangerous:
         raise ValueError('object detection dangerous flag contradicts policy')
     if value.get('floor_hazard') is not bool(dangerous and floor_candidate):
         raise ValueError('object detection floor_hazard flag contradicts policy')
+    supplied_small = value.get('small_floor_hazard', small_floor_hazard)
+    if supplied_small is not small_floor_hazard:
+        raise ValueError(
+            'object detection small_floor_hazard flag contradicts policy'
+        )
     return {
         **value,
         'label': label,
         'confidence': confidence,
+        'small_floor_hazard': small_floor_hazard,
     }

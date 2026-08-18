@@ -52,4 +52,6 @@
 /DOGZILLA/models/*.partial*
 /DOGZILLA/models/dogzilla_custom.labels
 /DOGZILLA/models/dogzilla_custom.json
+/DOGZILLA/models/yoloe_small_hazards.labels
+/DOGZILLA/models/yoloe_small_hazards.json
 /DOGZILLA/datasets/

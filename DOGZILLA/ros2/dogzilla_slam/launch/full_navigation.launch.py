@@ -47,7 +47,8 @@ def generate_launch_description():
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(hardware_launch),
             launch_arguments={
-                'speed_profile': 'slow',
+                'speed_level': '1',
+                'turn_level': '1',
                 'use_imu': use_imu,
                 'posture_control_enabled': 'false',
             }.items(),

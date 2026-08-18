@@ -43,9 +43,9 @@ for all commands.
   PGM, and YAML files. PBStream is written by Cartographer; PGM/YAML are saved
   from `/map` with Nav2 because Yahboom's ARM64 Cartographer converter crashes
   inside Cairo.
-- `dogzilla_slam teleop`: safety-oriented keyboard control with live
-  slow/normal/high profile selection using the `1`/`2`/`3` keys, plus bounded
-  body height and whole-body look controls in controller-only drive mode.
+- `dogzilla_slam teleop`: safety-oriented keyboard control with live speed
+  levels `1` through `9` (`1` slow, `5` normal, `9` maximum), plus bounded body
+  height and whole-body look controls in controller-only drive mode.
 - `dogzilla_slam servo_power`: one-shot, single-owner access to supported servo
   operations. Host-side `rest` is blocked without sending any movement or
   torque command because public action 1 is not treated as equivalent to the

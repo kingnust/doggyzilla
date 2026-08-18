@@ -17,9 +17,11 @@ compose() {
 
 usage() {
     printf '%s\n' \
-        'Usage: ./deploy/dogzilla-web COMMAND [ARGUMENTS]' \
+        'Internal web helper. Preferred operator interface:' \
+        '  dogzilla mission [start] [MAP] [--rviz|--headless] [--imu]' \
+        '  dogzilla mission status|logs|token|stop' \
         '' \
-        'Commands:' \
+        'Internal helper commands:' \
         '  init                  Generate the local access token and defaults.' \
         '  start [MAP]           Start the dashboard (default map: test1).' \
         '  status                Show the gateway container and local URL.' \
@@ -28,7 +30,7 @@ usage() {
         '  stop                  Stop the web gateway.' \
         '' \
         'Start navigation separately with:' \
-        '  ./deploy/dogzilla-map navigate MAP --headless'
+        '  dogzilla navigate MAP --headless'
 }
 
 append_default() {
@@ -73,13 +75,13 @@ start_gateway() {
     fi
     if ! docker image inspect "${IMAGE_NAME}" >/dev/null 2>&1; then
         printf 'The DOGZILLA image is missing or predates this gateway.\n' >&2
-        printf 'Run "./deploy/dogzilla-map build" first.\n' >&2
+        printf 'Run "dogzilla build" first.\n' >&2
         exit 1
     fi
     export DOGZILLA_WEB_MAP_NAME="${map_name}"
     compose up --detach --no-build --force-recreate "${SERVICE_NAME}"
     show_status
-    printf 'Use "./deploy/dogzilla-web show-token" for the browser login.\n'
+    printf 'Use "dogzilla mission token" for the browser login.\n'
 }
 
 show_status() {

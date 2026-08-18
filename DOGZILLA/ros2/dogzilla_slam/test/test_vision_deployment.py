@@ -84,7 +84,8 @@ class VisionDeploymentTest(unittest.TestCase):
         self.assertIn('condition=IfCondition(armed)', launch)
         self.assertIn("'accept_velocity_commands': False", launch)
         self.assertIn("'vision_control_enabled': True", launch)
-        self.assertIn("'speed_profile': 'slow'", launch)
+        self.assertIn("'speed_level': 1", launch)
+        self.assertIn("'turn_level': 1", launch)
         self.assertIn("'include_lidar': 'false'", launch)
         self.assertNotIn('/dev/ttyAMA1', launch)
 
@@ -144,6 +145,20 @@ class VisionDeploymentTest(unittest.TestCase):
         self.assertIn('vision_control_is_running', stop_body)
         self.assertIn('VISION_CONTROL_SERVICE_NAME', stop_body)
 
+    def test_teleop_operator_accepts_levels_one_through_nine(self):
+        script = (REPOSITORY / 'deploy' / 'dogzilla-map').read_text()
+        body = script.split('open_teleop() {', 1)[1].split(
+            '\n}\n',
+            1,
+        )[0]
+
+        self.assertIn('local speed_level="${1:-5}"', body)
+        self.assertIn('[1-9])', body)
+        self.assertIn('initial_level:=$1', body)
+        self.assertIn('Press - to turn slower', body)
+        self.assertIn('return to level 1 when teleop closes', body)
+        self.assertIn('reset_motion_levels "${control_service}"', body)
+
     def test_custom_object_workflow_is_camera_only_and_validated(self):
         compose = yaml.safe_load(
             (REPOSITORY / 'deploy' / 'compose.yaml').read_text()
@@ -181,6 +196,21 @@ class VisionDeploymentTest(unittest.TestCase):
         self.assertIn('source /opt/ros/humble/setup.bash', acceptance)
         self.assertIn('report_temporary', acceptance)
         self.assertIn('json.load', acceptance)
+
+    def test_pretrained_yoloe_install_is_offline_validated_and_atomic(self):
+        script = (REPOSITORY / 'deploy' / 'dogzilla-map').read_text()
+        install = script.split(
+            'install_yoloe_object_model() {',
+            1,
+        )[1].split('\n}\n', 1)[0]
+
+        self.assertIn('--network none', install)
+        self.assertIn('--model-format yoloe', install)
+        self.assertIn('vision_device_is_running', install)
+        self.assertIn('YOLOE_MODEL_FILE', install)
+        self.assertIn('YOLOE_LABELS_FILE', install)
+        self.assertIn('mv -f', install)
+        self.assertIn('object-model-yoloe-install)', script)
 
 
 if __name__ == '__main__':

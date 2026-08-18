@@ -25,7 +25,8 @@ class FakeObjectPerception:
             'models': ['fixture'],
         }
 
-    def detect(self, _frame):
+    def detect(self, _frame, *, focus_floor=False):
+        self.focus_floor = focus_floor
         return list(self._detections)
 
     @staticmethod
@@ -175,6 +176,7 @@ class VisionCoreTest(unittest.TestCase):
                 'floor_candidate': True,
                 'floor_hazard': True,
                 'dangerous': True,
+                'small_floor_hazard': False,
             },
             {
                 'kind': 'object',
@@ -184,6 +186,7 @@ class VisionCoreTest(unittest.TestCase):
                 'floor_candidate': False,
                 'floor_hazard': False,
                 'dangerous': False,
+                'small_floor_hazard': False,
             },
         ]
         perception = FakeObjectPerception(detections)
@@ -200,6 +203,7 @@ class VisionCoreTest(unittest.TestCase):
         self.assertEqual(len(all_objects['detections']), 2)
         self.assertEqual(len(floor_only['detections']), 1)
         self.assertEqual(floor_only['floor_hazard_count'], 1)
+        self.assertTrue(perception.focus_floor)
         self.assertTrue(all_objects['object_detection']['ready'])
 
     def test_qr_detector_decodes_generated_payload(self):

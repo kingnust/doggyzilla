@@ -81,7 +81,9 @@ services:
       - safe_base
       - --ros-args
       - -p
-      - speed_profile:=slow
+      - speed_level:=1
+      - -p
+      - turn_level:=1
       - -p
       - posture_control_enabled:=true
     stop_signal: SIGINT

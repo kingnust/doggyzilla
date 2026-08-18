@@ -1,34 +1,39 @@
-DOGZILLA S2 MAPPING COMMANDS
-============================
+DOGZILLA S2 OPERATOR COMMANDS
+=============================
 
 This guide is for the reproducible ROS 2 Humble mapping deployment at:
 /home/pi/DOGZILLA
 
-The normal workflow needs only one Raspberry Pi terminal. The deployment
-starts Docker, the MS200 LiDAR, the safe DOGZILLA controller, Cartographer,
-and optionally RViz together.
+The normal workflow needs only one Raspberry Pi terminal. These instructions
+use the global "dogzilla" alias, so commands work from any directory. Depending
+on the selected mode, the deployment starts Docker, the safe controller,
+LiDAR/Cartographer/Nav2, the USB camera, computer vision, RTAB shadow mapping,
+or the authenticated web dashboard.
 
 
-1. OPEN THE PROJECT DIRECTORY
------------------------------
+1. LOAD AND VERIFY THE DOGZILLA ALIAS
+-------------------------------------
 
-Command:
-  cd /home/pi/DOGZILLA
+Commands:
+  source ~/.bashrc
+  type dogzilla
+  dogzilla help
 
 Explanation:
-  cd means "change directory". This makes /home/pi/DOGZILLA the current
-  directory so all ./deploy/dogzilla-map commands below work.
+  dogzilla is an alias for /home/pi/DOGZILLA/deploy/dogzilla-map. New terminal
+  windows normally load it automatically from ~/.bash_aliases. If a terminal
+  says "dogzilla: command not found", run source ~/.bashrc once. You do not
+  need to cd into /home/pi/DOGZILLA before using any command in this guide.
 
 
 2. FIRST-TIME OR TROUBLESHOOTING CHECK
 --------------------------------------
 
 Command:
-  ./deploy/dogzilla-map doctor
+  dogzilla doctor
 
 Explanation:
-  ./ means run a file from the current directory.
-  deploy/dogzilla-map is the main DOGZILLA operator script.
+  dogzilla runs the main DOGZILLA operator script through the global alias.
   doctor checks Docker, Docker Compose, the pinned Yahboom base image,
   /dev/ttyAMA0, /dev/ttyAMA1, free disk space, and desktop display access.
 
@@ -37,7 +42,7 @@ Explanation:
 ---------------------------------------------------------------------
 
 Command:
-  ./deploy/dogzilla-map build
+  dogzilla build
 
 Explanation:
   build creates or refreshes the local dogzilla-mapping:humble Docker image.
@@ -49,7 +54,7 @@ Explanation:
 ----------------------------------
 
 Recommended command on the Raspberry Pi monitor:
-  ./deploy/dogzilla-map start
+  dogzilla start
 
 Explanation:
   start launches the hardware bridge, MS200 LiDAR, Cartographer, occupancy
@@ -58,14 +63,14 @@ Explanation:
   LiDAR-only mode is the stable default and does not need IMU calibration.
 
 Force RViz to open:
-  ./deploy/dogzilla-map start --rviz
+  dogzilla start --rviz
 
 Explanation:
   --rviz explicitly requests the RViz mapping window. Run this from a terminal
   on the Pi desktop/monitor. It will fail from an SSH terminal without DISPLAY.
 
 Start from SSH without a graphical window:
-  ./deploy/dogzilla-map start --headless
+  dogzilla start --headless
 
 Explanation:
   --headless disables RViz but still runs LiDAR and Cartographer mapping.
@@ -75,14 +80,14 @@ Explanation:
 ------------------------------
 
 Command:
-  ./deploy/dogzilla-map status
+  dogzilla status
 
 Explanation:
   status shows the Docker container state and its ROS topics. Wait until /scan
   and /map appear. Docker should eventually report the container as healthy.
 
 Optional live logs:
-  ./deploy/dogzilla-map logs
+  dogzilla logs
 
 Explanation:
   logs follows the latest 200 Docker log lines and continues printing new
@@ -95,35 +100,36 @@ Explanation:
 -----------------------------------------
 
 Command:
-  ./deploy/dogzilla-map teleop
+  dogzilla teleop
 
 Explanation:
-  teleop opens the DOGZILLA keyboard menu inside the active container and uses
-  the normal Yahboom mobile-app speed profile. Use w/s for forward/back, a/d
-  for left/right strafing, q/e to turn, and Space or k to stop. Press 1, 2, or
-  3 while teleop is open to switch live between slow, normal, and high. The
-  safe controller clamps speed and stops within 0.6 seconds after movement
-  keypresses stop. When teleop closes, it automatically returns to slow.
+  teleop opens the DOGZILLA keyboard menu inside the active container. Use w/s
+  for forward/back, a/d for left/right strafing, q/e to turn, and Space or k
+  to stop. Press any number from 1 through 9 to change speed live: 1 is slow,
+  5 is normal, and 9 is fast. The safe controller clamps speed and stops within
+  0.6 seconds after movement keypresses stop. When teleop closes, it returns
+  automatically to speed level 1.
 
 Choose a speed explicitly:
-  ./deploy/dogzilla-map teleop slow
-  ./deploy/dogzilla-map teleop normal
-  ./deploy/dogzilla-map teleop high
+  dogzilla teleop 1
+  dogzilla teleop 5
+  dogzilla teleop 9
+  dogzilla teleop slow
+  dogzilla teleop normal
+  dogzilla teleop high
 
 Explanation:
-  slow uses the mobile app's minimum controller step 4 and prioritizes mapping.
-  normal uses the mobile app's default controller step 10 and is recommended.
-  high uses the maximum controller step 20 and high pace. High speed can reduce
-  map quality or make the robot unstable, so use it only in a clear area with
-  an immediate stop available. Each word after teleop selects the initial
-  profile; keys 1, 2, and 3 change it while the menu is open.
+  Levels 1 through 9 provide gradual speed control. The words slow, normal,
+  and high are compatibility shortcuts for levels 1, 5, and 9. High speed can
+  reduce map quality or make the robot unstable, so use it only in a clear
+  area with an immediate stop available.
 
 
 TELEOP WITHOUT MAPPING OR LIDAR
 ===============================
 
 Start controller-only mode:
-  ./deploy/dogzilla-map drive
+  dogzilla drive
 
 Explanation:
   drive starts the dogzilla_drive container with only /dev/ttyAMA0, the motor
@@ -132,9 +138,9 @@ Explanation:
   drive cannot run together because both need the same controller serial port.
 
 Check it, drive it, and stop it:
-  ./deploy/dogzilla-map status
-  ./deploy/dogzilla-map teleop
-  ./deploy/dogzilla-map stop
+  dogzilla status
+  dogzilla teleop
+  dogzilla stop
 
 Explanation:
   status should report Active mode: drive and show /cmd_vel but no /scan or
@@ -160,18 +166,18 @@ FIRMWARE REST CAPTURE, REST, AND STAND
 ======================================
 
 First stop mapping or controller-only mode:
-  ./deploy/dogzilla-map stop
+  dogzilla stop
 
 Explanation:
   stop releases the controller serial port. The rest and stand commands refuse
   to run while either mapping or drive mode is active.
 
 Passively capture the real low-battery firmware movement:
-  ./deploy/dogzilla-map rest-capture
+  dogzilla rest-capture
 
 Explanation:
-  ./ runs the dogzilla-map script from the current project directory.
-  rest-capture selects the dedicated read-only monitor. It requires the exact
+  rest-capture selects the dedicated read-only monitor through the dogzilla
+  alias. It requires the exact
   confirmation CAPTURE, then pauses competing vendor and OLED serial readers.
   The monitor sends only battery and 12-joint read requests. It never sends a
   movement, action, motor-angle, speed, servo-load, or servo-unload command.
@@ -186,7 +192,7 @@ Explanation:
   automatically, changing joint reads from 1 Hz to 5 Hz only near low battery.
 
 Check firmware-rest availability:
-  ./deploy/dogzilla-map rest
+  dogzilla rest
 
 Explanation:
   rest is currently disabled. It prints a safety explanation and sends no
@@ -196,7 +202,7 @@ Explanation:
   be enabled safely.
 
 Play Yahboom's animated stand-up action:
-  ./deploy/dogzilla-map stand
+  dogzilla stand
 
 Explanation:
   stand displays a movement warning and requires you to type STAND exactly. It
@@ -210,7 +216,7 @@ Explanation:
   pause the OLED service while using /dev/ttyAMA0 and restore it afterward.
 
 To view RViz later from a Pi monitor terminal:
-  ./deploy/dogzilla-map rviz
+  dogzilla rviz
 
 Explanation:
   rviz opens only the RViz window and connects it to the already-running
@@ -221,7 +227,7 @@ LOCALIZATION ON THE SAVED test1 MAP
 ===================================
 
 Start localization from a Raspberry Pi monitor terminal:
-  ./deploy/dogzilla-map localize test1
+  dogzilla localize test1
 
 Explanation:
   localize starts the MS200, the single serial manager, Cartographer pure
@@ -231,14 +237,14 @@ Explanation:
   start autonomous Nav2 control.
 
 Start the same localization over SSH:
-  ./deploy/dogzilla-map localize test1 --headless
+  dogzilla localize test1 --headless
 
 Explanation:
   --headless disables the RViz graphical window. LiDAR localization and ROS
   topics still run normally inside Docker.
 
 Optional calibrated IMU localization:
-  ./deploy/dogzilla-map localize test1 --imu
+  dogzilla localize test1 --imu
 
 Explanation:
   --imu enables the corrected IMU stream in addition to LiDAR scan matching.
@@ -246,7 +252,7 @@ Explanation:
   imu-check has passed with the physical robot.
 
 Check readiness:
-  ./deploy/dogzilla-map status
+  dogzilla status
 
 Explanation:
   status should show Active mode: navigation and list /scan, /map, /odom,
@@ -264,7 +270,7 @@ Explanation:
   of test1 remain blocked.
 
 Drive manually while localized:
-  ./deploy/dogzilla-map teleop slow
+  dogzilla teleop slow
 
 Explanation:
   teleop opens keyboard control. slow selects the safest initial speed profile.
@@ -272,7 +278,7 @@ Explanation:
   Body height and look keys remain disabled so the LiDAR transform stays fixed.
 
 Stop localization:
-  ./deploy/dogzilla-map stop
+  dogzilla stop
 
 Explanation:
   stop halts the legs, shuts down Cartographer, stops the LiDAR motor, releases
@@ -283,7 +289,7 @@ NAV2 PATH PLANNING ON test1
 ===========================
 
 Start localization and Nav2 together:
-  ./deploy/dogzilla-map navigate test1
+  dogzilla navigate test1
 
 Explanation:
   navigate starts everything from localize plus the Nav2 global planner, local
@@ -292,7 +298,7 @@ Explanation:
   movement is capped at 0.10 m/s linear and 0.30 rad/s angular.
 
 Start Nav2 over SSH without RViz:
-  ./deploy/dogzilla-map navigate test1 --headless
+  dogzilla navigate test1 --headless
 
 Explanation:
   --headless disables the graphical window. You still need an RViz client or a
@@ -300,7 +306,7 @@ Explanation:
   that client is available elsewhere.
 
 Before sending a goal:
-  1. Run ./deploy/dogzilla-map status and wait for healthy.
+  1. Run dogzilla status and wait for healthy.
   2. Set 2D Pose Estimate in RViz.
   3. Confirm the live scan aligns with the mapped walls.
   4. Keep DOGZILLA in a clear area and be ready to press Space or k in teleop.
@@ -317,7 +323,7 @@ CHECK BATTERY AND JOINT TELEMETRY
 =================================
 
 Open a preconfigured shell in the active container:
-  ./deploy/dogzilla-map shell
+  dogzilla shell
 
 Explanation:
   shell opens Bash inside the active Docker service. ROS 2 Humble, the built
@@ -350,7 +356,7 @@ Explanation:
 ------------------------
 
 Example command:
-  ./deploy/dogzilla-map save room2
+  dogzilla save room2
 
 Explanation:
   save finishes the active Cartographer trajectory.
@@ -374,7 +380,7 @@ Important:
 --------------
 
 Command:
-  ./deploy/dogzilla-map stop
+  dogzilla stop
 
 Explanation:
   stop sends ROS SIGINT and allows up to 20 seconds for orderly shutdown.
@@ -383,7 +389,7 @@ Explanation:
   OLED service. Saved maps and logs remain on the Pi.
 
 If the LiDAR is spinning while mapping is not running:
-  ./deploy/dogzilla-map lidar-off
+  dogzilla lidar-off
 
 Explanation:
   lidar-off sends only the MS200 deactivate command through /dev/ttyAMA1.
@@ -397,14 +403,14 @@ A. CALIBRATE THE PHYSICAL ROBOT ONCE
 ------------------------------------
 
 First make sure mapping is stopped:
-  ./deploy/dogzilla-map stop
+  dogzilla stop
 
 Explanation:
   stop releases /dev/ttyAMA0 before calibration. It is safe if mapping is
   already stopped.
 
 Run guided calibration:
-  ./deploy/dogzilla-map imu-calibrate
+  dogzilla imu-calibrate
 
 Explanation:
   imu-calibrate does not start the LiDAR. It sends movement STOP but does not
@@ -427,7 +433,7 @@ B. START FUSED MAPPING
 ----------------------
 
 On the Pi monitor:
-  ./deploy/dogzilla-map start --imu
+  dogzilla start --imu
 
 Explanation:
   start launches the complete mapping system.
@@ -437,7 +443,7 @@ Explanation:
   calibration/imu.json is absent or invalid.
 
 From SSH:
-  ./deploy/dogzilla-map start --imu --headless
+  dogzilla start --imu --headless
 
 Explanation:
   --imu enables calibrated IMU fusion.
@@ -448,7 +454,7 @@ C. VALIDATE THE IMU BEFORE MOVING
 ---------------------------------
 
 Keep the robot level and motionless, then run:
-  ./deploy/dogzilla-map imu-check 10
+  dogzilla imu-check 10
 
 Explanation:
   imu-check validates /imu/data_corrected.
@@ -461,28 +467,203 @@ After it passes, use the same status, teleop, save, and stop commands described
 in sections 5 through 8.
 
 
+CAMERA AND COMPUTER VISION
+==========================
+
+Test the physical USB camera without starting the legs or LiDAR:
+  dogzilla camera-check 12
+
+Explanation:
+  camera-check temporarily opens only /dev/video0, samples 640x480 ROS images
+  for 12 seconds, validates timing and frame freshness, then closes the camera.
+  It does not move DOGZILLA and it does not create camera calibration.
+
+Install and inspect the pinned object-detection models:
+  dogzilla object-model-install
+  dogzilla object-model-status
+
+Explanation:
+  object-model-install downloads checksum-verified YOLOX-Nano COCO and YOLOv8
+  Open Images ONNX models. They run through OpenCV DNN on the Pi. The weights
+  are stored locally under DOGZILLA/models and are not committed to Git.
+
+Start safe, camera-only Vision:
+  dogzilla vision raw
+
+Useful recognition examples:
+  dogzilla vision color red
+  dogzilla vision color-track blue
+  dogzilla vision face
+  dogzilla vision face-track
+  dogzilla vision watchdog
+  dogzilla vision qr
+  dogzilla vision qr-action
+  dogzilla vision line
+  dogzilla vision line-follow
+  dogzilla vision objects
+  dogzilla vision floor-hazards
+
+Explanation:
+  Normal Vision owns /dev/video0 only. It publishes detections and an annotated
+  camera frame, and starts the authenticated Vision Lab dashboard. Modes with
+  "action" or "follow" in their name produce proposals only; action output is
+  disabled and this service cannot open the robot controller serial port.
+  Color may be red, green, blue, or yellow. Object modes require the pinned
+  models to be installed first.
+
+Print the dashboard token:
+  dogzilla mission token
+
+Change the detector without reopening the camera:
+  dogzilla vision-mode face
+  dogzilla vision-mode color-track green
+  dogzilla vision-mode objects
+
+Verify repeated detection of a real object:
+  dogzilla object-check bottle 15
+  dogzilla object-check hammer 15 --floor
+
+Explanation:
+  object-check requires at least three separate detections at 0.55 confidence
+  and saves a JSON acceptance report under DOGZILLA/logs/object-checks. The
+  --floor form additionally requires the detected box to meet the configured
+  floor-region test. It refuses explicitly armed Vision Control.
+
+Capture spaced raw frames for a future custom model:
+  dogzilla vision raw
+  dogzilla object-dataset-capture bolt 60 1.0
+
+Explanation:
+  This saves 60 raw JPEG frames, one second apart, under
+  DOGZILLA/datasets/bolt/unlabeled. It never commands movement. Labeling and
+  training are performed later on a desktop GPU or Colab.
+
+Install an exported optional detector:
+  dogzilla object-model-custom-install MODEL.onnx MODEL.labels
+  dogzilla object-model-yoloe-install MODEL.onnx MODEL.labels
+  dogzilla object-model-status
+
+Explanation:
+  custom-install validates a fixed 416x416 custom YOLOv8 detector. The YOLOE
+  command validates a static-prompt 640x640 YOLOE segmentation export. Both
+  perform an offline OpenCV inference before atomically replacing active model
+  files. Stop Vision or Mission Mode before installing weights.
+
+Stop camera-only Vision:
+  dogzilla stop
+
+
+EXPLICITLY ARMED VISION CONTROL
+===============================
+
+Examples that may physically move DOGZILLA:
+  dogzilla vision-control color-action red
+  dogzilla vision-control watchdog
+  dogzilla vision-control qr-action
+  dogzilla vision-control line-follow
+
+Explanation:
+  Vision Control is a separate camera-plus-controller mode. It warns before
+  opening hardware and requires the exact typed confirmation ARM VISION. It
+  accepts no keyboard or external velocity topic, locks movement to guarded
+  limits, requires stable detections and valid battery telemetry above 25%,
+  and retains cooldown, target-release, e-stop, and movement-watchdog checks.
+  Run it only on a clear, level floor under direct supervision.
+
+Disarm and stop immediately:
+  dogzilla stop
+
+
+CAMERA CALIBRATION AND RTAB VISUAL SHADOW
+=========================================
+
+Calibrate the camera intrinsics on the Raspberry Pi monitor:
+  dogzilla camera-calibrate 8x6 0.025
+
+Explanation:
+  Replace 8x6 with the checkerboard's measured inner-corner count and 0.025
+  with its measured square edge in metres. Fill the calibration coverage bars,
+  click CALIBRATE, inspect the rectified result, then click COMMIT. Closing the
+  window without COMMIT leaves the existing camera.yaml unchanged.
+
+Save the physically measured camera mount:
+  dogzilla camera-extrinsics --measured X Y Z ROLL PITCH YAW
+
+Explanation:
+  X/Y/Z are measured metres from base_link. Roll/pitch/yaw are measured
+  degrees. Do not enter guessed values. The command validates the transform
+  and backs up the previous camera_extrinsics.yaml before installing it.
+
+Start normal Cartographer mapping plus the passive RTAB visual shadow:
+  dogzilla shadow --rviz
+
+Start the same stack over SSH without opening RViz:
+  dogzilla shadow --headless
+
+Explanation:
+  shadow first starts the normal MS200/Cartographer mapping stack, waits for
+  /scan and /map, then starts the calibrated camera and namespaced RTAB-Map.
+  It refuses to start until valid camera intrinsics and measured extrinsics
+  exist. RTAB publishes no operational TF and cannot command movement. Its map
+  is independent from Cartographer's authoritative /map.
+
+Validate shadow mode while DOGZILLA is stationary:
+  dogzilla shadow-check 10
+
+Explanation:
+  This checks rectified images, exact CameraInfo, scan/odometry timestamps,
+  usable LiDAR returns, RTAB processing, and the isolated shadow interfaces.
+  Do not begin the route test unless this reports success.
+
+Open the independent RTAB map view from a Pi desktop terminal:
+  dogzilla shadow-rviz
+
+Run a supervised closed-route loop-closure test:
+  dogzilla shadow-route-check 120 1.0
+
+In another terminal, manually drive the route:
+  dogzilla teleop slow
+
+Explanation:
+  The route checker is read-only. During its 120-second window, drive at least
+  1.0 metre, return within 0.75 metre of the start, and revisit the same
+  textured view. It requires a real global RTAB loop closure and rejects large
+  odometry jumps. Stop near the starting position before the timer finishes.
+
+Stop mapping and shadow mode, then validate the saved database:
+  dogzilla stop
+  dogzilla shadow-db-check
+
+Explanation:
+  shadow-db-check opens the latest RTAB SQLite database read-only and verifies
+  integrity, schema, node data, statistics, and links. Reports and the database
+  remain under the corresponding DOGZILLA/logs/sessions directory.
+
+
 WEB MAP MISSION EDITOR
 ======================
 
 Do this only after the current map has been saved and mapping has been stopped.
 
-Start localization, Nav2, and the browser gateway together:
-  cd /home/pi/DOGZILLA
-  ./deploy/dogzilla-map mission test1 --headless
+Install required generic object models once:
+  dogzilla object-model-install
+
+Start localization, Nav2, floor-hazard perception, and the browser together:
+  dogzilla mission test1 --headless
 
 Explanation:
-  cd changes this terminal to the DOGZILLA project directory.
-  ./ runs the deployment script from the current directory.
-  mission starts the guarded navigation + browser coordinator.
+  mission starts the guarded navigation, detection-only camera perception,
+  and browser coordinator.
   test1 selects maps/test1 as the active saved map.
   --headless prevents RViz from opening; the browser becomes the map display.
   The command validates all three saved-map files, refuses to replace mapping
-  or another active mode, starts Nav2 before the web gateway, checks ROS
-  readiness, and rolls both services back if startup fails.
+  or another active mode, verifies the model checksums and camera, starts Nav2,
+  perception, and the web gateway, checks ROS readiness, and rolls everything
+  back if startup fails.
   It does not queue a goal or move DOGZILLA automatically.
 
 Print the browser login token:
-  ./deploy/dogzilla-map mission token
+  dogzilla mission token
 
 Explanation:
   mission selects the coordinator command group.
@@ -490,8 +671,11 @@ Explanation:
   gateway or queue movement. Open the URL printed by the start command on the
   same trusted network and enter this token.
 
-Check both services:
-  ./deploy/dogzilla-map mission status
+Check the complete managed session:
+  dogzilla mission status
+
+Follow navigation, perception, and web logs:
+  dogzilla mission logs
 
 Explanation:
   status displays the managed state, selected map, shared log session,
@@ -505,12 +689,18 @@ Using the editor:
   4. Check the green Nav2 route preview and distance.
   5. Optionally save the selected point as a named location.
   6. Press Queue delivery only while supervising DOGZILLA.
+  7. Use Vision Lab to inspect the annotated frame and detections.
+  8. For patrol, save a polygon, preview its generated coverage route, and
+     confirm the patrol safety gate is ready before queuing it.
 
 There is no drag-and-drop interaction and map coordinates are read-only. The
 gateway validates free space and clearance again before saving or queuing.
+Patrol additionally requires fresh detection-only floor-hazard vision and
+complete configured dangerous-class coverage. If a required class is missing,
+patrol stays locked even though ordinary deliveries and routes remain usable.
 
 Stop the complete managed mission safely:
-  ./deploy/dogzilla-map mission stop
+  dogzilla mission stop
 
 Explanation:
   stop shuts down the browser gateway first, then navigation, releases both
@@ -522,14 +712,14 @@ OPTIONAL ONE-TIME CONVENIENCE COMMANDS
 ======================================
 
 Install the Pi desktop shortcut:
-  ./deploy/dogzilla-map desktop-install
+  dogzilla desktop-install
 
 Explanation:
   desktop-install copies a DOGZILLA Mapping shortcut to the Pi Desktop.
   Opening it runs the normal automatic-display start command in a terminal.
 
 Install the orderly OS-shutdown guard:
-  ./deploy/dogzilla-map shutdown-install
+  dogzilla shutdown-install
 
 Explanation:
   shutdown-install uses sudo to install and enable a systemd service.
@@ -542,40 +732,62 @@ QUICK DAILY REFERENCE
 =====================
 
 Teleop only, with no mapping or LiDAR:
-  cd /home/pi/DOGZILLA
-  ./deploy/dogzilla-map drive
-  ./deploy/dogzilla-map status
-  ./deploy/dogzilla-map teleop
-  ./deploy/dogzilla-map stop
+  dogzilla drive
+  dogzilla status
+  dogzilla teleop 5
+  dogzilla stop
 
 LiDAR-only mapping:
-  cd /home/pi/DOGZILLA
-  ./deploy/dogzilla-map start
-  ./deploy/dogzilla-map status
-  ./deploy/dogzilla-map teleop normal
-  ./deploy/dogzilla-map save MAP_NAME
-  ./deploy/dogzilla-map stop
+  dogzilla start
+  dogzilla status
+  dogzilla teleop 5
+  dogzilla save MAP_NAME
+  dogzilla stop
 
 Calibrated IMU mapping after calibration:
-  cd /home/pi/DOGZILLA
-  ./deploy/dogzilla-map start --imu
-  ./deploy/dogzilla-map imu-check 10
-  ./deploy/dogzilla-map teleop normal
-  ./deploy/dogzilla-map save MAP_NAME
-  ./deploy/dogzilla-map stop
+  dogzilla start --imu
+  dogzilla imu-check 10
+  dogzilla teleop 5
+  dogzilla save MAP_NAME
+  dogzilla stop
 
 Localization on existing test1, without autonomous movement:
-  cd /home/pi/DOGZILLA
-  ./deploy/dogzilla-map localize test1
-  ./deploy/dogzilla-map status
-  ./deploy/dogzilla-map teleop slow
-  ./deploy/dogzilla-map stop
+  dogzilla localize test1
+  dogzilla status
+  dogzilla teleop 1
+  dogzilla stop
 
 Nav2 localization and supervised path planning on test1:
-  cd /home/pi/DOGZILLA
-  ./deploy/dogzilla-map navigate test1
-  ./deploy/dogzilla-map status
+  dogzilla navigate test1
+  dogzilla status
   # Set 2D Pose Estimate, verify scan alignment, then set Nav2 Goal in RViz.
-  ./deploy/dogzilla-map stop
+  dogzilla stop
+
+Safe camera-only computer vision:
+  dogzilla vision color red
+  dogzilla mission token
+  dogzilla vision-mode face
+  dogzilla stop
+
+Object detection and a real-object check:
+  dogzilla object-model-install
+  dogzilla vision objects
+  dogzilla object-check bottle 15
+  dogzilla stop
+
+Calibrated Cartographer + RTAB visual shadow:
+  dogzilla shadow --headless
+  dogzilla shadow-check 10
+  dogzilla shadow-route-check 120 1.0
+  # In another terminal: dogzilla teleop 1
+  dogzilla stop
+  dogzilla shadow-db-check
+
+Nav2, floor-hazard perception, and web Mission Mode:
+  dogzilla object-model-install
+  dogzilla mission test1 --headless
+  dogzilla mission token
+  dogzilla mission status
+  dogzilla mission stop
 
 Replace MAP_NAME with a unique name such as room2, hallway_test, or imu_trial1.

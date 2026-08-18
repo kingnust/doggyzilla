@@ -48,6 +48,16 @@ def generate_launch_description():
             'custom_object_labels_path',
             default_value='/models/dogzilla_custom.labels',
         ),
+        DeclareLaunchArgument(
+            'yoloe_object_model_path',
+            default_value='/models/yoloe_small_hazards.onnx',
+        ),
+        DeclareLaunchArgument(
+            'yoloe_object_labels_path',
+            default_value='/models/yoloe_small_hazards.labels',
+        ),
+        DeclareLaunchArgument('floor_scan_columns', default_value='2'),
+        DeclareLaunchArgument('floor_scan_overlap', default_value='0.18'),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(camera_launch),
             launch_arguments={
@@ -86,6 +96,20 @@ def generate_launch_description():
                 ),
                 'custom_object_labels_path': LaunchConfiguration(
                     'custom_object_labels_path'
+                ),
+                'yoloe_object_model_path': LaunchConfiguration(
+                    'yoloe_object_model_path'
+                ),
+                'yoloe_object_labels_path': LaunchConfiguration(
+                    'yoloe_object_labels_path'
+                ),
+                'floor_scan_columns': ParameterValue(
+                    LaunchConfiguration('floor_scan_columns'),
+                    value_type=int,
+                ),
+                'floor_scan_overlap': ParameterValue(
+                    LaunchConfiguration('floor_scan_overlap'),
+                    value_type=float,
                 ),
             }],
             output='screen',

@@ -22,17 +22,17 @@ OPEN_IMAGES_MODEL_SHA256="73c1d27ff67f964b2c43965943fcaa608a09c29a9ea90ff4ef5977
 
 usage() {
     printf '%s\n' \
-        'Usage: ./deploy/dogzilla-map mission COMMAND [ARGUMENTS]' \
+        'Usage: dogzilla mission COMMAND [ARGUMENTS]' \
         '' \
         'Commands:' \
         '  start [MAP] [--rviz|--headless] [--imu]' \
         '                        Start Nav2, hazard vision, and the dashboard.' \
         '  MAP [--rviz|--headless] [--imu]' \
         '                        Shortcut for "mission start MAP ...".' \
-        '  status                Show the managed session and both services.' \
-        '  logs                  Follow navigation and web container logs.' \
+        '  status                Show navigation, vision, and dashboard state.' \
+        '  logs                  Follow navigation, vision, and dashboard logs.' \
         '  token                 Print the existing browser login token.' \
-        '  stop                  Stop web first, then stop navigation safely.'
+        '  stop                  Stop dashboard/vision, then navigation safely.'
 }
 
 validate_timeout() {
@@ -278,7 +278,7 @@ start_mission() {
     if [[ -e "${STATE_FILE}" ]]; then
         printf 'A previous Mission Mode state file exists: %s\n' \
             "${STATE_FILE}" >&2
-        printf 'Run "./deploy/dogzilla-map mission stop" before starting again.\n' >&2
+        printf 'Run "dogzilla mission stop" before starting again.\n' >&2
         exit 1
     fi
 
@@ -323,7 +323,7 @@ start_mission() {
         "ROS logs: logs/sessions/${session}" \
         'Floor-hazard perception is detection-only and camera based.' \
         'No movement has been queued automatically.' \
-        'Use "./deploy/dogzilla-map mission token" for browser login.'
+        'Use "dogzilla mission token" for browser login.'
 }
 
 show_mission_status() {

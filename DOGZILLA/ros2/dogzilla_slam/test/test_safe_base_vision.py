@@ -89,7 +89,7 @@ def line_proposal(error=0.5):
 def base_factory(monkeypatch):
     nodes = []
 
-    def create(controller):
+    def create(controller, *, vision_control=True):
         monkeypatch.setattr(
             safe_base.dog,
             'DOGZILLA',
@@ -98,7 +98,7 @@ def base_factory(monkeypatch):
         rclpy.init()
         node = safe_base.SafeBase(
             parameter_overrides=[
-                Parameter('vision_control_enabled', value=True),
+                Parameter('vision_control_enabled', value=vision_control),
                 Parameter('accept_velocity_commands', value=False),
                 Parameter('vision_required_frames', value=2),
                 Parameter('vision_release_frames', value=2),
@@ -132,6 +132,58 @@ def test_real_safe_base_callback_executes_after_debounce(base_factory):
     assert node._vision_active_action == 'handshake'
     assert node._vision_action_deadline is not None
     assert node._subscription is None
+
+
+def test_real_safe_base_accepts_intermediate_speed_level(base_factory):
+    controller = FakeController(battery=80)
+    node = base_factory(controller, vision_control=False)
+
+    result = node._parameters_changed([
+        Parameter('speed_level', Parameter.Type.INTEGER, 8),
+    ])
+
+    assert result.successful is True
+    assert node._speed_level == 8
+    assert node._turn_level == 1
+    assert node._max_linear == pytest.approx(0.45)
+    assert node._max_angular == pytest.approx(0.75)
+    assert ('pace', 'high') in controller.calls
+
+
+def test_real_safe_base_accepts_independent_turn_level(base_factory):
+    controller = FakeController(battery=80)
+    node = base_factory(controller, vision_control=False)
+
+    result = node._parameters_changed([
+        Parameter('turn_level', Parameter.Type.INTEGER, 8),
+    ])
+
+    assert result.successful is True
+    assert node._speed_level == 1
+    assert node._turn_level == 8
+    assert node._max_linear == pytest.approx(0.10)
+    assert node._max_angular == pytest.approx(1.60)
+    assert ('pace', 'high') in controller.calls
+
+
+def test_armed_vision_control_remains_locked_to_level_one(base_factory):
+    controller = FakeController(battery=80)
+    node = base_factory(controller)
+
+    result = node._parameters_changed([
+        Parameter('speed_level', Parameter.Type.INTEGER, 2),
+    ])
+
+    assert result.successful is False
+    assert 'level 1' in result.reason
+    assert node._speed_level == 1
+
+    turn_result = node._parameters_changed([
+        Parameter('turn_level', Parameter.Type.INTEGER, 2),
+    ])
+    assert turn_result.successful is False
+    assert 'turn level 1' in turn_result.reason
+    assert node._turn_level == 1
 
 
 def test_real_safe_base_callback_blocks_low_battery(base_factory):

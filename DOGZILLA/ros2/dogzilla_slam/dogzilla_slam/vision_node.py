@@ -92,8 +92,18 @@ class DogzillaVisionNode(Node):
             'custom_object_labels_path',
             '/models/dogzilla_custom.labels',
         )
+        self.declare_parameter(
+            'yoloe_object_model_path',
+            '/models/yoloe_small_hazards.onnx',
+        )
+        self.declare_parameter(
+            'yoloe_object_labels_path',
+            '/models/yoloe_small_hazards.labels',
+        )
         self.declare_parameter('object_confidence', 0.35)
         self.declare_parameter('object_nms', 0.45)
+        self.declare_parameter('floor_scan_columns', 2)
+        self.declare_parameter('floor_scan_overlap', 0.18)
 
         mode = str(self.get_parameter('mode').value)
         color = str(self.get_parameter('color').value)
@@ -225,6 +235,43 @@ class DogzillaVisionNode(Node):
                     'Loaded Open Images model for indoor, tool, and hazard '
                     'coverage'
                 )
+        yoloe_model_path = str(
+            self.get_parameter('yoloe_object_model_path').value
+        )
+        yoloe_labels_path = str(
+            self.get_parameter('yoloe_object_labels_path').value
+        )
+        yoloe_model_exists = os.path.isfile(yoloe_model_path)
+        yoloe_labels_exist = os.path.isfile(yoloe_labels_path)
+        if yoloe_model_exists and yoloe_labels_exist:
+            try:
+                yoloe_labels = load_labels(yoloe_labels_path)
+                detector = YoloV8OpenCvDetector(
+                    yoloe_model_path,
+                    dict(enumerate(yoloe_labels)),
+                    name='yoloe-small-floor-hazards',
+                    input_size=640,
+                    output_class_count=len(yoloe_labels),
+                    output_extra_channels=32,
+                    confidence_threshold=confidence,
+                    nms_threshold=nms,
+                )
+                detector.detect(np.full((640, 640, 3), 114, dtype=np.uint8))
+            except (ObjectDetectorError, ValueError) as exc:
+                self.get_logger().error(
+                    f'YOLOE floor-hazard model was not loaded: {exc}'
+                )
+            else:
+                detectors.append(detector)
+                self.get_logger().info(
+                    'Loaded prompt-baked YOLOE floor-hazard model: '
+                    f'{len(yoloe_labels)} classes'
+                )
+        elif yoloe_model_exists or yoloe_labels_exist:
+            self.get_logger().warn(
+                'YOLOE floor-hazard model is incomplete: '
+                f'model={yoloe_model_exists}, labels={yoloe_labels_exist}'
+            )
         custom_model_path = str(
             self.get_parameter('custom_object_model_path').value
         )
@@ -271,6 +318,12 @@ class DogzillaVisionNode(Node):
         perception = ObjectPerception(
             detectors,
             requested_classes=CORE_REQUESTED_CLASSES,
+            floor_scan_columns=int(
+                self.get_parameter('floor_scan_columns').value
+            ),
+            floor_scan_overlap=float(
+                self.get_parameter('floor_scan_overlap').value
+            ),
         )
         missing = perception.coverage()['missing_dangerous_classes']
         if missing:

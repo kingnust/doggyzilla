@@ -1,12 +1,15 @@
 # Custom engineering and indoor-object detector training
 
 The COCO and Open Images models already cover many indoor objects and tools.
-The custom model fills site-specific gaps such as small fasteners, electronics
-bench equipment, cables, hand tools, stationery, and room equipment. The
-starter `classes.txt` contains both engineering and indoor gaps; remove classes
-that are not useful in your rooms before labeling. Its line order becomes the
-permanent numeric class order for that model. Training is intentionally done
-on a desktop GPU or Colab, not on the Raspberry Pi.
+The custom model fills site-specific gaps such as small fasteners, glass or
+metal shards, staples, blades, electronics-bench equipment, cables, hand
+tools, stationery, and room equipment. Try the pretrained YOLOE workflow in
+`../pretrained_yoloe/` first when you do not have time to label data. Use this
+custom workflow only for classes that zero-shot detection cannot recognize
+reliably in your rooms. The starter `classes.txt` contains both engineering
+and indoor gaps; remove classes that are not useful before labeling. Its line
+order becomes the permanent numeric class order for that model. Training is
+intentionally done on a desktop GPU or Colab, not on the Raspberry Pi.
 
 ## 1. Capture raw images on DOGZILLA
 

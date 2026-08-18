@@ -125,7 +125,7 @@ must not be treated as a control, collision, or kinematics model.
 3. Run `dogzilla shadow --headless`, then `dogzilla shadow-check 10` while the
    robot is stationary.
 4. In a second test, run `dogzilla shadow-route-check 120 1.0` in one terminal
-   and `dogzilla teleop slow` in another. Drive a closed route, revisit a
+   and `dogzilla teleop 1` in another. Drive a closed route, revisit a
    textured starting view, and stop near the start. The read-only observer must
    report at least one global RTAB loop closure before relying on the visual
    database.

@@ -11,12 +11,25 @@ REPOSITORY = Path(__file__).resolve().parents[3]
 TRAINING_SCRIPT = (
     REPOSITORY / 'training' / 'custom_objects' / 'train_export.py'
 )
+YOLOE_EXPORT_SCRIPT = (
+    REPOSITORY / 'training' / 'pretrained_yoloe' / 'export_yoloe.py'
+)
 
 
 def load_training_module():
     spec = importlib.util.spec_from_file_location(
         'dogzilla_custom_object_training',
         TRAINING_SCRIPT,
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_yoloe_export_module():
+    spec = importlib.util.spec_from_file_location(
+        'dogzilla_pretrained_yoloe_export',
+        YOLOE_EXPORT_SCRIPT,
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -91,3 +104,17 @@ class CustomObjectTrainingTest(unittest.TestCase):
             classes.write_text('bolt\nbolt\n')
             with self.assertRaisesRegex(ValueError, 'duplicate'):
                 self.training.load_classes(classes)
+
+    def test_pretrained_yoloe_prompts_are_static_and_need_no_training(self):
+        exporter = load_yoloe_export_module()
+        prompts = exporter.load_prompts(
+            REPOSITORY / 'training' / 'pretrained_yoloe' / 'prompts.txt'
+        )
+
+        self.assertIn('screw', prompts)
+        self.assertIn('glass shard', prompts)
+        self.assertIn('staple', prompts)
+        source = YOLOE_EXPORT_SCRIPT.read_text()
+        self.assertIn('model.set_classes', source)
+        self.assertIn("format='onnx'", source)
+        self.assertNotIn('.train(', source)

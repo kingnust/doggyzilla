@@ -15,6 +15,9 @@ from std_msgs.msg import Bool, String
 
 from .firmware_rest_capture import FirmwareRestRecorder
 from .firmware_rest_capture import save_capture_atomic
+from .speed_control import normalize_speed_level
+from .speed_control import SPEED_LEVELS as SPEED_LEVEL_SETTINGS
+from .speed_control import TURN_LEVELS as TURN_LEVEL_SETTINGS
 from .vision_action_policy import execute_firmware_action
 from .vision_action_policy import line_follow_velocity
 from .vision_action_policy import VisionActionPolicyError
@@ -31,14 +34,8 @@ class SafeBase(Node):
         for motor in range(1, 4)
     )
 
-    # These reproduce Yahboom's mobile-app step-width scale. The app maps
-    # slow/minimum to controller step 4, normal/default to step 10, and
-    # high/maximum to step 20. ROS values are divided by controller_scale.
-    SPEED_PROFILES = {
-        'slow': (0.10, 0.30, 'slow', 4),
-        'normal': (0.25, 1.125, 'normal', 10),
-        'high': (0.50, 1.75, 'high', 20),
-    }
+    SPEED_LEVELS = SPEED_LEVEL_SETTINGS
+    TURN_LEVELS = TURN_LEVEL_SETTINGS
     POSTURE_LIMITS = {
         'body_height': (75.0, 110.0),
         'head_pitch': (-15.0, 15.0),
@@ -54,7 +51,8 @@ class SafeBase(Node):
         self.declare_parameter('max_angular', 0.30)
         self.declare_parameter('command_timeout', 0.60)
         self.declare_parameter('controller_scale', 40.0)
-        self.declare_parameter('speed_profile', 'slow')
+        self.declare_parameter('speed_level', 1)
+        self.declare_parameter('turn_level', 1)
         self.declare_parameter('publish_imu', False)
         self.declare_parameter('raw_imu_topic', '/imu/data_uncalibrated')
         self.declare_parameter('raw_imu_frame', 'imu_link_raw')
@@ -206,8 +204,13 @@ class SafeBase(Node):
             float(self.get_parameter('serial_read_timeout').value)
         )
         self._dog.stop()
-        initial_speed_profile = self.get_parameter('speed_profile').value
-        self._set_speed_profile(initial_speed_profile, announce=False)
+        self._speed_level = 1
+        self._turn_level = 1
+        self._set_motion_levels(
+            speed_level=self.get_parameter('speed_level').value,
+            turn_level=self.get_parameter('turn_level').value,
+            announce=False,
+        )
         self.add_on_set_parameters_callback(self._parameters_changed)
         self._subscription = None
         if bool(self.get_parameter('accept_velocity_commands').value):
@@ -316,7 +319,8 @@ class SafeBase(Node):
 
         self.get_logger().info(
             'Safe base active: '
-            f'profile = {self._speed_profile}, '
+            f'speed level = {self._speed_level}, '
+            f'turn level = {self._turn_level}, '
             f'linear <= {self._max_linear:.2f}, '
             f'angular <= {self._max_angular:.2f}, '
             f'timeout = {self._command_timeout:.2f}s, '
@@ -336,45 +340,72 @@ class SafeBase(Node):
                 'disabled'
             )
 
-    def _set_speed_profile(self, profile, announce=True):
-        """Apply a Yahboom-compatible pace and velocity ceiling."""
-        if profile not in self.SPEED_PROFILES:
-            raise ValueError('speed_profile must be slow, normal, or high')
-        max_linear, max_angular, controller_pace, controller_step = (
-            self.SPEED_PROFILES[profile]
+    def _set_motion_levels(
+        self,
+        speed_level=None,
+        turn_level=None,
+        announce=True,
+    ):
+        """Apply independent bounded translation and turning levels."""
+        speed_level = normalize_speed_level(
+            self._speed_level if speed_level is None else speed_level
         )
-        self._dog.pace(controller_pace)
-        self._speed_profile = profile
-        self._max_linear = max_linear
-        self._max_angular = max_angular
+        turn_level = normalize_speed_level(
+            self._turn_level if turn_level is None else turn_level
+        )
+        speed_setting = self.SPEED_LEVELS[speed_level]
+        turn_setting = self.TURN_LEVELS[turn_level]
+        pace_setting = self.SPEED_LEVELS[max(speed_level, turn_level)]
+
+        self._dog.pace(pace_setting.controller_pace)
+        self._speed_level = speed_level
+        self._turn_level = turn_level
+        self._max_linear = speed_setting.max_linear
+        self._max_angular = turn_setting.max_angular
         if announce:
             self.get_logger().info(
-                f'Speed profile changed to {profile}: '
-                f'app-equivalent step {controller_step}, '
-                f'linear <= {max_linear:.3f}, '
-                f'angular <= {max_angular:.3f}'
+                f'Motion levels changed: speed={speed_level}, '
+                f'turn={turn_level}, '
+                f'linear <= {self._max_linear:.3f}, '
+                f'angular <= {self._max_angular:.3f}'
             )
 
     def _parameters_changed(self, parameters):
         """Apply bounded speed and posture changes through the serial owner."""
         requested = {}
         for parameter in parameters:
-            if parameter.name == 'speed_profile':
-                profile = str(parameter.value)
-                if profile not in self.SPEED_PROFILES:
+            if parameter.name == 'speed_level':
+                try:
+                    level = normalize_speed_level(parameter.value)
+                except ValueError as exc:
                     return SetParametersResult(
                         successful=False,
-                        reason='speed_profile must be slow, normal, or high',
+                        reason=str(exc),
                     )
-                if self._vision_control_enabled and profile != 'slow':
+                if self._vision_control_enabled and level != 1:
                     return SetParametersResult(
                         successful=False,
                         reason=(
-                            'armed vision control is locked to the slow '
-                            'speed profile'
+                            'armed vision control is locked to speed level 1'
                         ),
                     )
-                requested[parameter.name] = profile
+                requested['speed_level'] = level
+            elif parameter.name == 'turn_level':
+                try:
+                    level = normalize_speed_level(parameter.value)
+                except ValueError as exc:
+                    return SetParametersResult(
+                        successful=False,
+                        reason=str(exc),
+                    )
+                if self._vision_control_enabled and level != 1:
+                    return SetParametersResult(
+                        successful=False,
+                        reason=(
+                            'armed vision control is locked to turn level 1'
+                        ),
+                    )
+                requested['turn_level'] = level
             elif parameter.name == 'vision_control_enabled':
                 if bool(parameter.value) != self._vision_control_enabled:
                     return SetParametersResult(
@@ -418,8 +449,11 @@ class SafeBase(Node):
 
         self.stop()
         try:
-            if 'speed_profile' in requested:
-                self._set_speed_profile(requested['speed_profile'])
+            if 'speed_level' in requested or 'turn_level' in requested:
+                self._set_motion_levels(
+                    speed_level=requested.get('speed_level'),
+                    turn_level=requested.get('turn_level'),
+                )
             if 'body_height' in requested:
                 value = requested['body_height']
                 self._dog.translation('z', value)

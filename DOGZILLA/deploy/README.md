@@ -293,7 +293,7 @@ gate. `1.0` is the minimum scan-odometry path length in metres. Wait until it
 prints `Begin the route now.` In terminal 2, open slow keyboard control:
 
 ```bash
-dogzilla teleop slow
+dogzilla teleop 1
 ```
 
 Drive at least one metre, return within 0.75 m of the starting position, and
@@ -334,26 +334,32 @@ Open keyboard control:
 ./deploy/dogzilla-map teleop
 ```
 
-`teleop` opens the DOGZILLA keyboard menu with the Yahboom mobile app's
-normal/default speed: controller step 10 instead of the previous minimum step
-4. Use `w/s` to move forward/back, `a/d` to strafe, `q/e` to turn, and
-`Space` or `k` to stop. Press `1`, `2`, or `3` while it is open to switch to
-slow, normal, or high. The safety node still clamps motion and applies its
-0.6-second watchdog. When teleop closes, the operator command restores slow.
+`teleop` opens the DOGZILLA keyboard menu with movement and turning both at
+level `5`, matching the existing normal/default controller step 10. Use `w/s`
+to move forward/back, `a/d` to strafe, `q/e` to turn, and `Space` or `k` to
+stop. Press any number from `1` through `9` to change movement speed
+immediately. Press `-` to reduce turning one level and either `=` or shifted
+`+` to increase it one level. Movement and turning are independently clamped
+from level `1` through `9`; both return to level `1` when teleop closes. The
+safety node still applies its 0.6-second watchdog.
 
 The optional argument chooses the initial menu profile:
 
 ```bash
-./deploy/dogzilla-map teleop slow
-./deploy/dogzilla-map teleop normal
-./deploy/dogzilla-map teleop high
+./deploy/dogzilla-map teleop 1
+./deploy/dogzilla-map teleop 5
+./deploy/dogzilla-map teleop 9
 ```
 
-`slow`, `normal`, and `high` use controller steps 4, 10, and 20 respectively,
-along with the matching Yahboom pace command. Use `normal` for general driving.
-Use `slow` while prioritizing map quality. `high` is the controller maximum and
-can reduce scan-matching quality or make the robot unstable; test it only in a
-clear area with an immediate stop available.
+Levels `1`, `5`, and `9` preserve the previous slow, normal, and maximum
+settings at controller steps 4, 10, and 20. Intermediate levels use steps 6,
+7, 9, 13, 15, and 18. Use `5` for general driving and `1` while prioritizing
+map quality. Level `9` is the controller maximum and can reduce scan-matching
+quality or make the robot unstable; test it only in a clear area with an
+immediate stop available. Speed selection is numeric only; use levels `1`
+through `9` both on the command line and inside the live keyboard menu.
+The command-line level initializes both controls; afterward number keys change
+movement speed while `-` and `=`/`+` change turning speed independently.
 
 In controller-only `drive` mode, the same menu also provides:
 

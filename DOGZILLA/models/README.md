@@ -38,6 +38,21 @@ installation workflow is documented in
 all small floor objects because generic pretrained models are not a safety
 guarantee.
 
+When labeled training data is not available, the optional prompt-baked YOLOE
+model uses pretrained open-vocabulary weights:
+
+- `yoloe_small_hazards.onnx`
+- `yoloe_small_hazards.labels`
+
+Generate it with `training/pretrained_yoloe/export_yoloe.py`, then install it
+with `dogzilla object-model-yoloe-install MODEL LABELS`. Prompt baking is an
+export step, not training. The runtime validates the fixed 640x640
+segmentation graph through OpenCV and scans two overlapping floor crops in
+addition to the full frame. The model targets screws, nails, bolts, staples,
+needles, small blades, splinters, wire, and glass, ceramic, or metal shards.
+The segmentation mask output is intentionally ignored for now; patrol uses
+the model's bounding boxes and the configured floor polygon.
+
 The software reports missing coverage explicitly. It does not treat an absent
 class as evidence that the room is safe. Marked-area patrol also stays locked
 while any configured dangerous class is missing, the coverage metadata is

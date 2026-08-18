@@ -39,6 +39,8 @@ OBJECT_MODEL_SHA256="c789161ed43c8269fcd4e67c67eeeb4e80c622da2eb296a20bc6007bd18
 OPEN_IMAGES_MODEL_FILE="${OBJECT_MODEL_DIR}/yolov8n-oiv7.onnx"
 OPEN_IMAGES_MODEL_URL="https://github.com/CVHub520/X-AnyLabeling/releases/download/v2.3.7/yolov8n-oiv7.onnx"
 OPEN_IMAGES_MODEL_SHA256="73c1d27ff67f964b2c43965943fcaa608a09c29a9ea90ff4ef59779c12222870"
+YOLOE_MODEL_FILE="${OBJECT_MODEL_DIR}/yoloe_small_hazards.onnx"
+YOLOE_LABELS_FILE="${OBJECT_MODEL_DIR}/yoloe_small_hazards.labels"
 
 compose() {
     docker compose \
@@ -49,7 +51,7 @@ compose() {
 
 usage() {
     printf '%s\n' \
-        'Usage: ./deploy/dogzilla-map COMMAND [ARGUMENTS]' \
+        'Usage: dogzilla COMMAND [ARGUMENTS]' \
         '' \
         'Commands:' \
         '  doctor                Check Docker, devices, display, and disk space.' \
@@ -69,6 +71,8 @@ usage() {
         '  object-model-install  Install the pinned OpenCV-DNN base model.' \
         '  object-model-custom-install MODEL LABELS' \
         '                        Validate and atomically install custom weights.' \
+        '  object-model-yoloe-install MODEL LABELS' \
+        '                        Install a prompt-baked pretrained YOLOE export.' \
         '  object-model-status   Show base/custom class coverage readiness.' \
         '  object-check LABEL [SECONDS] [--floor]' \
         '                        Require repeated live camera detections.' \
@@ -90,12 +94,12 @@ usage() {
         '  navigate [MAP] [--rviz|--headless] [--imu]' \
         '                        Localize and start conservative Nav2 planning.' \
         '  mission [start] [MAP] [--rviz|--headless] [--imu]' \
-        '                        Start Nav2 and the web dashboard together.' \
+        '                        Start Nav2, hazard vision, and the web dashboard.' \
         '  mission status|logs|token|stop' \
         '                        Inspect or stop the managed mission session.' \
         '  status                Show container and ROS topic status.' \
-        '  teleop [slow|normal|high]' \
-        '                        Open keyboard control; default is normal.' \
+        '  teleop [1-9]' \
+        '                        Number keys set movement; - and + tune turning.' \
         '  rviz                  Open RViz on the current Pi desktop.' \
         '  shadow-rviz           Open the independent RTAB shadow map view.' \
         '  save MAP_NAME         Save MAP_NAME.pbstream/.pgm/.yaml to maps/.' \
@@ -135,7 +139,7 @@ assert_mission_allows_start() {
     if [[ -f "${MISSION_STATE_FILE}" \
         && "${DOGZILLA_MISSION_START:-0}" != 1 ]]; then
         printf 'A managed Mission Mode session is still recorded.\n' >&2
-        printf 'Run "./deploy/dogzilla-map mission stop" before starting another mode.\n' >&2
+        printf 'Run "dogzilla mission stop" before starting another mode.\n' >&2
         exit 1
     fi
 }
@@ -432,7 +436,7 @@ run_servo_mode() {
         || shadow_is_running || vision_device_is_running; then
         printf 'Stop mapping, localization, or drive mode before using %s.\n' \
             "${mode}" >&2
-        printf 'Run "./deploy/dogzilla-map stop" first.\n' >&2
+        printf 'Run "dogzilla stop" first.\n' >&2
         exit 1
     fi
 
@@ -470,7 +474,7 @@ run_firmware_rest_capture() {
     if container_is_running || drive_is_running || navigation_is_running \
         || shadow_is_running || vision_device_is_running; then
         printf 'Stop mapping, localization, navigation, or drive mode first.\n' >&2
-        printf 'Run "./deploy/dogzilla-map stop" first.\n' >&2
+        printf 'Run "dogzilla stop" first.\n' >&2
         exit 1
     fi
 
@@ -583,7 +587,7 @@ configure_start_options() {
 require_valid_imu_calibration() {
     if [[ ! -f "${CALIBRATION_FILE}" ]]; then
         printf 'IMU fusion requires %s.\n' "${CALIBRATION_FILE}" >&2
-        printf 'Run "./deploy/dogzilla-map imu-calibrate" first.\n' >&2
+        printf 'Run "dogzilla imu-calibrate" first.\n' >&2
         exit 1
     fi
 
@@ -666,7 +670,7 @@ start_mapping() {
     if drive_is_running || navigation_is_running || shadow_is_running \
         || vision_device_is_running; then
         printf 'Another DOGZILLA mode is running. Stop it before mapping.\n' >&2
-        printf 'Run "./deploy/dogzilla-map stop" first.\n' >&2
+        printf 'Run "dogzilla stop" first.\n' >&2
         exit 1
     fi
     configure_start_options "$@"
@@ -707,8 +711,8 @@ start_mapping() {
     fi
     printf 'ROS log session: logs/sessions/%s (logs/latest).\n' \
         "${DOGZILLA_LOG_SESSION}"
-    printf 'Use "./deploy/dogzilla-map status" to check /scan and /map.\n'
-    printf 'Use "./deploy/dogzilla-map logs" to watch Cartographer.\n'
+    printf 'Use "dogzilla status" to check /scan and /map.\n'
+    printf 'Use "dogzilla logs" to watch Cartographer.\n'
 }
 
 start_visual_shadow() {
@@ -716,7 +720,7 @@ start_visual_shadow() {
     if container_is_running || drive_is_running || navigation_is_running \
         || shadow_is_running || vision_device_is_running; then
         printf 'Another DOGZILLA mode is running. Stop it before shadow mode.\n' >&2
-        printf 'Run "./deploy/dogzilla-map stop" first.\n' >&2
+        printf 'Run "dogzilla stop" first.\n' >&2
         exit 1
     fi
     if [[ ! -c /dev/video0 ]]; then
@@ -763,7 +767,7 @@ start_visual_shadow() {
     printf 'Calibrated visual shadow mode started.\n'
     printf 'RTAB database: logs/sessions/%s/rtabmap_mono_shadow.db\n' \
         "${DOGZILLA_LOG_SESSION}"
-    printf 'Run "./deploy/dogzilla-map shadow-check 10" before moving.\n'
+    printf 'Run "dogzilla shadow-check 10" before moving.\n'
 }
 
 validate_vision_mode() {
@@ -902,6 +906,58 @@ install_custom_object_model() {
         "${OBJECT_MODEL_DIR}/dogzilla_custom.onnx"
     printf '%s\n' \
         'Installed validated custom YOLOv8 model.' \
+        'Run "dogzilla object-model-status" to confirm class coverage.'
+}
+
+install_yoloe_object_model() {
+    if (($# != 2)); then
+        printf '%s\n' \
+            'Usage: dogzilla object-model-yoloe-install MODEL LABELS' >&2
+        return 2
+    fi
+    if vision_device_is_running; then
+        printf '%s\n' \
+            'Stop Mission Mode or vision before replacing object weights.' >&2
+        return 1
+    fi
+
+    local source_model source_labels candidate_model candidate_labels
+    if ! source_model="$(realpath -e -- "$1")" \
+        || [[ ! -f "${source_model}" ]]; then
+        printf 'YOLOE ONNX model does not exist: %s\n' "$1" >&2
+        return 1
+    fi
+    if ! source_labels="$(realpath -e -- "$2")" \
+        || [[ ! -f "${source_labels}" ]]; then
+        printf 'YOLOE labels file does not exist: %s\n' "$2" >&2
+        return 1
+    fi
+    candidate_model="${OBJECT_MODEL_DIR}/.yoloe-candidate-$$.onnx"
+    candidate_labels="${OBJECT_MODEL_DIR}/.yoloe-candidate-$$.labels"
+    cp -- "${source_model}" "${candidate_model}"
+    cp -- "${source_labels}" "${candidate_labels}"
+    chmod 0644 "${candidate_model}" "${candidate_labels}"
+
+    if ! docker run --rm --network none \
+        --volume "${REPO_ROOT}/ros2/dogzilla_slam:/workspace:ro" \
+        --volume "${OBJECT_MODEL_DIR}:/models:ro" \
+        --workdir /workspace \
+        "${IMAGE_NAME}" \
+        bash -lc \
+        'source /opt/ros/humble/setup.bash &&
+         PYTHONPATH=/workspace python3 -m dogzilla_slam.object_model_validate \
+         "$1" "$2" --model-format yoloe' \
+        bash "/models/$(basename -- "${candidate_model}")" \
+        "/models/$(basename -- "${candidate_labels}")"; then
+        rm -f -- "${candidate_model}" "${candidate_labels}"
+        printf 'The active YOLOE model was not changed.\n' >&2
+        return 1
+    fi
+
+    mv -f -- "${candidate_labels}" "${YOLOE_LABELS_FILE}"
+    mv -f -- "${candidate_model}" "${YOLOE_MODEL_FILE}"
+    printf '%s\n' \
+        'Installed validated prompt-baked YOLOE model.' \
         'Run "dogzilla object-model-status" to confirm class coverage.'
 }
 
@@ -1085,6 +1141,18 @@ show_object_model_status() {
             'Custom model: not installed.' \
             'Small engineering hardware coverage remains incomplete.'
     fi
+    if [[ -s "${YOLOE_MODEL_FILE}" && -s "${YOLOE_LABELS_FILE}" ]]; then
+        printf 'Pretrained YOLOE small-hazard model: present.\n'
+        printf 'YOLOE labels: '
+        tr '\n' ',' < "${YOLOE_LABELS_FILE}" | sed 's/,$/\n/'
+    elif [[ -e "${YOLOE_MODEL_FILE}" || -e "${YOLOE_LABELS_FILE}" ]]; then
+        printf '%s\n' \
+            'YOLOE model: incomplete; both .onnx and .labels are required.'
+    else
+        printf '%s\n' \
+            'Pretrained YOLOE small-hazard model: not installed.' \
+            'See training/pretrained_yoloe/README.md; no training is required.'
+    fi
 }
 
 require_object_model() {
@@ -1168,7 +1236,7 @@ start_vision() {
         "${mode}" "${color}"
     printf 'Robot action output is disabled; no serial device is exposed.\n'
     printf 'The authenticated Vision Lab dashboard is starting automatically.\n'
-    printf 'Run "./deploy/dogzilla-web show-token" for its login token.\n'
+    printf 'Run "dogzilla mission token" for its login token.\n'
 }
 
 start_vision_control() {
@@ -1235,7 +1303,7 @@ start_vision_control() {
     printf 'ARMED Vision Control started: mode=%s, color=%s.\n' \
         "${mode}" "${color}"
     printf 'LiDAR is off. Run "dogzilla stop" to disarm and stop immediately.\n'
-    printf 'Run "./deploy/dogzilla-web show-token" for the dashboard token.\n'
+    printf 'Run "dogzilla mission token" for the dashboard token.\n'
 }
 
 set_vision_mode() {
@@ -1768,7 +1836,7 @@ start_drive() {
     if container_is_running || navigation_is_running || shadow_is_running \
         || vision_device_is_running; then
         printf 'Mapping/localization is running. Stop it before drive mode.\n' >&2
-        printf 'Run "./deploy/dogzilla-map stop" first.\n' >&2
+        printf 'Run "dogzilla stop" first.\n' >&2
         exit 1
     fi
     stop_vendor_application
@@ -1797,7 +1865,7 @@ start_drive() {
     printf 'LiDAR, Cartographer, map generation, and RViz are not running.\n'
     printf 'ROS log session: logs/sessions/%s (logs/latest).\n' \
         "${DOGZILLA_LOG_SESSION}"
-    printf 'Run "./deploy/dogzilla-map teleop" to drive.\n'
+    printf 'Run "dogzilla teleop" to drive.\n'
 }
 
 configure_navigation_options() {
@@ -1858,7 +1926,7 @@ start_navigation() {
     if container_is_running || drive_is_running || shadow_is_running \
         || vision_device_is_running; then
         printf 'Mapping or drive mode is running. Stop it first.\n' >&2
-        printf 'Run "./deploy/dogzilla-map stop" first.\n' >&2
+        printf 'Run "dogzilla stop" first.\n' >&2
         exit 1
     fi
     configure_navigation_options "${mode}" "$@"
@@ -1909,7 +1977,7 @@ run_imu_calibration() {
     if container_is_running || drive_is_running || navigation_is_running \
         || shadow_is_running || vision_device_is_running; then
         printf 'Stop every DOGZILLA mode before IMU calibration.\n' >&2
-        printf 'Run "./deploy/dogzilla-map stop" first.\n' >&2
+        printf 'Run "dogzilla stop" first.\n' >&2
         exit 1
     fi
 
@@ -2014,19 +2082,19 @@ show_status() {
     '
 }
 
-set_speed_profile() {
+reset_motion_levels() {
     local control_service="$1"
-    local speed_profile="$2"
     compose exec --no-TTY "${control_service}" bash -lc '
         source /opt/ros/humble/setup.bash
         source /root/yahboomcar_ws/install/setup.bash
         export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-12}"
-        ros2 param set /dogzilla_safe_base speed_profile "$1"
-    ' _ "${speed_profile}"
+        ros2 param set /dogzilla_safe_base speed_level 1
+        ros2 param set /dogzilla_safe_base turn_level 1
+    '
 }
 
 open_teleop() {
-    local speed_profile="${1:-normal}"
+    local speed_level="${1:-5}"
     local control_service
     local output_topic='/cmd_vel'
     local posture_controls=false
@@ -2042,11 +2110,11 @@ open_teleop() {
         printf 'Run "dogzilla stop", then "dogzilla drive" for teleop.\n' >&2
         exit 1
     fi
-    case "${speed_profile}" in
-        slow|normal|high)
+    case "${speed_level}" in
+        [1-9])
             ;;
         *)
-            printf 'Teleop speed must be slow, normal, or high.\n' >&2
+            printf 'Teleop speed level must be a whole number from 1 to 9.\n' >&2
             exit 1
             ;;
     esac
@@ -2057,12 +2125,13 @@ open_teleop() {
         output_topic='/cmd_vel_teleop'
     fi
 
-    printf 'Initial teleop speed profile: %s\n' "${speed_profile}"
-    printf 'Press 1, 2, or 3 in teleop to change speed live.\n'
+    printf 'Initial teleop speed level: %s\n' "${speed_level}"
+    printf 'Press any number from 1 to 9 in teleop to change speed live.\n'
+    printf 'Press - to turn slower, or = / + to turn faster.\n'
     if [[ "${posture_controls}" == true ]]; then
         printf 'Body height and look controls are enabled in drive mode.\n'
     fi
-    printf 'The controller returns to slow when teleop closes.\n'
+    printf 'Movement and turning return to level 1 when teleop closes.\n'
 
     set +e
     compose exec "${control_service}" bash -lc '
@@ -2070,16 +2139,16 @@ open_teleop() {
         source /root/yahboomcar_ws/install/setup.bash
         export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-12}"
         ros2 run dogzilla_slam teleop --ros-args \
-            -p "initial_profile:=$1" \
+            -p "initial_level:=$1" \
             -p "output_topic:=$2" \
             -p "posture_controls:=$3"
-    ' _ "${speed_profile}" "${output_topic}" "${posture_controls}"
+    ' _ "${speed_level}" "${output_topic}" "${posture_controls}"
     teleop_status=$?
     set -e
 
     if service_is_running "${control_service}" \
-        && ! set_speed_profile "${control_service}" slow; then
-        printf 'Warning: could not restore the slow speed profile.\n' >&2
+        && ! reset_motion_levels "${control_service}"; then
+        printf 'Warning: could not restore safe motion levels.\n' >&2
         return 1
     fi
     return "${teleop_status}"
@@ -2342,6 +2411,9 @@ main() {
         object-model-custom-install)
             install_custom_object_model "${@:2}"
             ;;
+        object-model-yoloe-install)
+            install_yoloe_object_model "${@:2}"
+            ;;
         object-model-status)
             show_object_model_status
             ;;
@@ -2385,7 +2457,7 @@ main() {
             show_status
             ;;
         teleop)
-            open_teleop "${2:-normal}"
+            open_teleop "${2:-5}"
             ;;
         rviz)
             open_rviz

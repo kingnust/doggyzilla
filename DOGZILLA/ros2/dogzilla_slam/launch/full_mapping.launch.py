@@ -26,7 +26,8 @@ def generate_launch_description():
     max_linear = LaunchConfiguration('max_linear')
     max_angular = LaunchConfiguration('max_angular')
     command_timeout = LaunchConfiguration('command_timeout')
-    speed_profile = LaunchConfiguration('speed_profile')
+    speed_level = LaunchConfiguration('speed_level')
+    turn_level = LaunchConfiguration('turn_level')
     resolution = LaunchConfiguration('resolution')
     rviz = LaunchConfiguration('rviz')
     use_imu = LaunchConfiguration('use_imu')
@@ -37,7 +38,8 @@ def generate_launch_description():
         DeclareLaunchArgument('max_linear', default_value='0.10'),
         DeclareLaunchArgument('max_angular', default_value='0.30'),
         DeclareLaunchArgument('command_timeout', default_value='0.60'),
-        DeclareLaunchArgument('speed_profile', default_value='slow'),
+        DeclareLaunchArgument('speed_level', default_value='1'),
+        DeclareLaunchArgument('turn_level', default_value='1'),
         DeclareLaunchArgument('resolution', default_value='0.05'),
         DeclareLaunchArgument('rviz', default_value='false'),
         DeclareLaunchArgument('use_imu', default_value='false'),
@@ -55,7 +57,8 @@ def generate_launch_description():
                 'max_linear': max_linear,
                 'max_angular': max_angular,
                 'command_timeout': command_timeout,
-                'speed_profile': speed_profile,
+                'speed_level': speed_level,
+                'turn_level': turn_level,
                 'use_imu': use_imu,
             }.items(),
         ),

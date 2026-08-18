@@ -11,18 +11,15 @@ from rcl_interfaces.srv import SetParameters
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 
+from .speed_control import MAXIMUM_SPEED_LEVEL
+from .speed_control import MINIMUM_SPEED_LEVEL
+from .speed_control import NORMAL_SPEED_LEVEL
+from .speed_control import normalize_speed_level
+from .speed_control import SPEED_LEVELS
+from .speed_control import TURN_LEVELS
 
-SPEED_PROFILES = {
-    'slow': (0.10, 0.30),
-    'normal': (0.25, 1.125),
-    'high': (0.50, 1.75),
-}
-
-PROFILE_KEYS = {
-    '1': 'slow',
-    '2': 'normal',
-    '3': 'high',
-}
+SPEED_KEYS = frozenset(str(level) for level in SPEED_LEVELS)
+TURN_KEYS = {'-': -1, '=': 1, '+': 1}
 
 MOTION_KEYS = {
     'w': (1.0, 0.0, 0.0),
@@ -42,7 +39,8 @@ DOGZILLA keyboard control
    q         e         turn left / right
 
    Space or k           stop now
-   1 / 2 / 3            slow / normal / high
+   1 ... 9              set movement speed; 1 slow, 5 normal, 9 fast
+   - / = or +           decrease / increase turning speed
    x                    stop and exit
 
 Keep pressing a movement key to continue moving. Releasing it lets the
@@ -80,12 +78,23 @@ def next_posture(key, height, pitch, yaw):
     return height, pitch, yaw
 
 
+def next_turn_level(level, direction):
+    """Return one bounded turn-level step for -1 or +1."""
+    level = normalize_speed_level(level)
+    if direction not in (-1, 1):
+        raise ValueError('turn-level direction must be -1 or 1')
+    return max(
+        MINIMUM_SPEED_LEVEL,
+        min(MAXIMUM_SPEED_LEVEL, level + direction),
+    )
+
+
 class DogzillaTeleop(Node):
-    """Publish bounded commands and change the safe-base speed profile."""
+    """Publish bounded commands and change the safe-base speed level."""
 
     def __init__(self):
         super().__init__('dogzilla_teleop')
-        self.declare_parameter('initial_profile', 'normal')
+        self.declare_parameter('initial_level', NORMAL_SPEED_LEVEL)
         self.declare_parameter('output_topic', '/cmd_vel')
         self.declare_parameter('posture_controls', False)
         self._publisher = self.create_publisher(
@@ -97,7 +106,8 @@ class DogzillaTeleop(Node):
             SetParameters,
             '/dogzilla_safe_base/set_parameters',
         )
-        self._profile = 'slow'
+        self._speed_level = 1
+        self._turn_level = 1
         self._posture_controls = bool(
             self.get_parameter('posture_controls').value
         )
@@ -126,24 +136,63 @@ class DogzillaTeleop(Node):
             return False
         return True
 
-    def set_profile(self, profile):
-        """Apply one profile to both this publisher and the serial bridge."""
-        if profile not in SPEED_PROFILES:
-            raise ValueError('profile must be slow, normal, or high')
+    def set_speed_level(self, value):
+        """Apply one 1-9 translation level to the serial bridge."""
+        level = normalize_speed_level(value)
         if not self.set_remote_parameters([
             Parameter(
-                'speed_profile',
-                Parameter.Type.STRING,
-                profile,
+                'speed_level',
+                Parameter.Type.INTEGER,
+                level,
             ),
-        ], 'speed profile'):
+        ], 'speed level'):
             return False
 
-        self._profile = profile
-        linear, angular = SPEED_PROFILES[profile]
+        self._speed_level = level
+        setting = SPEED_LEVELS[level]
         print(
-            f'Profile: {profile} '
-            f'(linear {linear:.2f} m/s, angular {angular:.3f} rad/s)'
+            f'Speed {level}: {setting.label} '
+            f'(step {setting.controller_step}, '
+            f'linear {setting.max_linear:.3f} m/s)'
+        )
+        return True
+
+    def set_initial_levels(self, value):
+        """Apply the same startup level to translation and turning."""
+        level = normalize_speed_level(value)
+        if not self.set_remote_parameters([
+            Parameter('speed_level', Parameter.Type.INTEGER, level),
+            Parameter('turn_level', Parameter.Type.INTEGER, level),
+        ], 'initial motion levels'):
+            return False
+
+        self._speed_level = level
+        self._turn_level = level
+        speed_setting = SPEED_LEVELS[level]
+        turn_setting = TURN_LEVELS[level]
+        print(
+            f'Initial levels: movement {level}, turning {level} '
+            f'(linear {speed_setting.max_linear:.3f} m/s, '
+            f'angular {turn_setting.max_angular:.3f} rad/s)'
+        )
+        return True
+
+    def adjust_turn_level(self, direction):
+        """Increase or decrease the independent turning level by one."""
+        level = next_turn_level(self._turn_level, direction)
+        if level == self._turn_level:
+            print(f'Turning level {level}.')
+            return True
+        if not self.set_remote_parameters([
+            Parameter('turn_level', Parameter.Type.INTEGER, level),
+        ], 'turning level'):
+            return False
+
+        self._turn_level = level
+        setting = TURN_LEVELS[level]
+        print(
+            f'Turning level {level}: '
+            f'{setting.max_angular:.3f} rad/s'
         )
         return True
 
@@ -190,11 +239,12 @@ class DogzillaTeleop(Node):
 
     def move(self, linear_x, linear_y, angular_z):
         """Publish one command; safe_base applies final clamps and timeout."""
-        max_linear, max_angular = SPEED_PROFILES[self._profile]
+        speed_setting = SPEED_LEVELS[self._speed_level]
+        turn_setting = TURN_LEVELS[self._turn_level]
         message = Twist()
-        message.linear.x = linear_x * max_linear
-        message.linear.y = linear_y * max_linear
-        message.angular.z = angular_z * max_angular
+        message.linear.x = linear_x * speed_setting.max_linear
+        message.linear.y = linear_y * speed_setting.max_linear
+        message.angular.z = angular_z * turn_setting.max_angular
         self._publisher.publish(message)
 
     def stop(self):
@@ -220,11 +270,11 @@ def main(args=None):
     exit_status = 0
 
     try:
-        initial_profile = str(
-            node.get_parameter('initial_profile').value
-        ).lower()
-        if not node.set_profile(initial_profile):
-            raise RuntimeError('safe-base speed setup failed')
+        initial_level = normalize_speed_level(
+            node.get_parameter('initial_level').value
+        )
+        if not node.set_initial_levels(initial_level):
+            raise RuntimeError('safe-base motion-level setup failed')
         print(MENU)
         if node._posture_controls:
             print(POSTURE_MENU)
@@ -244,8 +294,10 @@ def main(args=None):
             elif key in (' ', 'k'):
                 node.stop()
                 print('Stopped.')
-            elif key in PROFILE_KEYS:
-                node.set_profile(PROFILE_KEYS[key])
+            elif key in SPEED_KEYS:
+                node.set_speed_level(key)
+            elif key in TURN_KEYS:
+                node.adjust_turn_level(TURN_KEYS[key])
             elif key in ('r', 'f', 'i', 'j', 'l', ',', 'c'):
                 node.change_posture(key)
             elif key == 'x':
