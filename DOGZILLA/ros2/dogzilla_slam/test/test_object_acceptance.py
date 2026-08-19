@@ -98,6 +98,23 @@ class ObjectAcceptanceTest(unittest.TestCase):
         with self.assertRaisesRegex(AcceptanceError, 'contradicts policy'):
             session.accept_detections(bad)
 
+    def test_patrol_acceptance_ignores_valid_anonymous_face_boxes(self):
+        session = ObjectAcceptanceSession('hammer', minimum_hits=1)
+        session.accept_status(status('hammer', 'person'))
+        payload = frame(1)
+        payload['mode'] = 'patrol'
+        payload['detections'].append({
+            'kind': 'face',
+            'box': [100, 80, 40, 40],
+            'x_px': 120.0,
+            'y_px': 100.0,
+            'radius_px': 28.28,
+            'error_x': -0.625,
+            'error_y': -0.5833,
+        })
+
+        self.assertTrue(session.accept_detections(payload))
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -5,6 +5,7 @@ import unittest
 import numpy as np
 
 from dogzilla_slam.object_detector import canonical_label
+from dogzilla_slam.object_detector import DANGEROUS_CLASSES
 from dogzilla_slam.object_detector import DetectorMetadata
 from dogzilla_slam.object_detector import ENGINEERING_CLASSES
 from dogzilla_slam.object_detector import GENERAL_INDOOR_CLASSES
@@ -12,6 +13,7 @@ from dogzilla_slam.object_detector import load_labels
 from dogzilla_slam.object_detector import ObjectDetectorError
 from dogzilla_slam.object_detector import ObjectPerception
 from dogzilla_slam.object_detector import OPEN_IMAGES_V7_RELEVANT_CLASSES
+from dogzilla_slam.object_detector import REQUIRED_DANGEROUS_CLASSES
 from dogzilla_slam.object_detector import SMALL_FLOOR_HAZARD_CLASSES
 from dogzilla_slam.object_detector import validate_detection_payload
 from dogzilla_slam.object_detector import YoloV8OpenCvDetector
@@ -113,6 +115,34 @@ class ObjectDetectorTest(unittest.TestCase):
         bottle = detections[1]
         self.assertFalse(bottle['dangerous'])
         self.assertFalse(bottle['floor_hazard'])
+
+    def test_requested_engineering_and_indoor_hazards_are_dangerous(self):
+        requested = {
+            'hammer',
+            'wrench',
+            'screwdriver',
+            'pliers',
+            'scissors',
+            'utility knife',
+            'drill',
+            'nut',
+            'washer',
+            'gear',
+            'bearing',
+            'spring',
+            'circuit board',
+            'electrical connector',
+            'broken glass',
+            'metal shaving',
+            'loose cable',
+            'puddle',
+            'exposed wire',
+            'battery',
+        }
+        canonical = {canonical_label(label) for label in requested}
+
+        self.assertTrue(canonical.issubset(DANGEROUS_CLASSES))
+        self.assertTrue(canonical.issubset(REQUIRED_DANGEROUS_CLASSES))
 
     def test_payload_validator_rejects_model_supplied_policy_lies(self):
         valid = {

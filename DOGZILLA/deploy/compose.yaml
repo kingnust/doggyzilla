@@ -244,6 +244,12 @@ services:
       - mode:=${DOGZILLA_VISION_MODE:-raw}
       - color:=${DOGZILLA_VISION_COLOR:-red}
       - process_hz:=${DOGZILLA_VISION_RATE:-10.0}
+      - danger_minimum_confidence:=${DOGZILLA_DANGER_CONFIDENCE:-0.65}
+      - danger_minimum_observations:=${DOGZILLA_DANGER_OBSERVATIONS:-3}
+      - danger_minimum_duration_seconds:=${DOGZILLA_DANGER_DURATION:-0.8}
+      - danger_minimum_iou:=${DOGZILLA_DANGER_IOU:-0.35}
+      - danger_maximum_gap_seconds:=${DOGZILLA_DANGER_MAX_GAP:-1.5}
+      - danger_cooldown_seconds:=${DOGZILLA_DANGER_COOLDOWN:-8.0}
     stop_signal: SIGINT
     stop_grace_period: 20s
     healthcheck:
@@ -255,7 +261,7 @@ services:
           topics="$$(ros2 topic list --no-daemon --spin-time 2)" &&
           nodes="$$(ros2 node list --no-daemon --spin-time 2)" &&
           for topic in /camera/image_raw /vision/status /vision/detections
-          /vision/annotated/compressed; do
+          /vision/danger_confirmed /vision/annotated/compressed; do
           grep -qx "$${topic}" <<< "$${topics}" || exit 1; done &&
           grep -qx /dogzilla_vision <<< "$${nodes}" &&
           timeout 5 ros2 topic echo /vision/detections
@@ -304,7 +310,8 @@ services:
           topics="$$(ros2 topic list --no-daemon --spin-time 2)" &&
           nodes="$$(ros2 node list --no-daemon --spin-time 2)" &&
           for topic in /camera/image_raw /vision/status /vision/detections
-          /vision/annotated/compressed /vision/action_status /battery_state
+          /vision/danger_confirmed /vision/annotated/compressed
+          /vision/action_status /battery_state
           /joint_states; do
           grep -qx "$${topic}" <<< "$${topics}" || exit 1; done &&
           grep -qx /dogzilla_vision <<< "$${nodes}" &&
@@ -339,10 +346,16 @@ services:
       - vision.launch.py
       - camera_enabled:=true
       - camera_info_url:=file:///calibration/camera.temporary.yaml
-      - mode:=floor-hazards
+      - mode:=patrol
       - color:=red
       - process_hz:=10.0
       - object_process_hz:=${DOGZILLA_OBJECT_RATE:-2.0}
+      - danger_minimum_confidence:=${DOGZILLA_DANGER_CONFIDENCE:-0.65}
+      - danger_minimum_observations:=${DOGZILLA_DANGER_OBSERVATIONS:-3}
+      - danger_minimum_duration_seconds:=${DOGZILLA_DANGER_DURATION:-0.8}
+      - danger_minimum_iou:=${DOGZILLA_DANGER_IOU:-0.35}
+      - danger_maximum_gap_seconds:=${DOGZILLA_DANGER_MAX_GAP:-1.5}
+      - danger_cooldown_seconds:=${DOGZILLA_DANGER_COOLDOWN:-8.0}
     stop_signal: SIGINT
     stop_grace_period: 20s
     healthcheck:
@@ -355,8 +368,11 @@ services:
           grep -qx /dogzilla_vision <<< "$${nodes}" &&
           status="$$(timeout 6 ros2 topic echo /vision/status
           --no-daemon --spin-time 2 --once --field data)" &&
-          grep -q '"'"'"mode":"floor-hazards"'"'"' <<< "$${status}" &&
-          grep -q '"'"'"ready":true'"'"' <<< "$${status}"'
+          grep -q '"'"'"mode":"patrol"'"'"' <<< "$${status}" &&
+          grep -q '"'"'"ready":true'"'"' <<< "$${status}" &&
+          grep -q '"'"'"person_detection_ready":true'"'"' <<< "$${status}" &&
+          grep -q '"'"'"face_detection":{"ready":true'"'"' <<< "$${status}" &&
+          grep -q '"'"'"topic":"/vision/danger_confirmed"'"'"' <<< "$${status}"'
       interval: 10s
       timeout: 15s
       retries: 5
@@ -380,9 +396,10 @@ services:
       DOGZILLA_WEB_MIN_BATTERY: ${DOGZILLA_WEB_MIN_BATTERY:-28}
       DOGZILLA_WEB_OCCUPIED_THRESHOLD: ${DOGZILLA_WEB_OCCUPIED_THRESHOLD:-50}
       DOGZILLA_WEB_GOAL_CLEARANCE: ${DOGZILLA_WEB_GOAL_CLEARANCE:-0.18}
-      DOGZILLA_WEB_HAZARD_CONFIDENCE: ${DOGZILLA_WEB_HAZARD_CONFIDENCE:-0.55}
-      DOGZILLA_WEB_HAZARD_CONFIRMATIONS: ${DOGZILLA_WEB_HAZARD_CONFIRMATIONS:-3}
+      DOGZILLA_WEB_KEEPOUT_CLEARANCE: ${DOGZILLA_WEB_KEEPOUT_CLEARANCE:-0.32}
       DOGZILLA_WEB_DATABASE: /data/tasks.sqlite3
+      DOGZILLA_WEB_ALERT_DIRECTORY: /data/alerts
+      DOGZILLA_WEB_ALERT_COOLDOWN: ${DOGZILLA_WEB_ALERT_COOLDOWN:-30}
     volumes:
       - ./web/data:/data
       - ./logs:/logs

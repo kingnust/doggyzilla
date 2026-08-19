@@ -13,6 +13,7 @@ from std_msgs.msg import String
 
 from .object_detector import canonical_label
 from .object_detector import validate_detection_payload
+from .vision_core import validate_face_detection_payload
 
 
 LABEL_PATTERN = re.compile(r'^[a-z][a-z0-9 ]{0,39}$')
@@ -111,9 +112,12 @@ class ObjectAcceptanceSession:
         """Count at most one qualifying hit from each unique camera frame."""
         if not isinstance(payload, dict):
             raise AcceptanceError('vision detections must be a JSON object')
-        if payload.get('mode') not in {'objects', 'floor-hazards'}:
+        if payload.get('mode') not in {
+            'objects', 'dangerous-objects', 'floor-hazards', 'patrol'
+        }:
             raise AcceptanceError(
-                'vision mode must be objects or floor-hazards'
+                'vision mode must be objects, dangerous-objects, '
+                'floor-hazards, or patrol'
             )
         sequence = payload.get('sequence')
         if not isinstance(sequence, int) or sequence < 1:
@@ -128,6 +132,14 @@ class ObjectAcceptanceSession:
         if not isinstance(values, list):
             raise AcceptanceError('vision detections must be a list')
         for value in values:
+            if payload.get('mode') == 'patrol' and isinstance(
+                value, dict
+            ) and value.get('kind') == 'face':
+                try:
+                    validate_face_detection_payload(value)
+                except (TypeError, ValueError) as exc:
+                    raise AcceptanceError(str(exc)) from exc
+                continue
             try:
                 detection = validate_detection_payload(value)
             except (TypeError, ValueError) as exc:

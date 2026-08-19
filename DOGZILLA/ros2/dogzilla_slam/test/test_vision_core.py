@@ -4,8 +4,11 @@ import cv2
 import numpy as np
 
 from dogzilla_slam.vision_core import COLOR_PRESETS
+from dogzilla_slam.vision_core import DangerConfirmationTracker
 from dogzilla_slam.vision_core import QR_ACTIONS
 from dogzilla_slam.vision_core import validate_request
+from dogzilla_slam.vision_core import validate_danger_confirmation
+from dogzilla_slam.vision_core import validate_face_detection_payload
 from dogzilla_slam.vision_core import VisionConfigurationError
 from dogzilla_slam.vision_core import VisionProcessor
 
@@ -17,11 +20,12 @@ class FakeObjectPerception:
     @staticmethod
     def coverage():
         return {
-            'requested_classes': ['bottle', 'knife'],
-            'covered_classes': ['bottle', 'knife'],
+            'requested_classes': ['bottle', 'knife', 'person'],
+            'covered_classes': ['bottle', 'knife', 'person'],
             'missing_classes': [],
             'missing_dangerous_classes': [],
             'dangerous_coverage_complete': True,
+            'person_detection_ready': True,
             'models': ['fixture'],
         }
 
@@ -158,7 +162,9 @@ class VisionCoreTest(unittest.TestCase):
             'line',
             'line-follow',
             'objects',
+            'dangerous-objects',
             'floor-hazards',
+            'patrol',
         ):
             with self.subTest(mode=mode):
                 _, result = VisionProcessor(mode=mode).process(frame)
@@ -180,6 +186,16 @@ class VisionCoreTest(unittest.TestCase):
             },
             {
                 'kind': 'object',
+                'label': 'person',
+                'confidence': 0.91,
+                'box': [300, 80, 100, 260],
+                'floor_candidate': False,
+                'floor_hazard': False,
+                'dangerous': False,
+                'small_floor_hazard': False,
+            },
+            {
+                'kind': 'object',
                 'label': 'bottle',
                 'confidence': 0.71,
                 'box': [10, 20, 30, 80],
@@ -195,16 +211,156 @@ class VisionCoreTest(unittest.TestCase):
             mode='objects',
             object_perception=perception,
         ).process(np.zeros((480, 640, 3), dtype=np.uint8))
+        _, dangerous_only = VisionProcessor(
+            mode='dangerous-objects',
+            object_perception=perception,
+        ).process(np.zeros((480, 640, 3), dtype=np.uint8))
         _, floor_only = VisionProcessor(
             mode='floor-hazards',
             object_perception=perception,
         ).process(np.zeros((480, 640, 3), dtype=np.uint8))
+        patrol_processor = VisionProcessor(
+            mode='patrol',
+            object_perception=perception,
+        )
 
-        self.assertEqual(len(all_objects['detections']), 2)
+        class FaceDetector:
+            @staticmethod
+            def detectMultiScale(*_args, **_kwargs):
+                return [(320, 100, 48, 48)]
+
+        patrol_processor._face = FaceDetector()
+        _, patrol = patrol_processor.process(
+            np.zeros((480, 640, 3), dtype=np.uint8)
+        )
+
+        self.assertEqual(len(all_objects['detections']), 3)
         self.assertEqual(len(floor_only['detections']), 1)
+        self.assertEqual(
+            [item['label'] for item in dangerous_only['detections']],
+            ['knife'],
+        )
         self.assertEqual(floor_only['floor_hazard_count'], 1)
         self.assertTrue(perception.focus_floor)
         self.assertTrue(all_objects['object_detection']['ready'])
+        self.assertEqual(
+            [item.get('label') for item in patrol['detections']],
+            ['knife', 'person', None],
+        )
+        self.assertEqual(patrol['dangerous_object_count'], 1)
+        self.assertEqual(patrol['person_count'], 1)
+        self.assertEqual(patrol['face_count'], 1)
+        self.assertEqual(patrol['detections'][-1]['kind'], 'face')
+        validate_face_detection_payload(patrol['detections'][-1])
+
+    def test_danger_confirmation_requires_time_confidence_and_spatial_match(self):
+        tracker = DangerConfirmationTracker(
+            minimum_confidence=0.65,
+            minimum_observations=3,
+            minimum_duration_seconds=0.8,
+            minimum_iou=0.35,
+            maximum_gap_seconds=0.9,
+            cooldown_seconds=8.0,
+        )
+
+        def detection(x=100, confidence=0.9):
+            return {
+                'kind': 'object',
+                'label': 'knife',
+                'confidence': confidence,
+                'box': [x, 100, 80, 60],
+                'dangerous': True,
+                'floor_candidate': True,
+                'floor_hazard': True,
+            }
+
+        self.assertEqual(tracker.observe([detection()], now=0.0), [])
+        self.assertEqual(tracker.observe([detection(102)], now=0.4), [])
+        confirmations = tracker.observe([detection(104)], now=0.8)
+        self.assertEqual(len(confirmations), 1)
+        self.assertEqual(confirmations[0]['detection']['label'], 'knife')
+        self.assertEqual(confirmations[0]['confirmation']['observations'], 3)
+        self.assertGreaterEqual(
+            confirmations[0]['confirmation']['duration_seconds'], 0.8
+        )
+        payload = {
+            'kind': 'danger-confirmation',
+            'mode': 'dangerous-objects',
+            **confirmations[0],
+        }
+        self.assertEqual(
+            validate_danger_confirmation(payload)['detection']['label'],
+            'knife',
+        )
+        patrol_payload = {**payload, 'mode': 'patrol'}
+        self.assertEqual(
+            validate_danger_confirmation(patrol_payload)['mode'],
+            'patrol',
+        )
+
+        person_tracker = DangerConfirmationTracker(
+            required_label='person',
+            require_dangerous=False,
+        )
+        person = {
+            **detection(),
+            'label': 'person',
+            'dangerous': False,
+            'floor_hazard': False,
+        }
+        self.assertEqual(person_tracker.observe([person], now=50.0), [])
+        self.assertEqual(person_tracker.observe([person], now=50.4), [])
+        self.assertEqual(
+            len(person_tracker.observe([person], now=50.81)),
+            1,
+        )
+        one_frame = {
+            **payload,
+            'confirmation': {
+                **payload['confirmation'],
+                'observations': 1,
+            },
+        }
+        with self.assertRaisesRegex(ValueError, 'observation count'):
+            validate_danger_confirmation(one_frame)
+        loose_gap = {
+            **payload,
+            'confirmation': {
+                **payload['confirmation'],
+                'criteria': {
+                    **payload['confirmation']['criteria'],
+                    'maximum_gap_seconds': 5.0,
+                },
+            },
+        }
+        with self.assertRaisesRegex(ValueError, 'maximum gap'):
+            validate_danger_confirmation(loose_gap)
+
+        rapid = DangerConfirmationTracker()
+        self.assertEqual(rapid.observe([detection()], now=1.0), [])
+        self.assertEqual(rapid.observe([detection()], now=1.1), [])
+        self.assertEqual(rapid.observe([detection()], now=1.2), [])
+
+        pi_rate = DangerConfirmationTracker()
+        self.assertEqual(pi_rate.observe([detection()], now=30.0), [])
+        self.assertEqual(pi_rate.observe([detection()], now=31.2), [])
+        self.assertEqual(
+            len(pi_rate.observe([detection()], now=32.4)),
+            1,
+        )
+        missed = DangerConfirmationTracker()
+        self.assertEqual(missed.observe([detection()], now=40.0), [])
+        self.assertEqual(missed.observe([detection()], now=41.6), [])
+        self.assertEqual(missed.observe([detection()], now=42.8), [])
+
+        tracker.reset()
+        self.assertEqual(tracker.observe([detection()], now=20.0), [])
+        self.assertEqual(tracker.observe([detection(400)], now=20.4), [])
+        self.assertEqual(tracker.observe([detection(400)], now=20.8), [])
+        self.assertEqual(
+            tracker.observe([detection(400, confidence=0.64)], now=21.2),
+            [],
+        )
 
     def test_qr_detector_decodes_generated_payload(self):
         qr = cv2.QRCodeEncoder_create().encode('DOGZILLA TEST')

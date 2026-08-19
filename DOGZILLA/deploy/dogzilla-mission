@@ -168,7 +168,7 @@ verify_ros_readiness() {
             grep -qx "${topic}" <<< "${topics}"
         done
         for topic in /vision/status /vision/detections
-        /vision/annotated/compressed; do
+        /vision/danger_confirmed /vision/annotated/compressed; do
             grep -qx "${topic}" <<< "${topics}"
         done
         actions="$(ros2 action list)"

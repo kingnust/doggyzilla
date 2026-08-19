@@ -30,7 +30,12 @@ class VisionDeploymentTest(unittest.TestCase):
         compose = yaml.safe_load(
             (REPOSITORY / 'deploy' / 'compose.yaml').read_text()
         )
-        self.assertNotIn('devices', compose['services']['web'])
+        service = compose['services']['web']
+        self.assertNotIn('devices', service)
+        self.assertEqual(
+            service['environment']['DOGZILLA_WEB_KEEPOUT_CLEARANCE'],
+            '${DOGZILLA_WEB_KEEPOUT_CLEARANCE:-0.32}',
+        )
 
     def test_mission_perception_is_camera_only_and_detection_only(self):
         compose = yaml.safe_load(
@@ -43,15 +48,77 @@ class VisionDeploymentTest(unittest.TestCase):
         self.assertNotIn('/dev/ttyAMA1', serialized)
         self.assertNotIn('privileged', service)
         self.assertIn('vision.launch.py', service['command'])
-        self.assertIn('mode:=floor-hazards', service['command'])
+        self.assertIn('mode:=patrol', service['command'])
+        healthcheck = service['healthcheck']['test'][-1]
+        self.assertIn('person_detection_ready', healthcheck)
+        self.assertIn('face_detection', healthcheck)
         self.assertIn('./models:/models:ro', service['volumes'])
         self.assertIn('./datasets:/datasets', service['volumes'])
+        self.assertIn(
+            'danger_minimum_confidence:=${DOGZILLA_DANGER_CONFIDENCE:-0.65}',
+            service['command'],
+        )
+        self.assertIn(
+            'danger_minimum_duration_seconds:=${DOGZILLA_DANGER_DURATION:-0.8}',
+            service['command'],
+        )
+        self.assertIn(
+            'danger_maximum_gap_seconds:=${DOGZILLA_DANGER_MAX_GAP:-1.5}',
+            service['command'],
+        )
 
         mission = (REPOSITORY / 'deploy' / 'dogzilla-mission').read_text()
         self.assertIn('start_perception', mission)
         self.assertIn("'Floor-hazard perception'", mission)
         stop_body = mission.split('stop_components() {', 1)[1].split('\n}', 1)[0]
         self.assertIn('stop --timeout 20 perception', stop_body)
+        self.assertIn('/vision/danger_confirmed', mission)
+
+    def test_nav2_costmaps_enforce_transient_keepout_filter(self):
+        configuration = yaml.safe_load(
+            (
+                REPOSITORY
+                / 'ros2'
+                / 'dogzilla_slam'
+                / 'config'
+                / 'nav2_test1.yaml'
+            ).read_text()
+        )
+        for costmap_name in ('local_costmap', 'global_costmap'):
+            parameters = configuration[costmap_name][costmap_name][
+                'ros__parameters'
+            ]
+            self.assertEqual(
+                parameters['filters'],
+                ['keepout_filter', 'keepout_inflation'],
+            )
+            self.assertEqual(
+                parameters['keepout_filter']['plugin'],
+                'nav2_costmap_2d::KeepoutFilter',
+            )
+            self.assertEqual(
+                parameters['keepout_filter']['filter_info_topic'],
+                '/keepout_filter_info',
+            )
+            self.assertEqual(
+                parameters['keepout_inflation']['plugin'],
+                'nav2_costmap_2d::InflationLayer',
+            )
+
+        local_parameters = configuration['local_costmap']['local_costmap'][
+            'ros__parameters'
+        ]
+        global_parameters = configuration['global_costmap']['global_costmap'][
+            'ros__parameters'
+        ]
+        self.assertEqual(
+            local_parameters['keepout_inflation']['inflation_radius'],
+            0.45,
+        )
+        self.assertEqual(
+            global_parameters['keepout_inflation']['inflation_radius'],
+            0.50,
+        )
 
     def test_armed_vision_control_has_only_camera_and_base_serial(self):
         compose = yaml.safe_load(

@@ -24,6 +24,7 @@ from .object_detector import ObjectPerception
 from .object_detector import YoloV8OpenCvDetector
 from .object_detector import YoloXOpenCvDetector
 from .vision_core import validate_request
+from .vision_core import DangerConfirmationTracker
 from .vision_core import VisionConfigurationError
 from .vision_core import VisionProcessor
 
@@ -104,6 +105,12 @@ class DogzillaVisionNode(Node):
         self.declare_parameter('object_nms', 0.45)
         self.declare_parameter('floor_scan_columns', 2)
         self.declare_parameter('floor_scan_overlap', 0.18)
+        self.declare_parameter('danger_minimum_confidence', 0.65)
+        self.declare_parameter('danger_minimum_observations', 3)
+        self.declare_parameter('danger_minimum_duration_seconds', 0.8)
+        self.declare_parameter('danger_minimum_iou', 0.35)
+        self.declare_parameter('danger_maximum_gap_seconds', 1.5)
+        self.declare_parameter('danger_cooldown_seconds', 8.0)
 
         mode = str(self.get_parameter('mode').value)
         color = str(self.get_parameter('color').value)
@@ -113,9 +120,32 @@ class DogzillaVisionNode(Node):
             color=color,
             object_perception=object_perception,
         )
+        self._danger_tracker = DangerConfirmationTracker(
+            minimum_confidence=float(
+                self.get_parameter('danger_minimum_confidence').value
+            ),
+            minimum_observations=int(
+                self.get_parameter('danger_minimum_observations').value
+            ),
+            minimum_duration_seconds=float(
+                self.get_parameter(
+                    'danger_minimum_duration_seconds'
+                ).value
+            ),
+            minimum_iou=float(
+                self.get_parameter('danger_minimum_iou').value
+            ),
+            maximum_gap_seconds=float(
+                self.get_parameter('danger_maximum_gap_seconds').value
+            ),
+            cooldown_seconds=float(
+                self.get_parameter('danger_cooldown_seconds').value
+            ),
+        )
         self._lock = threading.RLock()
         self._last_process = 0.0
         self._sequence = 0
+        self._danger_sequence = 0
         self._frame_failures = 0
         self._process_hz = float(self.get_parameter('process_hz').value)
         self._object_process_hz = float(
@@ -140,6 +170,11 @@ class DogzillaVisionNode(Node):
         self._detections_publisher = self.create_publisher(
             String,
             '/vision/detections',
+            10,
+        )
+        self._danger_publisher = self.create_publisher(
+            String,
+            '/vision/danger_confirmed',
             10,
         )
         self._status_publisher = self.create_publisher(
@@ -343,6 +378,24 @@ class DogzillaVisionNode(Node):
             'object_process_hz': self._object_process_hz,
             'action_output': 'disabled',
             'object_detection': self._processor.object_status(),
+            'face_detection': self._processor.face_status(),
+            'danger_confirmation': {
+                'topic': '/vision/danger_confirmed',
+                'minimum_confidence': (
+                    self._danger_tracker.minimum_confidence
+                ),
+                'minimum_observations': (
+                    self._danger_tracker.minimum_observations
+                ),
+                'minimum_duration_seconds': (
+                    self._danger_tracker.minimum_duration_seconds
+                ),
+                'minimum_iou': self._danger_tracker.minimum_iou,
+                'maximum_gap_seconds': (
+                    self._danger_tracker.maximum_gap_seconds
+                ),
+                'cooldown_seconds': self._danger_tracker.cooldown_seconds,
+            },
         }
         if error:
             value['error'] = str(error)
@@ -368,6 +421,7 @@ class DogzillaVisionNode(Node):
                 validated['mode'],
                 validated['color'],
             )
+            self._danger_tracker.reset()
         self._publish_status('ready')
         self.get_logger().info(
             f'Vision mode changed: {validated["mode"]}, '
@@ -401,7 +455,9 @@ class DogzillaVisionNode(Node):
         now = time.monotonic()
         rate = (
             self._object_process_hz
-            if self._processor.mode in {'objects', 'floor-hazards'}
+            if self._processor.mode in {
+                'objects', 'dangerous-objects', 'floor-hazards', 'patrol'
+            }
             else self._process_hz
         )
         if now - self._last_process < 1.0 / rate:
@@ -411,6 +467,14 @@ class DogzillaVisionNode(Node):
             frame = image_to_bgr(message)
             with self._lock:
                 annotated, result = self._processor.process(frame)
+                if result['mode'] in {
+                    'dangerous-objects', 'floor-hazards', 'patrol'
+                }:
+                    confirmations = self._danger_tracker.observe(
+                        result['detections'], now=now
+                    )
+                else:
+                    confirmations = []
             encoded, jpeg = cv2.imencode(
                 '.jpg',
                 annotated,
@@ -437,6 +501,12 @@ class DogzillaVisionNode(Node):
                 'nanosec': int(message.header.stamp.nanosec),
             },
         })
+        frame_message = CompressedImage()
+        frame_message.header = message.header
+        frame_message.format = 'jpeg'
+        frame_message.data = jpeg.tobytes()
+        self._frame_publisher.publish(frame_message)
+
         detection_message = String()
         detection_message.data = json.dumps(
             result,
@@ -445,11 +515,24 @@ class DogzillaVisionNode(Node):
         )
         self._detections_publisher.publish(detection_message)
 
-        frame_message = CompressedImage()
-        frame_message.header = message.header
-        frame_message.format = 'jpeg'
-        frame_message.data = jpeg.tobytes()
-        self._frame_publisher.publish(frame_message)
+        for confirmation in confirmations:
+            self._danger_sequence += 1
+            confirmed = {
+                'schema_version': 1,
+                'kind': 'danger-confirmation',
+                'confirmation_sequence': self._danger_sequence,
+                'mode': result['mode'],
+                'source_frame': result['source_frame'],
+                'stamp': result['stamp'],
+                **confirmation,
+            }
+            danger_message = String()
+            danger_message.data = json.dumps(
+                confirmed,
+                separators=(',', ':'),
+                allow_nan=False,
+            )
+            self._danger_publisher.publish(danger_message)
 
 
 def main(args=None):

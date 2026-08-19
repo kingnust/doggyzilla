@@ -2,12 +2,15 @@
 
 import math
 import time
+from copy import deepcopy
 
 import cv2
 import numpy as np
 
 from .object_detector import CORE_REQUESTED_CLASSES
 from .object_detector import DANGEROUS_CLASSES
+from .object_detector import REQUIRED_DANGEROUS_CLASSES
+from .object_detector import validate_detection_payload
 from .vision_action_policy import COLOR_ACTIONS
 from .vision_action_policy import QR_ACTIONS
 
@@ -25,7 +28,9 @@ VISION_MODES = (
     'line',
     'line-follow',
     'objects',
+    'dangerous-objects',
     'floor-hazards',
+    'patrol',
 )
 
 VISION_MODE_ALIASES = {
@@ -80,6 +85,55 @@ def validate_request(value, *, default_mode='raw', default_color='red'):
     }
 
 
+def validate_face_detection_payload(value):
+    """Validate one anonymous face box without accepting identity data."""
+    if not isinstance(value, dict) or value.get('kind') != 'face':
+        raise ValueError('face detection kind is invalid')
+    box = value.get('box')
+    if not isinstance(box, (list, tuple)) or len(box) != 4:
+        raise ValueError('face detection box is invalid')
+    normalized_box = []
+    for index, raw in enumerate(box):
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            raise ValueError('face detection box is invalid')
+        number = float(raw)
+        if not math.isfinite(number) or number != int(number):
+            raise ValueError('face detection box is invalid')
+        number = int(number)
+        if number < 0 or number > 16384:
+            raise ValueError('face detection box is outside image limits')
+        if index >= 2 and number < 1:
+            raise ValueError('face detection size is invalid')
+        normalized_box.append(number)
+
+    normalized = deepcopy(value)
+    normalized['box'] = normalized_box
+    for field in ('x_px', 'y_px', 'radius_px', 'error_x', 'error_y'):
+        try:
+            number = float(value[field])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f'face detection {field} is invalid') from exc
+        if not math.isfinite(number):
+            raise ValueError(f'face detection {field} is invalid')
+        normalized[field] = number
+    if normalized['x_px'] < 0.0 or normalized['y_px'] < 0.0:
+        raise ValueError('face detection centre is outside image limits')
+    if not 0.0 < normalized['radius_px'] <= 16384.0:
+        raise ValueError('face detection radius is invalid')
+    if not -1.0 <= normalized['error_x'] <= 1.0:
+        raise ValueError('face detection horizontal error is invalid')
+    if not -1.0 <= normalized['error_y'] <= 1.0:
+        raise ValueError('face detection vertical error is invalid')
+    return normalized
+
+
+def validate_patrol_detection_payload(value):
+    """Validate one object or anonymous face emitted by patrol mode."""
+    if isinstance(value, dict) and value.get('kind') == 'object':
+        return validate_detection_payload(value)
+    return validate_face_detection_payload(value)
+
+
 def _contours(mask):
     result = cv2.findContours(
         mask,
@@ -96,6 +150,267 @@ def _target_payload(x, y, radius, width, height):
         'radius_px': round(float(radius), 2),
         'error_x': round((float(x) - width / 2.0) / (width / 2.0), 4),
         'error_y': round((float(y) - height / 2.0) / (height / 2.0), 4),
+    }
+
+
+class DangerConfirmationTracker:
+    """Confirm a dangerous object across time, confidence, and image space."""
+
+    def __init__(
+        self,
+        *,
+        minimum_confidence=0.65,
+        minimum_observations=3,
+        minimum_duration_seconds=0.8,
+        minimum_iou=0.35,
+        maximum_gap_seconds=1.5,
+        cooldown_seconds=8.0,
+        required_label=None,
+        require_dangerous=True,
+    ):
+        confidence = float(minimum_confidence)
+        observations = int(minimum_observations)
+        duration = float(minimum_duration_seconds)
+        iou = float(minimum_iou)
+        maximum_gap = float(maximum_gap_seconds)
+        cooldown = float(cooldown_seconds)
+        if not 0.6 <= confidence <= 0.99:
+            raise ValueError('minimum_confidence must be from 0.6 to 0.99')
+        if not 3 <= observations <= 20:
+            raise ValueError('minimum_observations must be from 3 to 20')
+        if not 0.75 <= duration <= 10.0:
+            raise ValueError(
+                'minimum_duration_seconds must be from 0.75 to 10'
+            )
+        if not 0.25 <= iou <= 0.95:
+            raise ValueError('minimum_iou must be from 0.25 to 0.95')
+        if not 0.1 <= maximum_gap <= 5.0:
+            raise ValueError('maximum_gap_seconds must be from 0.1 to 5')
+        if not 1.0 <= cooldown <= 300.0:
+            raise ValueError('cooldown_seconds must be from 1 to 300')
+        self.minimum_confidence = confidence
+        self.minimum_observations = observations
+        self.minimum_duration_seconds = duration
+        self.minimum_iou = iou
+        self.maximum_gap_seconds = maximum_gap
+        self.cooldown_seconds = cooldown
+        self.required_label = (
+            str(required_label).strip() if required_label is not None else None
+        )
+        if required_label is not None and not self.required_label:
+            raise ValueError('required_label cannot be empty')
+        self.require_dangerous = bool(require_dangerous)
+        self._tracks = {}
+        self._last_confirmation = {}
+
+    def reset(self):
+        self._tracks.clear()
+        self._last_confirmation.clear()
+
+    @staticmethod
+    def _box_iou(first, second):
+        first_x, first_y, first_width, first_height = (
+            float(value) for value in first
+        )
+        second_x, second_y, second_width, second_height = (
+            float(value) for value in second
+        )
+        overlap_width = max(
+            0.0,
+            min(first_x + first_width, second_x + second_width)
+            - max(first_x, second_x),
+        )
+        overlap_height = max(
+            0.0,
+            min(first_y + first_height, second_y + second_height)
+            - max(first_y, second_y),
+        )
+        intersection = overlap_width * overlap_height
+        union = (
+            first_width * first_height
+            + second_width * second_height
+            - intersection
+        )
+        return intersection / union if union > 0.0 else 0.0
+
+    def observe(self, detections, now=None):
+        """Return confirmations earned by this frame; one frame is never enough."""
+        timestamp = time.monotonic() if now is None else float(now)
+        if not math.isfinite(timestamp):
+            raise ValueError('observation time must be finite')
+        eligible = [
+            detection for detection in detections
+            if (
+                not self.require_dangerous
+                or detection.get('dangerous') is True
+            )
+            and (
+                self.required_label is None
+                or detection.get('label') == self.required_label
+            )
+            and float(detection.get('confidence', -1.0))
+            >= self.minimum_confidence
+        ]
+        strongest_by_label = {}
+        for detection in eligible:
+            label = str(detection.get('label', '')).strip()
+            box = detection.get('box')
+            if not label or not isinstance(box, (list, tuple)) or len(box) != 4:
+                continue
+            current = strongest_by_label.get(label)
+            if current is None or detection['confidence'] > current['confidence']:
+                strongest_by_label[label] = detection
+
+        expired = [
+            label for label, track in self._tracks.items()
+            if timestamp - track['last_time'] > self.maximum_gap_seconds
+        ]
+        for label in expired:
+            del self._tracks[label]
+
+        confirmations = []
+        for label, detection in strongest_by_label.items():
+            track = self._tracks.get(label)
+            overlap = 0.0
+            if track is not None:
+                overlap = self._box_iou(track['box'], detection['box'])
+            continuing = (
+                track is not None
+                and timestamp - track['last_time'] <= self.maximum_gap_seconds
+                and overlap >= self.minimum_iou
+            )
+            if not continuing:
+                track = {
+                    'first_time': timestamp,
+                    'last_time': timestamp,
+                    'observations': 1,
+                    'box': tuple(detection['box']),
+                    'lowest_confidence': float(detection['confidence']),
+                    'minimum_observed_iou': 1.0,
+                }
+            else:
+                track['last_time'] = timestamp
+                track['observations'] += 1
+                track['box'] = tuple(detection['box'])
+                track['lowest_confidence'] = min(
+                    track['lowest_confidence'],
+                    float(detection['confidence']),
+                )
+                track['minimum_observed_iou'] = min(
+                    track['minimum_observed_iou'], overlap
+                )
+            self._tracks[label] = track
+            duration = timestamp - track['first_time']
+            last_confirmation = self._last_confirmation.get(label, -math.inf)
+            ready = (
+                track['observations'] >= self.minimum_observations
+                and duration >= self.minimum_duration_seconds
+                and timestamp - last_confirmation >= self.cooldown_seconds
+            )
+            if not ready:
+                continue
+            self._last_confirmation[label] = timestamp
+            confirmations.append({
+                'detection': deepcopy(detection),
+                'confirmation': {
+                    'observations': track['observations'],
+                    'duration_seconds': round(duration, 3),
+                    'lowest_confidence': round(
+                        track['lowest_confidence'], 4
+                    ),
+                    'minimum_observed_iou': round(
+                        track['minimum_observed_iou'], 4
+                    ),
+                    'criteria': {
+                        'minimum_observations': self.minimum_observations,
+                        'minimum_duration_seconds': (
+                            self.minimum_duration_seconds
+                        ),
+                        'minimum_confidence': self.minimum_confidence,
+                        'minimum_iou': self.minimum_iou,
+                        'maximum_gap_seconds': self.maximum_gap_seconds,
+                        'cooldown_seconds': self.cooldown_seconds,
+                    },
+                },
+            })
+        return confirmations
+
+
+def validate_danger_confirmation(value):
+    """Validate evidence that proves a danger persisted across several frames."""
+    if not isinstance(value, dict):
+        raise ValueError('danger confirmation must be a JSON object')
+    if value.get('kind') != 'danger-confirmation':
+        raise ValueError('danger confirmation kind is invalid')
+    if value.get('mode') not in {
+        'dangerous-objects', 'floor-hazards', 'patrol'
+    }:
+        raise ValueError('danger confirmation mode is invalid')
+    detection = validate_detection_payload(value.get('detection'))
+    if detection.get('dangerous') is not True:
+        raise ValueError('confirmed detection is not dangerous')
+    evidence = value.get('confirmation')
+    if not isinstance(evidence, dict):
+        raise ValueError('danger confirmation evidence is missing')
+    criteria = evidence.get('criteria')
+    if not isinstance(criteria, dict):
+        raise ValueError('danger confirmation criteria are missing')
+
+    observations = evidence.get('observations')
+    required_observations = criteria.get('minimum_observations')
+    if (
+        isinstance(observations, bool)
+        or not isinstance(observations, int)
+        or isinstance(required_observations, bool)
+        or not isinstance(required_observations, int)
+        or required_observations < 3
+        or observations < required_observations
+    ):
+        raise ValueError('danger confirmation observation count is invalid')
+
+    numeric = {}
+    for field, source in (
+        ('duration_seconds', evidence),
+        ('lowest_confidence', evidence),
+        ('minimum_observed_iou', evidence),
+        ('minimum_duration_seconds', criteria),
+        ('minimum_confidence', criteria),
+        ('minimum_iou', criteria),
+        ('maximum_gap_seconds', criteria),
+        ('cooldown_seconds', criteria),
+    ):
+        try:
+            numeric[field] = float(source[field])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                f'danger confirmation {field} is invalid'
+            ) from exc
+        if not math.isfinite(numeric[field]):
+            raise ValueError(f'danger confirmation {field} is invalid')
+    if (
+        numeric['minimum_duration_seconds'] < 0.75
+        or numeric['duration_seconds']
+        < numeric['minimum_duration_seconds']
+    ):
+        raise ValueError('danger confirmation duration is insufficient')
+    if (
+        numeric['minimum_confidence'] < 0.6
+        or numeric['lowest_confidence'] < numeric['minimum_confidence']
+        or detection['confidence'] < numeric['minimum_confidence']
+    ):
+        raise ValueError('danger confirmation confidence is insufficient')
+    if (
+        numeric['minimum_iou'] < 0.25
+        or numeric['minimum_observed_iou'] < numeric['minimum_iou']
+    ):
+        raise ValueError('danger confirmation spatial match is insufficient')
+    if not 0.1 <= numeric['maximum_gap_seconds'] <= 2.0:
+        raise ValueError('danger confirmation maximum gap is unsafe')
+    if numeric['cooldown_seconds'] < 1.0:
+        raise ValueError('danger confirmation cooldown is unsafe')
+    return {
+        **deepcopy(value),
+        'detection': detection,
     }
 
 
@@ -190,7 +505,9 @@ class VisionProcessor:
             self._process_qr(frame, annotated, result)
         elif self.mode in {'line', 'line-follow'}:
             self._process_line(frame, annotated, result)
-        elif self.mode in {'objects', 'floor-hazards'}:
+        elif self.mode in {
+            'objects', 'dangerous-objects', 'floor-hazards', 'patrol'
+        }:
             self._process_objects(frame, annotated, result)
 
         self._add_action_proposals(result)
@@ -220,8 +537,17 @@ class VisionProcessor:
                 'requested_classes': list(CORE_REQUESTED_CLASSES),
                 'covered_classes': [],
                 'missing_classes': list(CORE_REQUESTED_CLASSES),
-                'missing_dangerous_classes': sorted(DANGEROUS_CLASSES),
+                'missing_dangerous_classes': sorted(
+                    REQUIRED_DANGEROUS_CLASSES
+                ),
                 'dangerous_coverage_complete': False,
+                'person_detection_ready': False,
+                'required_dangerous_classes': sorted(
+                    REQUIRED_DANGEROUS_CLASSES
+                ),
+                'optional_dangerous_classes_missing': sorted(
+                    DANGEROUS_CLASSES - REQUIRED_DANGEROUS_CLASSES
+                ),
                 'models': [],
                 'reason': 'no object model is loaded',
             }
@@ -230,25 +556,67 @@ class VisionProcessor:
             **self.object_perception.coverage(),
         }
 
+    def face_status(self):
+        """Return the readiness of the local, non-identifying face detector."""
+        return {
+            'ready': self._face is not None,
+            'method': 'opencv-haar-frontal-face',
+            'identification': False,
+        }
+
     def _process_objects(self, frame, annotated, result):
         status = self.object_status()
         result['object_detection'] = status
         if self.object_perception is None:
+            if self.mode == 'patrol':
+                faces = self._detect_faces(frame, annotated)
+                result.update(
+                    detected=bool(faces),
+                    detections=faces,
+                    dangerous_object_count=0,
+                    person_count=0,
+                    face_count=len(faces),
+                    floor_hazard_count=0,
+                    small_floor_hazard_count=0,
+                )
             return
         detections = self.object_perception.detect(
             frame,
-            focus_floor=self.mode == 'floor-hazards',
+            focus_floor=self.mode in {'floor-hazards', 'patrol'},
         )
         if self.mode == 'floor-hazards':
             detections = [
                 detection for detection in detections
                 if detection['floor_candidate']
             ]
+        elif self.mode == 'dangerous-objects':
+            detections = [
+                detection for detection in detections
+                if detection['dangerous'] is True
+            ]
+        elif self.mode == 'patrol':
+            detections = [
+                detection for detection in detections
+                if detection['dangerous'] is True
+                or detection['label'] == 'person'
+            ]
         rendered = self.object_perception.annotate(frame, detections)
         annotated[:] = rendered
+        faces = []
+        if self.mode == 'patrol':
+            faces = self._detect_faces(frame, annotated)
         result.update(
-            detected=bool(detections),
-            detections=detections,
+            detected=bool(detections or faces),
+            detections=detections + faces,
+            dangerous_object_count=sum(
+                1 for detection in detections
+                if detection['dangerous'] is True
+            ),
+            person_count=sum(
+                1 for detection in detections
+                if detection['label'] == 'person'
+            ),
+            face_count=len(faces),
             floor_hazard_count=sum(
                 1 for detection in detections
                 if detection['floor_hazard']
@@ -405,7 +773,7 @@ class VisionProcessor:
             cv2.LINE_AA,
         )
 
-    def _process_face(self, frame, annotated, result):
+    def _detect_faces(self, frame, annotated):
         height, width = frame.shape[:2]
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         gray = cv2.equalizeHist(gray)
@@ -440,6 +808,10 @@ class VisionProcessor:
                 2,
             )
         detections.sort(key=lambda item: item['radius_px'], reverse=True)
+        return detections
+
+    def _process_face(self, frame, annotated, result):
+        detections = self._detect_faces(frame, annotated)
         result.update(detected=bool(detections), detections=detections)
 
     def _process_qr(self, frame, annotated, result):

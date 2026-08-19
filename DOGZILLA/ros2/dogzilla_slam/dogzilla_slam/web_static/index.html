@@ -109,8 +109,10 @@
                 <option value="qr-action">8.8 QR action proposal</option>
                 <option value="line">8.11 Visual line tracking</option>
                 <option value="line-follow">8.11 Line-follow proposal</option>
-                <option value="objects">Indoor object detection</option>
+                <option value="objects">General object detection</option>
+                <option value="dangerous-objects">Dangerous objects only</option>
                 <option value="floor-hazards">Floor hazard detection</option>
+                <option value="patrol">Patrol · dangers, people &amp; faces</option>
               </select>
               <label for="vision-color">Target color</label>
               <select id="vision-color">
@@ -128,6 +130,16 @@
               <p id="vision-safety" class="vision-safety">Action output: disabled · proposals are never executed</p>
             </div>
           </div>
+          <div class="alert-heading">
+            <div>
+              <p class="eyebrow">Patrol notifications</p>
+              <h3>Confirmed sightings</h3>
+            </div>
+            <span class="source-age">Latest 25 photos only</span>
+          </div>
+          <div id="patrol-alert-list" class="patrol-alert-list">
+            <p class="empty-state">No confirmed patrol sightings.</p>
+          </div>
         </section>
 
         <section class="panel map-editor-panel" aria-labelledby="map-editor-title">
@@ -135,7 +147,7 @@
             <div>
               <p class="eyebrow">Visual mission planning</p>
               <h2 id="map-editor-title">Map waypoint editor</h2>
-              <p class="subtle map-instructions">Choose a waypoint or Patrol area, then click free map cells. Patrol areas use three to twelve clicks and never use drag-and-drop.</p>
+              <p class="subtle map-instructions">Choose a waypoint, patrol area, or keepout zone, then click the map. Coordinates remain in the map frame at every zoom level; this editor never uses drag-and-drop.</p>
             </div>
             <div class="map-status-cluster">
               <span id="map-editor-chip" class="map-chip">waiting for map</span>
@@ -149,8 +161,14 @@
                 <button class="target-button active" type="button" data-map-target="pickup"><span class="waypoint-dot pickup"></span>Select pickup</button>
                 <button class="target-button" type="button" data-map-target="dropoff"><span class="waypoint-dot dropoff"></span>Select drop-off</button>
                 <button class="target-button" type="button" data-map-target="patrol"><span class="waypoint-dot patrol"></span>Draw patrol area</button>
+                <button class="target-button" type="button" data-map-target="keepout"><span class="waypoint-dot keepout"></span>Draw keepout</button>
                 <button id="use-robot-pose" class="ghost compact" type="button">Use robot position</button>
                 <button id="clear-waypoints" class="ghost compact" type="button">Clear points</button>
+                <span class="toolbar-spacer"></span>
+                <button id="map-zoom-out" class="ghost compact" type="button" aria-label="Zoom map out">−</button>
+                <span id="map-zoom-level" class="map-zoom-level">100%</span>
+                <button id="map-zoom-in" class="ghost compact" type="button" aria-label="Zoom map in">+</button>
+                <button id="map-zoom-fit" class="ghost compact" type="button">Fit</button>
               </div>
               <div id="map-stage" class="map-stage">
                 <canvas id="map-canvas" tabindex="0" aria-label="DOGZILLA occupancy map waypoint editor"></canvas>
@@ -163,6 +181,7 @@
                   <span><i class="legend-unknown"></i>Unknown</span>
                   <span><i class="legend-robot"></i>Robot</span>
                   <span><i class="legend-patrol"></i>Patrol</span>
+                  <span><i class="legend-keepout"></i>Keepout</span>
                 </div>
                 <strong id="route-preview">Select both waypoints to preview the route.</strong>
               </div>
@@ -186,12 +205,40 @@
           </div>
         </section>
 
+        <section class="panel keepout-panel" aria-labelledby="keepout-title">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Movable obstacles</p>
+              <h2 id="keepout-title">Navigation keepout zones</h2>
+              <p class="subtle">Draw around furniture or temporary objects that the LiDAR map misses. Saved polygons are published to both Nav2 costmaps and reject goals inside them.</p>
+            </div>
+            <span id="keepout-count" class="map-chip">0 points</span>
+          </div>
+          <div class="keepout-grid">
+            <div class="keepout-fields">
+              <label for="keepout-name">Zone name</label>
+              <input id="keepout-name" maxlength="80" value="Movable furniture">
+              <label for="keepout-zone-list">Saved zone</label>
+              <select id="keepout-zone-list"><option value="">Draw a new zone</option></select>
+            </div>
+            <div class="keepout-actions">
+              <div class="button-row">
+                <button id="keepout-undo" class="ghost compact" type="button">Undo point</button>
+                <button id="keepout-clear" class="ghost compact" type="button">Clear zone</button>
+              </div>
+              <button id="keepout-save" class="primary compact" type="button">Save keepout zone</button>
+              <button id="keepout-delete" class="danger-link" type="button" disabled>Delete saved zone</button>
+            </div>
+          </div>
+          <p id="keepout-status" class="form-message" role="status">Choose Draw keepout, then click at least three points around the obstacle.</p>
+        </section>
+
         <section class="panel patrol-panel" aria-labelledby="patrol-title">
           <div class="panel-heading">
             <div>
               <p class="eyebrow">Coverage mission</p>
               <h2 id="patrol-title">Patrol area</h2>
-              <p class="subtle">Draw a polygon on the map, preview its safe sweep, then save and queue it. A patrol starts only when localization, battery, Nav2, and floor-hazard vision are ready.</p>
+              <p class="subtle">Draw a polygon on the map, preview its safe sweep, then save and queue it. A patrol starts only when localization, battery, Nav2, and patrol vision are ready.</p>
             </div>
             <span id="patrol-count" class="map-chip">0 points</span>
           </div>

@@ -24,6 +24,7 @@ ENGINEERING_CLASSES = (
     'allen key',
     'axe',
     'battery',
+    'bearing',
     'beaker',
     'bottle opener',
     'bolt',
@@ -36,11 +37,14 @@ ENGINEERING_CLASSES = (
     'clamp',
     'crimping tool',
     'drill',
+    'electrical connector',
     'electrical tape',
+    'exposed wire',
     'extension cord',
     'file',
     'fire extinguisher',
     'flashlight',
+    'gear',
     'glove',
     'grinder',
     'hacksaw',
@@ -50,6 +54,8 @@ ENGINEERING_CLASSES = (
     'hex key',
     'ladder',
     'level',
+    'loose cable',
+    'metal shaving',
     'multimeter',
     'nail',
     'nut',
@@ -67,6 +73,7 @@ ENGINEERING_CLASSES = (
     'screwdriver',
     'socket',
     'soldering iron',
+    'spring',
     'stapler',
     'tape measure',
     'tool',
@@ -85,20 +92,30 @@ ENGINEERING_CLASSES = (
 # a full 640x480 frame. Some are supplied by Open Images (for example nail),
 # while the remaining labels can be baked into an optional YOLOE ONNX export.
 SMALL_FLOOR_HAZARD_CLASSES = (
+    'bearing',
     'blade fragment',
     'bolt',
     'ceramic shard',
     'drill bit',
+    'electrical connector',
+    'exposed wire',
+    'gear',
     'glass shard',
+    'loose cable',
     'metal shard',
+    'metal shaving',
     'nail',
     'needle',
+    'nut',
+    'puddle',
     'razor blade',
     'screw',
     'sharp debris',
     'splinter',
+    'spring',
     'staple',
     'thumbtack',
+    'washer',
     'wire',
 )
 
@@ -158,6 +175,7 @@ GENERAL_INDOOR_CLASSES = (
     'pencil',
     'pencil case',
     'pencil sharpener',
+    'person',
     'picture frame',
     'pillow',
     'plant',
@@ -167,6 +185,7 @@ GENERAL_INDOOR_CLASSES = (
     'power outlet',
     'poster',
     'printer',
+    'puddle',
     'refrigerator',
     'remote control',
     'router',
@@ -208,33 +227,43 @@ DANGEROUS_CLASSES = frozenset({
     'allen key',
     'axe',
     'battery',
-    'gun',
-    'knife',
-    'nail',
+    'bearing',
     'bolt',
     'chainsaw',
     'chisel',
+    'circuit board',
     'clamp',
     'drill',
+    'electrical connector',
+    'exposed wire',
     'extension cord',
     'file',
+    'gear',
     'grinder',
+    'gun',
     'hacksaw',
     'hammer',
     'heat gun',
     'hex key',
+    'knife',
+    'loose cable',
+    'metal shaving',
     'multimeter',
+    'nail',
     'nut',
     'paper cutter',
     'pliers',
     'power supply',
     'pry bar',
+    'puddle',
     'ratchet',
     'saw',
+    'scissors',
     'screw',
     'screwdriver',
     'socket',
     'soldering iron',
+    'spring',
     'sword',
     'syringe',
     'tape measure',
@@ -244,6 +273,31 @@ DANGEROUS_CLASSES = frozenset({
     'washer',
     'wire',
     'wire cutter',
+    'wrench',
+}) | frozenset(SMALL_FLOOR_HAZARD_CLASSES)
+
+# This is the safety catalog the bundled COCO/Open Images/YOLOE models are
+# expected to cover. DANGEROUS_CLASSES remains broader so an optional custom
+# model can never downgrade a recognized hazardous tool to a normal object.
+REQUIRED_DANGEROUS_CLASSES = frozenset({
+    'battery',
+    'circuit board',
+    'drill',
+    'electrical connector',
+    'exposed wire',
+    'gear',
+    'gun',
+    'hammer',
+    'knife',
+    'loose cable',
+    'metal shaving',
+    'pliers',
+    'puddle',
+    'scissors',
+    'screwdriver',
+    'spring',
+    'utility knife',
+    'washer',
     'wrench',
 }) | frozenset(SMALL_FLOOR_HAZARD_CLASSES)
 
@@ -310,9 +364,12 @@ LABEL_ALIASES = {
     'glass fragment': 'glass shard',
     'glass fragments': 'glass shard',
     'glass shards': 'glass shard',
+    'exposed wires': 'exposed wire',
+    'loose cables': 'loose cable',
     'metal fragment': 'metal shard',
     'metal fragments': 'metal shard',
     'metal shards': 'metal shard',
+    'metal shavings': 'metal shaving',
     'needles': 'needle',
     'razor': 'razor blade',
     'razor blades': 'razor blade',
@@ -347,6 +404,7 @@ LABEL_ALIASES = {
     'microwave oven': 'microwave',
     'potted plant': 'plant',
     'power plugs and sockets': 'power outlet',
+    'puddles': 'puddle',
     'ratchet device': 'ratchet',
     'remote': 'remote control',
     'ring binder': 'binder',
@@ -1006,7 +1064,13 @@ class ObjectPerception:
             label for label in self.requested_classes if label not in available
         ]
         missing_dangerous = [
-            label for label in sorted(DANGEROUS_CLASSES)
+            label for label in sorted(REQUIRED_DANGEROUS_CLASSES)
+            if label not in available
+        ]
+        optional_dangerous_missing = [
+            label for label in sorted(
+                DANGEROUS_CLASSES - REQUIRED_DANGEROUS_CLASSES
+            )
             if label not in available
         ]
         return {
@@ -1017,6 +1081,13 @@ class ObjectPerception:
             'missing_classes': missing,
             'missing_dangerous_classes': missing_dangerous,
             'dangerous_coverage_complete': not missing_dangerous,
+            'person_detection_ready': 'person' in available,
+            'required_dangerous_classes': sorted(
+                REQUIRED_DANGEROUS_CLASSES
+            ),
+            'optional_dangerous_classes_missing': (
+                optional_dangerous_missing
+            ),
             'models': [detector.metadata.name for detector in self.detectors],
             'small_floor_hazard_classes': list(SMALL_FLOOR_HAZARD_CLASSES),
             'small_floor_hazard_covered_classes': [

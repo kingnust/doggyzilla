@@ -14,6 +14,7 @@
   let mapCells = null;
   let mapImage = null;
   let mapView = null;
+  let mapZoom = 1;
   let robotPose = null;
   let activeTarget = 'pickup';
   let plannedPath = [];
@@ -21,10 +22,14 @@
   let previewGeneration = 0;
   let visionFrameTimer = null;
   let visionFrameUrl = '';
+  const alertImageUrls = new Map();
   let patrolPolygon = [];
   let patrolWaypoints = [];
   let patrolAreas = [];
   let selectedPatrolAreaId = '';
+  let keepoutPolygon = [];
+  let keepoutZones = [];
+  let selectedKeepoutZoneId = '';
   const waypoints = { pickup: null, dropoff: null };
 
   async function api(path, options = {}) {
@@ -59,6 +64,8 @@
     clearTimeout(visionFrameTimer);
     if (visionFrameUrl) URL.revokeObjectURL(visionFrameUrl);
     visionFrameUrl = '';
+    alertImageUrls.forEach((url) => URL.revokeObjectURL(url));
+    alertImageUrls.clear();
     if (eventAbort) eventAbort.abort();
     elements.app.classList.add('hidden');
     elements.login.classList.remove('hidden');
@@ -136,7 +143,10 @@
     } else {
       elements['vision-safety'].className = 'vision-safety';
       const objectStatus = statusValue?.object_detection;
-      if (objectStatus?.ready && ['objects', 'floor-hazards'].includes(statusValue.mode)) {
+      if (
+        objectStatus?.ready
+        && ['objects', 'dangerous-objects', 'floor-hazards', 'patrol'].includes(statusValue.mode)
+      ) {
         const missing = objectStatus.missing_dangerous_classes || [];
         elements['vision-safety'].textContent = missing.length
           ? `Detection only · missing hazard classes: ${missing.join(', ')}`
@@ -277,6 +287,58 @@
     return localToWorld(local);
   }
 
+  function pointInPolygon(point, polygon) {
+    let inside = false;
+    for (let index = 0; index < polygon.length; index += 1) {
+      const first = polygon[index];
+      const second = polygon[(index + 1) % polygon.length];
+      const cross = (point.x - first.x) * (second.y - first.y)
+        - (point.y - first.y) * (second.x - first.x);
+      const onEdge = Math.abs(cross) < 1e-9
+        && point.x >= Math.min(first.x, second.x) - 1e-9
+        && point.x <= Math.max(first.x, second.x) + 1e-9
+        && point.y >= Math.min(first.y, second.y) - 1e-9
+        && point.y <= Math.max(first.y, second.y) + 1e-9;
+      if (onEdge) return true;
+      if ((first.y > point.y) === (second.y > point.y)) continue;
+      const crossingX = ((second.x - first.x) * (point.y - first.y))
+        / (second.y - first.y) + first.x;
+      if (point.x < crossingX) inside = !inside;
+    }
+    return inside;
+  }
+
+  function pointToPolygonDistance(point, polygon) {
+    if (pointInPolygon(point, polygon)) return 0;
+    return polygon.reduce((shortest, first, index) => {
+      const second = polygon[(index + 1) % polygon.length];
+      const edgeX = second.x - first.x;
+      const edgeY = second.y - first.y;
+      const lengthSquared = edgeX * edgeX + edgeY * edgeY;
+      const projection = lengthSquared <= 1e-18
+        ? 0
+        : Math.max(0, Math.min(1, (
+          ((point.x - first.x) * edgeX + (point.y - first.y) * edgeY)
+          / lengthSquared
+        )));
+      const closestX = first.x + projection * edgeX;
+      const closestY = first.y + projection * edgeY;
+      return Math.min(shortest, Math.hypot(
+        point.x - closestX,
+        point.y - closestY,
+      ));
+    }, Number.POSITIVE_INFINITY);
+  }
+
+  function validateMapBoundaryPoint(point, label) {
+    if (!mapSnapshot) return { valid: false, reason: 'Occupancy map is unavailable.' };
+    const local = worldToLocal(point);
+    if (!local || local.x < 0 || local.y < 0 || local.x >= mapSnapshot.width || local.y >= mapSnapshot.height) {
+      return { valid: false, reason: `${label} is outside the active map.` };
+    }
+    return { valid: true, reason: 'Inside the active map.' };
+  }
+
   function validateMapPoint(point, label = 'Waypoint') {
     if (!mapSnapshot || !mapCells) return { valid: false, reason: 'Occupancy map is unavailable.' };
     const local = worldToLocal(point);
@@ -284,6 +346,16 @@
     const row = Math.floor(local.y);
     if (column < 0 || row < 0 || column >= mapSnapshot.width || row >= mapSnapshot.height) {
       return { valid: false, reason: `${label} is outside the active map.` };
+    }
+    const keepoutClearance = Number(mapSnapshot.keepout_clearance_m || 0);
+    const keepout = keepoutZones.find((zone) => (
+      pointToPolygonDistance(point, zone.polygon) <= keepoutClearance + 1e-9
+    ));
+    if (keepout) {
+      return {
+        valid: false,
+        reason: `${label} is inside or too close to keepout zone “${keepout.name}”.`,
+      };
     }
     const radius = Math.ceil(mapSnapshot.minimum_clearance_m / mapSnapshot.resolution);
     for (let offsetY = -radius; offsetY <= radius; offsetY += 1) {
@@ -347,6 +419,64 @@
     context.restore();
   }
 
+  function drawKeepoutPolygon(context, polygon, label, editing = false) {
+    const screenPoints = polygon.map(worldToScreen).filter(Boolean);
+    if (!screenPoints.length) return;
+    context.save();
+    context.strokeStyle = editing ? '#ff9b78' : '#ff725e';
+    context.fillStyle = editing
+      ? 'rgba(255, 114, 94, .24)'
+      : 'rgba(255, 114, 94, .14)';
+    context.lineWidth = editing ? 3 : 2;
+    context.beginPath();
+    context.moveTo(screenPoints[0].x, screenPoints[0].y);
+    screenPoints.slice(1).forEach((point) => context.lineTo(point.x, point.y));
+    if (screenPoints.length >= 3) {
+      context.closePath();
+      context.fill();
+    }
+    context.stroke();
+    if (editing) {
+      screenPoints.forEach((point, index) => {
+        context.beginPath();
+        context.arc(point.x, point.y, 5, 0, Math.PI * 2);
+        context.fillStyle = '#ff9b78';
+        context.fill();
+        context.fillStyle = '#ffffff';
+        context.font = '700 10px system-ui, sans-serif';
+        context.fillText(String(index + 1), point.x + 7, point.y - 7);
+      });
+    }
+    if (label && screenPoints.length >= 3) {
+      const centre = screenPoints.reduce(
+        (total, point) => ({ x: total.x + point.x, y: total.y + point.y }),
+        { x: 0, y: 0 },
+      );
+      context.fillStyle = '#fff0eb';
+      context.font = '700 10px system-ui, sans-serif';
+      context.fillText(
+        label,
+        centre.x / screenPoints.length + 6,
+        centre.y / screenPoints.length - 6,
+      );
+    }
+    context.restore();
+  }
+
+  function drawKeepoutZones(context) {
+    keepoutZones
+      .filter((zone) => zone.id !== selectedKeepoutZoneId)
+      .forEach((zone) => drawKeepoutPolygon(context, zone.polygon, zone.name));
+    if (keepoutPolygon.length) {
+      drawKeepoutPolygon(
+        context,
+        keepoutPolygon,
+        elements['keepout-name'].value.trim(),
+        true,
+      );
+    }
+  }
+
   function drawPose(context, point, color, label, radius = 7) {
     const screen = worldToScreen(point);
     if (!screen) return;
@@ -392,10 +522,11 @@
     if (!mapSnapshot || !mapImage) return;
 
     const padding = 18;
-    const scale = Math.max(0.01, Math.min(
+    const fitScale = Math.max(0.01, Math.min(
       (bounds.width - padding * 2) / mapSnapshot.width,
       (bounds.height - padding * 2) / mapSnapshot.height,
     ));
+    const scale = fitScale * mapZoom;
     mapView = {
       scale,
       offsetX: (bounds.width - mapSnapshot.width * scale) / 2,
@@ -417,6 +548,11 @@
       mapSnapshot.width * scale,
       mapSnapshot.height * scale,
     );
+
+    elements['map-zoom-level'].textContent = `${Math.round(mapZoom * 100)}%`;
+    elements['map-zoom-out'].disabled = mapZoom <= 1;
+    elements['map-zoom-in'].disabled = mapZoom >= 4;
+    drawKeepoutZones(context);
 
     if (plannedPath.length > 1) {
       drawPolyline(context, plannedPath, '#5ef0a6');
@@ -483,9 +619,13 @@
     }, { option: options[0], difference: Infinity }).option;
     heading.value = selected.value;
     const selectedYaw = Number(selected.value);
-    waypoints[target] = { x: point.x, y: point.y, yaw: selectedYaw };
-    elements[`${target}-x`].value = point.x.toFixed(3);
-    elements[`${target}-y`].value = point.y.toFixed(3);
+    const normalizedPoint = {
+      x: Number(point.x.toFixed(3)),
+      y: Number(point.y.toFixed(3)),
+    };
+    waypoints[target] = { ...normalizedPoint, yaw: selectedYaw };
+    elements[`${target}-x`].value = normalizedPoint.x.toFixed(3);
+    elements[`${target}-y`].value = normalizedPoint.y.toFixed(3);
     plannedPath = [];
     syncAllWaypointValidation();
     drawMap();
@@ -508,12 +648,13 @@
       button.classList.toggle('active', button.dataset.mapTarget === target);
     });
     document.querySelectorAll('.apply-location').forEach((button) => {
-      button.disabled = target === 'patrol';
-      button.textContent = target === 'patrol'
+      const drawing = ['patrol', 'keepout'].includes(target);
+      button.disabled = drawing;
+      button.textContent = drawing
         ? 'Choose pickup or drop-off'
         : `Use as ${target === 'pickup' ? 'pickup' : 'drop-off'}`;
     });
-    elements['use-robot-pose'].disabled = target === 'patrol' || !robotPose;
+    elements['use-robot-pose'].disabled = ['patrol', 'keepout'].includes(target) || !robotPose;
   }
 
   function routePayload() {
@@ -627,6 +768,57 @@
     elements['patrol-delete'].disabled = !selected;
   }
 
+  function keepoutZonePayload() {
+    return {
+      map: currentMap,
+      name: elements['keepout-name'].value.trim(),
+      polygon: keepoutPolygon.map((point) => ({ x: point.x, y: point.y })),
+    };
+  }
+
+  function updateKeepoutCount() {
+    const count = keepoutPolygon.length;
+    elements['keepout-count'].textContent = `${count} point${count === 1 ? '' : 's'}`;
+    elements['keepout-undo'].disabled = count === 0;
+    elements['keepout-clear'].disabled = count === 0;
+  }
+
+  function setKeepoutStatus(message, success = false) {
+    elements['keepout-status'].textContent = message;
+    elements['keepout-status'].className = `form-message${success ? ' success' : ''}`;
+  }
+
+  function selectKeepoutZone(zoneId) {
+    const zone = keepoutZones.find((item) => item.id === zoneId);
+    selectedKeepoutZoneId = zone?.id || '';
+    elements['keepout-zone-list'].value = selectedKeepoutZoneId;
+    elements['keepout-delete'].disabled = !zone;
+    if (!zone) return;
+    keepoutPolygon = zone.polygon.map((point) => ({ x: point.x, y: point.y }));
+    elements['keepout-name'].value = zone.name;
+    updateKeepoutCount();
+    setKeepoutStatus(`Loaded saved zone “${zone.name}”.`, true);
+    drawMap();
+  }
+
+  async function refreshKeepoutZones(preferredId = selectedKeepoutZoneId) {
+    const response = await api('/api/v1/keepout-zones');
+    keepoutZones = Array.isArray(response.keepout_zones)
+      ? response.keepout_zones
+      : [];
+    const options = [new Option('Draw a new zone', '')];
+    keepoutZones.forEach((zone) => options.push(new Option(zone.name, zone.id)));
+    elements['keepout-zone-list'].replaceChildren(...options);
+    const selected = keepoutZones.some((zone) => zone.id === preferredId)
+      ? preferredId
+      : '';
+    selectedKeepoutZoneId = selected;
+    elements['keepout-zone-list'].value = selected;
+    elements['keepout-delete'].disabled = !selected;
+    syncAllWaypointValidation();
+    drawMap();
+  }
+
   function renderState(state) {
     setConnection(true);
     const telemetry = state.telemetry || {};
@@ -713,7 +905,7 @@
     elements['reset-estop'].classList.toggle('hidden', !latched);
     elements['submit-mission'].disabled = latched;
     elements['patrol-queue'].disabled = latched || !selectedPatrolAreaId;
-    elements['use-robot-pose'].disabled = activeTarget === 'patrol' || !robotPose;
+    elements['use-robot-pose'].disabled = ['patrol', 'keepout'].includes(activeTarget) || !robotPose;
     drawMap();
   }
 
@@ -777,8 +969,9 @@
     const apply = document.createElement('button');
     apply.type = 'button';
     apply.className = 'apply-location';
-    apply.disabled = activeTarget === 'patrol';
-    apply.textContent = activeTarget === 'patrol'
+    const drawing = ['patrol', 'keepout'].includes(activeTarget);
+    apply.disabled = drawing;
+    apply.textContent = drawing
       ? 'Choose pickup or drop-off'
       : `Use as ${activeTarget === 'pickup' ? 'pickup' : 'drop-off'}`;
     apply.addEventListener('click', () => {
@@ -815,6 +1008,73 @@
     locations.forEach((location) => elements['location-list'].append(locationElement(location)));
   }
 
+  async function loadAlertPhoto(alert) {
+    if (!alert.photo_url) return '';
+    if (alertImageUrls.has(alert.id)) return alertImageUrls.get(alert.id);
+    const response = await fetch(alert.photo_url, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: 'no-store',
+    });
+    if (!response.ok) return '';
+    const url = URL.createObjectURL(await response.blob());
+    alertImageUrls.set(alert.id, url);
+    return url;
+  }
+
+  function alertElement(alert, photoUrl) {
+    const item = document.createElement('article');
+    item.className = 'patrol-alert';
+    if (photoUrl) {
+      const image = document.createElement('img');
+      image.src = photoUrl;
+      image.alt = `${alert.category || 'patrol'} alert: ${alert.label || 'detection'}`;
+      item.append(image);
+    }
+    const body = document.createElement('div');
+    body.className = 'patrol-alert-body';
+    const title = document.createElement('strong');
+    title.textContent = `${alert.category || 'patrol'} · ${alert.label || 'detection'}`;
+    const confidence = Number(alert.confidence);
+    const detail = document.createElement('span');
+    const score = Number.isFinite(confidence)
+      ? `${Math.round(confidence * 100)}% confidence`
+      : 'confirmed';
+    const timestamp = new Date(alert.created_at || '');
+    const timeText = Number.isFinite(timestamp.getTime())
+      ? timestamp.toLocaleString()
+      : 'time unavailable';
+    detail.textContent = `${score} · ${timeText}`;
+    body.append(title, detail);
+    item.append(body);
+    return item;
+  }
+
+  async function refreshAlerts() {
+    const response = await api('/api/v1/alerts?limit=25');
+    const alerts = Array.isArray(response.alerts) ? response.alerts : [];
+    const activeIds = new Set(alerts.map((alert) => alert.id));
+    alertImageUrls.forEach((url, id) => {
+      if (!activeIds.has(id)) {
+        URL.revokeObjectURL(url);
+        alertImageUrls.delete(id);
+      }
+    });
+    elements['patrol-alert-list'].replaceChildren();
+    if (!alerts.length) {
+      const empty = document.createElement('p');
+      empty.className = 'empty-state';
+      empty.textContent = 'No confirmed patrol sightings.';
+      elements['patrol-alert-list'].append(empty);
+      return;
+    }
+    const photos = await Promise.all(alerts.map(loadAlertPhoto));
+    alerts.forEach((alert, index) => {
+      elements['patrol-alert-list'].append(
+        alertElement(alert, photos[index]),
+      );
+    });
+  }
+
   async function refreshAll() {
     try {
       const [state] = await Promise.all([
@@ -822,6 +1082,8 @@
         refreshTasks(),
         refreshLocations(),
         refreshPatrolAreas(),
+        refreshKeepoutZones(),
+        refreshAlerts(),
       ]);
       renderState(state);
     } catch (error) {
@@ -857,6 +1119,31 @@
     };
   }
 
+  function handleGatewayEvent(record) {
+    const dataLine = record.split('\n').find((line) => line.startsWith('data: '));
+    if (!dataLine) return false;
+    try {
+      const event = JSON.parse(dataLine.slice(6));
+      if (['hazard.confirmed', 'person.confirmed'].includes(event.type)) {
+        const observation = event.data || {};
+        const confidence = Number(observation.confidence);
+        const confidenceText = Number.isFinite(confidence)
+          ? ` at ${Math.round(confidence * 100)}% confidence`
+          : '';
+        const category = event.type === 'person.confirmed'
+          ? 'Person detected'
+          : 'Confirmed danger';
+        const photo = observation.photo_url
+          ? ' Photo saved.'
+          : ' Photo unavailable.';
+        showToast(`${category}: ${observation.label || 'object'}${confidenceText}.${photo}`);
+      }
+    } catch (_) {
+      return false;
+    }
+    return true;
+  }
+
   async function connectEvents() {
     if (eventAbort) eventAbort.abort();
     eventAbort = new AbortController();
@@ -876,7 +1163,7 @@
         buffer += decoder.decode(value, { stream: true });
         const records = buffer.split('\n\n');
         buffer = records.pop() || '';
-        if (records.some((record) => record.includes('\ndata: '))) await refreshAll();
+        if (records.map(handleGatewayEvent).some(Boolean)) await refreshAll();
       }
       if (token) setTimeout(connectEvents, 1000);
     } catch (error) {
@@ -888,6 +1175,19 @@
     button.addEventListener('click', () => setActiveTarget(button.dataset.mapTarget));
   });
 
+  elements['map-zoom-out'].addEventListener('click', () => {
+    mapZoom = Math.max(1, mapZoom - 0.5);
+    drawMap();
+  });
+  elements['map-zoom-in'].addEventListener('click', () => {
+    mapZoom = Math.min(4, mapZoom + 0.5);
+    drawMap();
+  });
+  elements['map-zoom-fit'].addEventListener('click', () => {
+    mapZoom = 1;
+    drawMap();
+  });
+
   ['pickup', 'dropoff'].forEach((target) => {
     ['x', 'y', 'yaw'].forEach((field) => {
       elements[`${target}-${field}`].addEventListener('input', () => syncWaypointFromInputs(target));
@@ -897,6 +1197,35 @@
   elements['map-canvas'].addEventListener('click', (event) => {
     const point = eventToWorld(event);
     if (!point) return;
+    if (activeTarget === 'keepout') {
+      if (keepoutPolygon.length >= 24) {
+        setKeepoutStatus('A keepout zone can contain at most twenty-four points.');
+        return;
+      }
+      const validation = validateMapBoundaryPoint(point, 'Keepout boundary point');
+      if (!validation.valid) {
+        setKeepoutStatus(validation.reason);
+        return;
+      }
+      if (keepoutPolygon.some((item) => Math.hypot(item.x - point.x, item.y - point.y) < 0.05)) {
+        setKeepoutStatus('Keepout boundary points must be at least 0.05 m apart.');
+        return;
+      }
+      keepoutPolygon.push({ x: point.x, y: point.y });
+      selectedKeepoutZoneId = '';
+      elements['keepout-zone-list'].value = '';
+      elements['keepout-delete'].disabled = true;
+      updateKeepoutCount();
+      setKeepoutStatus(
+        keepoutPolygon.length < 3
+          ? `Add ${3 - keepoutPolygon.length} more point${keepoutPolygon.length === 2 ? '' : 's'}.`
+          : 'Zone ready to save. Add more points if needed.',
+        keepoutPolygon.length >= 3,
+      );
+      drawMap();
+      event.preventDefault();
+      return;
+    }
     if (activeTarget === 'patrol') {
       if (patrolPolygon.length >= 12) {
         setPatrolStatus('A patrol area can contain at most twelve points.');
@@ -942,7 +1271,7 @@
   if (window.ResizeObserver) new ResizeObserver(drawMap).observe(elements['map-stage']);
 
   elements['use-robot-pose'].addEventListener('click', () => {
-    if (!robotPose || activeTarget === 'patrol') return;
+    if (!robotPose || ['patrol', 'keepout'].includes(activeTarget)) return;
     setWaypoint(activeTarget, robotPose, robotPose.yaw);
   });
 
@@ -1051,9 +1380,82 @@
     } catch (error) { setPatrolStatus(error.message); }
   });
 
+  elements['keepout-undo'].addEventListener('click', () => {
+    keepoutPolygon.pop();
+    selectedKeepoutZoneId = '';
+    elements['keepout-zone-list'].value = '';
+    elements['keepout-delete'].disabled = true;
+    updateKeepoutCount();
+    setKeepoutStatus('Last keepout boundary point removed.');
+    drawMap();
+  });
+
+  elements['keepout-clear'].addEventListener('click', () => {
+    keepoutPolygon = [];
+    selectedKeepoutZoneId = '';
+    elements['keepout-zone-list'].value = '';
+    elements['keepout-delete'].disabled = true;
+    updateKeepoutCount();
+    setKeepoutStatus('Choose Draw keepout, then click at least three points around the obstacle.');
+    drawMap();
+  });
+
+  elements['keepout-zone-list'].addEventListener('change', (event) => {
+    if (!event.currentTarget.value) {
+      keepoutPolygon = [];
+      selectedKeepoutZoneId = '';
+      elements['keepout-delete'].disabled = true;
+      updateKeepoutCount();
+      setKeepoutStatus('Draw a new zone with at least three map clicks.');
+      drawMap();
+      return;
+    }
+    selectKeepoutZone(event.currentTarget.value);
+  });
+
+  elements['keepout-name'].addEventListener('input', () => {
+    if (!selectedKeepoutZoneId) return;
+    selectedKeepoutZoneId = '';
+    elements['keepout-zone-list'].value = '';
+    elements['keepout-delete'].disabled = true;
+    setKeepoutStatus('Zone name changed. Saving will create this named version.');
+    drawMap();
+  });
+
+  elements['keepout-save'].addEventListener('click', async () => {
+    if (keepoutPolygon.length < 3) {
+      setKeepoutStatus('Add at least three keepout boundary points first.');
+      return;
+    }
+    try {
+      const zone = await post('/api/v1/keepout-zones', keepoutZonePayload());
+      selectedKeepoutZoneId = zone.id;
+      await refreshKeepoutZones(zone.id);
+      selectKeepoutZone(zone.id);
+      setKeepoutStatus(`Keepout zone “${zone.name}” is active in Nav2.`, true);
+      showToast(`Keepout zone “${zone.name}” saved.`);
+    } catch (error) { setKeepoutStatus(error.message); }
+  });
+
+  elements['keepout-delete'].addEventListener('click', async () => {
+    const zone = keepoutZones.find((item) => item.id === selectedKeepoutZoneId);
+    if (!zone || !window.confirm(`Delete keepout zone “${zone.name}”?`)) return;
+    try {
+      await api(`/api/v1/keepout-zones/${encodeURIComponent(zone.id)}`, { method: 'DELETE' });
+      keepoutPolygon = [];
+      selectedKeepoutZoneId = '';
+      await refreshKeepoutZones();
+      updateKeepoutCount();
+      setKeepoutStatus('Saved keepout zone deleted. Nav2 mask updated.');
+      showToast('Keepout zone deleted.');
+    } catch (error) { setKeepoutStatus(error.message); }
+  });
+
   elements['save-location'].addEventListener('click', async () => {
     const name = elements['location-name'].value.trim();
-    const waypointValue = activeTarget === 'patrol' ? null : waypoints[activeTarget];
+    const waypointValue = ['patrol', 'keepout'].includes(activeTarget)
+      ? null
+      : waypoints[activeTarget];
     if (!name) { showToast('Enter a location name first.'); return; }
     if (!waypointValue) { showToast('Choose and select a pickup or drop-off waypoint first.'); return; }
     const validation = validateMapPoint(waypointValue, name);
@@ -1076,7 +1478,13 @@
       elements.login.classList.add('hidden');
       elements.app.classList.remove('hidden');
       renderState(state);
-      await Promise.all([refreshTasks(), refreshLocations(), refreshPatrolAreas()]);
+      await Promise.all([
+        refreshTasks(),
+        refreshLocations(),
+        refreshPatrolAreas(),
+        refreshKeepoutZones(),
+        refreshAlerts(),
+      ]);
       refreshMap(true).catch((error) => {
         elements['map-loading'].textContent = error.message;
         elements['map-loading'].classList.remove('hidden');
@@ -1139,6 +1547,7 @@
   elements.logout.addEventListener('click', () => disconnect());
 
   updatePatrolCount();
+  updateKeepoutCount();
 
   if (token) {
     elements.token.value = token;

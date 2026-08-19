@@ -169,6 +169,11 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                     HTTPStatus.OK,
                     {'patrol_areas': self.server.service.list_patrol_areas()},
                 )
+            elif path == '/api/v1/keepout-zones':
+                self._json(
+                    HTTPStatus.OK,
+                    {'keepout_zones': self.server.service.list_keepout_zones()},
+                )
             elif path == '/api/v1/hazards':
                 query = parse_qs(parsed.query)
                 limit = int(query.get('limit', ['100'])[0])
@@ -176,6 +181,20 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                     HTTPStatus.OK,
                     {'hazards': self.server.service.list_hazards(limit)},
                 )
+            elif path == '/api/v1/alerts':
+                query = parse_qs(parsed.query)
+                limit = int(query.get('limit', ['25'])[0])
+                self._json(
+                    HTTPStatus.OK,
+                    {'alerts': self.server.service.list_alerts(limit)},
+                )
+            elif path.startswith('/api/v1/alerts/') and path.endswith(
+                '/photo.jpg'
+            ):
+                alert_id = path.removeprefix('/api/v1/alerts/').removesuffix(
+                    '/photo.jpg'
+                )
+                self._jpeg(self.server.service.get_alert_photo(alert_id))
             elif path == '/api/v1/tasks':
                 query = parse_qs(parsed.query)
                 limit = int(query.get('limit', ['100'])[0])
@@ -198,6 +217,8 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
             self._error(HTTPStatus.BAD_REQUEST, exc)
         except ConflictError as exc:
             self._error(HTTPStatus.CONFLICT, exc)
+        except KeyError:
+            self._error(HTTPStatus.NOT_FOUND, 'alert photo not found')
         except Exception as exc:  # Keep internal details out of API responses.
             self.server.service.log_exception('GET request failed', exc)
             self._error(HTTPStatus.INTERNAL_SERVER_ERROR, 'internal server error')
@@ -234,6 +255,9 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
             elif path == '/api/v1/patrol-areas':
                 area = self.server.service.save_patrol_area(body)
                 self._json(HTTPStatus.OK, area)
+            elif path == '/api/v1/keepout-zones':
+                zone = self.server.service.save_keepout_zone(body)
+                self._json(HTTPStatus.OK, zone)
             elif path == '/api/v1/locations':
                 location = self.server.service.save_location(body)
                 self._json(HTTPStatus.OK, location)
@@ -276,6 +300,7 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
         try:
             location_prefix = '/api/v1/locations/'
             patrol_prefix = '/api/v1/patrol-areas/'
+            keepout_prefix = '/api/v1/keepout-zones/'
             if path.startswith(location_prefix) and len(path) > len(location_prefix):
                 item_id = path.removeprefix(location_prefix)
                 self.server.service.delete_location(item_id)
@@ -284,6 +309,10 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                 item_id = path.removeprefix(patrol_prefix)
                 self.server.service.delete_patrol_area(item_id)
                 kind = 'patrol area'
+            elif path.startswith(keepout_prefix) and len(path) > len(keepout_prefix):
+                item_id = path.removeprefix(keepout_prefix)
+                self.server.service.delete_keepout_zone(item_id)
+                kind = 'keepout zone'
             else:
                 self._error(HTTPStatus.NOT_FOUND, 'not found')
                 return

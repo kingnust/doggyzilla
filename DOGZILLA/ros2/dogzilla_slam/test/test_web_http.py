@@ -23,7 +23,15 @@ class FakeGateway:
         self.exceptions = []
         self.locations = {}
         self.patrol_areas = {}
+        self.keepout_zones = {}
         self.hazards = []
+        self.alerts = [{
+            'id': 'alert-1',
+            'category': 'person',
+            'label': 'person',
+            'confidence': 0.9,
+            'photo_url': '/api/v1/alerts/alert-1/photo.jpg',
+        }]
 
     def log_http(self, _message):
         pass
@@ -138,6 +146,17 @@ class FakeGateway:
     def delete_patrol_area(self, area_id):
         del self.patrol_areas[area_id]
 
+    def list_keepout_zones(self):
+        return list(self.keepout_zones.values())
+
+    def save_keepout_zone(self, body):
+        zone = {'id': 'keepout-1', **body}
+        self.keepout_zones[zone['id']] = zone
+        return zone
+
+    def delete_keepout_zone(self, zone_id):
+        del self.keepout_zones[zone_id]
+
     def preview_patrol(self, body):
         return {
             'map': body.get('map', 'test1'),
@@ -153,6 +172,14 @@ class FakeGateway:
 
     def list_hazards(self, limit):
         return self.hazards[:limit]
+
+    def list_alerts(self, limit):
+        return self.alerts[:limit]
+
+    def get_alert_photo(self, alert_id):
+        if alert_id != 'alert-1':
+            raise KeyError(alert_id)
+        return b'\xff\xd8alert-photo\xff\xd9'
 
     def get_task(self, task_id):
         return self.tasks.get(task_id)
@@ -326,6 +353,24 @@ class WebHTTPTest(unittest.TestCase):
         self.assertEqual(headers['Content-Type'], 'image/jpeg')
         self.assertTrue(payload.startswith(b'\xff\xd8'))
 
+        status, _, alerts = request(
+            self.server,
+            'GET',
+            '/api/v1/alerts?limit=25',
+            authorized=True,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(alerts['alerts'][0]['category'], 'person')
+        status, headers, photo = request(
+            self.server,
+            'GET',
+            '/api/v1/alerts/alert-1/photo.jpg',
+            authorized=True,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(headers['Content-Type'], 'image/jpeg')
+        self.assertTrue(photo.startswith(b'\xff\xd8'))
+
         status, _, value = request(
             self.server,
             'POST',
@@ -347,6 +392,25 @@ class WebHTTPTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(value['mode'], 'qr-action')
         self.assertEqual(value['action_output'], 'disabled')
+
+        for mode in (
+            'raw',
+            'objects',
+            'dangerous-objects',
+            'floor-hazards',
+            'patrol',
+        ):
+            with self.subTest(mode=mode):
+                status, _, value = request(
+                    self.server,
+                    'POST',
+                    '/api/v1/vision/mode',
+                    {'mode': mode, 'color': 'red'},
+                    authorized=True,
+                )
+                self.assertEqual(status, 200)
+                self.assertEqual(value['mode'], mode)
+                self.assertEqual(value['action_output'], 'disabled')
 
         status, _, value = request(
             self.server,
@@ -473,6 +537,44 @@ class WebHTTPTest(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertEqual(deleted['kind'], 'patrol area')
+
+    def test_keepout_zone_create_list_and_delete(self):
+        body = {
+            'map': 'test1',
+            'name': 'Movable table',
+            'polygon': [
+                {'x': 0, 'y': 0},
+                {'x': 1, 'y': 0},
+                {'x': 1, 'y': 1},
+                {'x': 0, 'y': 1},
+            ],
+        }
+        status, _, zone = request(
+            self.server,
+            'POST',
+            '/api/v1/keepout-zones',
+            body,
+            authorized=True,
+        )
+        self.assertEqual(status, 200)
+
+        status, _, zones = request(
+            self.server,
+            'GET',
+            '/api/v1/keepout-zones',
+            authorized=True,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(zones['keepout_zones'], [zone])
+
+        status, _, deleted = request(
+            self.server,
+            'DELETE',
+            f"/api/v1/keepout-zones/{zone['id']}",
+            authorized=True,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(deleted['kind'], 'keepout zone')
 
 
 if __name__ == '__main__':

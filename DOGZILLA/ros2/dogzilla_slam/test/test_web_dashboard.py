@@ -1,4 +1,5 @@
 from html.parser import HTMLParser
+import math
 from pathlib import Path
 import re
 import unittest
@@ -75,6 +76,7 @@ class WebDashboardTest(unittest.TestCase):
             'vision-result',
             'vision-status',
             'vision-safety',
+            'patrol-alert-list',
             'patrol-name',
             'patrol-spacing',
             'patrol-repeats',
@@ -83,6 +85,15 @@ class WebDashboardTest(unittest.TestCase):
             'patrol-save',
             'patrol-queue',
             'patrol-status',
+            'map-zoom-out',
+            'map-zoom-in',
+            'map-zoom-fit',
+            'map-zoom-level',
+            'keepout-name',
+            'keepout-zone-list',
+            'keepout-save',
+            'keepout-delete',
+            'keepout-status',
         ):
             with self.subTest(element_id=element_id):
                 self.assertIn(f'id="{element_id}"', html)
@@ -99,6 +110,73 @@ class WebDashboardTest(unittest.TestCase):
         self.assertIn('North · 90°', html)
         self.assertIn('Draw patrol area', html)
         self.assertIn("'/api/v1/patrol-areas/preview'", javascript)
+        self.assertIn('Draw keepout', html)
+        self.assertIn("'/api/v1/keepout-zones'", javascript)
+        self.assertIn('const scale = fitScale * mapZoom', javascript)
+        self.assertIn('(screenX - mapView.offsetX) / mapView.scale', javascript)
+        self.assertIn('(screenY - mapView.offsetY) / mapView.scale', javascript)
+        self.assertIn(
+            'waypoints[target] = { ...normalizedPoint, yaw: selectedYaw }',
+            javascript,
+        )
+        self.assertIn('pointToPolygonDistance(point, zone.polygon)', javascript)
+        self.assertIn('mapSnapshot.keepout_clearance_m', javascript)
+
+    def test_map_click_transform_is_zoom_invariant_for_rotated_maps(self):
+        width = 640
+        height = 480
+        resolution = 0.05
+        origin_x = -3.2
+        origin_y = 1.7
+        origin_yaw = 0.31
+        local_x = 143.25
+        local_y = 222.75
+        cosine = math.cos(origin_yaw)
+        sine = math.sin(origin_yaw)
+        world_x = origin_x + cosine * local_x * resolution \
+            - sine * local_y * resolution
+        world_y = origin_y + sine * local_x * resolution \
+            + cosine * local_y * resolution
+
+        for zoom in (1.0, 1.5, 2.0, 3.0, 4.0):
+            with self.subTest(zoom=zoom):
+                fit_scale = min((900 - 36) / width, (700 - 36) / height)
+                scale = fit_scale * zoom
+                offset_x = (900 - width * scale) / 2
+                offset_y = (700 - height * scale) / 2
+                screen_x = offset_x + local_x * scale
+                screen_y = offset_y + (height - local_y) * scale
+
+                clicked_local_x = (screen_x - offset_x) / scale
+                clicked_local_y = height - (screen_y - offset_y) / scale
+                clicked_world_x = origin_x \
+                    + cosine * clicked_local_x * resolution \
+                    - sine * clicked_local_y * resolution
+                clicked_world_y = origin_y \
+                    + sine * clicked_local_x * resolution \
+                    + cosine * clicked_local_y * resolution
+
+                self.assertAlmostEqual(clicked_world_x, world_x, places=12)
+                self.assertAlmostEqual(clicked_world_y, world_y, places=12)
+
+    def test_dashboard_exposes_general_and_confirmed_danger_modes(self):
+        html = (STATIC_DIRECTORY / 'index.html').read_text()
+        javascript = (STATIC_DIRECTORY / 'app.js').read_text()
+
+        self.assertIn('value="raw"', html)
+        self.assertIn('value="objects"', html)
+        self.assertIn('value="dangerous-objects"', html)
+        self.assertIn('value="floor-hazards"', html)
+        self.assertIn('value="patrol"', html)
+        self.assertIn('id="patrol-alert-list"', html)
+        self.assertIn(
+            "['objects', 'dangerous-objects', 'floor-hazards', 'patrol']",
+            javascript,
+        )
+        self.assertIn(
+            "['hazard.confirmed', 'person.confirmed'].includes(event.type)",
+            javascript,
+        )
 
 
 if __name__ == '__main__':

@@ -58,6 +58,20 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument('floor_scan_columns', default_value='2'),
         DeclareLaunchArgument('floor_scan_overlap', default_value='0.18'),
+        DeclareLaunchArgument(
+            'danger_minimum_confidence', default_value='0.65'
+        ),
+        DeclareLaunchArgument(
+            'danger_minimum_observations', default_value='3'
+        ),
+        DeclareLaunchArgument(
+            'danger_minimum_duration_seconds', default_value='0.8'
+        ),
+        DeclareLaunchArgument('danger_minimum_iou', default_value='0.35'),
+        DeclareLaunchArgument(
+            'danger_maximum_gap_seconds', default_value='1.5'
+        ),
+        DeclareLaunchArgument('danger_cooldown_seconds', default_value='8.0'),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(camera_launch),
             launch_arguments={
@@ -109,6 +123,30 @@ def generate_launch_description():
                 ),
                 'floor_scan_overlap': ParameterValue(
                     LaunchConfiguration('floor_scan_overlap'),
+                    value_type=float,
+                ),
+                'danger_minimum_confidence': ParameterValue(
+                    LaunchConfiguration('danger_minimum_confidence'),
+                    value_type=float,
+                ),
+                'danger_minimum_observations': ParameterValue(
+                    LaunchConfiguration('danger_minimum_observations'),
+                    value_type=int,
+                ),
+                'danger_minimum_duration_seconds': ParameterValue(
+                    LaunchConfiguration('danger_minimum_duration_seconds'),
+                    value_type=float,
+                ),
+                'danger_minimum_iou': ParameterValue(
+                    LaunchConfiguration('danger_minimum_iou'),
+                    value_type=float,
+                ),
+                'danger_maximum_gap_seconds': ParameterValue(
+                    LaunchConfiguration('danger_maximum_gap_seconds'),
+                    value_type=float,
+                ),
+                'danger_cooldown_seconds': ParameterValue(
+                    LaunchConfiguration('danger_cooldown_seconds'),
                     value_type=float,
                 ),
             }],

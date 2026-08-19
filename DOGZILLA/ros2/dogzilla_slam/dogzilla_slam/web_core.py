@@ -219,10 +219,17 @@ def _segments_intersect(first, second, third, fourth):
     )
 
 
-def validate_patrol_polygon(value):
-    """Validate a simple map-frame polygon used to generate patrol coverage."""
-    if not isinstance(value, list) or not 3 <= len(value) <= 12:
-        raise ValidationError('patrol polygon requires between 3 and 12 points')
+def _validate_simple_polygon(
+    value,
+    *,
+    purpose,
+    maximum_points,
+    minimum_area,
+):
+    if not isinstance(value, list) or not 3 <= len(value) <= maximum_points:
+        raise ValidationError(
+            f'{purpose} requires between 3 and {maximum_points} points'
+        )
     points = []
     for index, point in enumerate(value):
         if not isinstance(point, dict):
@@ -239,7 +246,7 @@ def validate_patrol_polygon(value):
     for index, point in enumerate(points):
         for other in points[index + 1:]:
             if math.hypot(point['x'] - other['x'], point['y'] - other['y']) < 0.05:
-                raise ValidationError('patrol polygon points must be 0.05 m apart')
+                raise ValidationError(f'{purpose} points must be 0.05 m apart')
 
     point_count = len(points)
     for index in range(point_count):
@@ -253,7 +260,7 @@ def validate_patrol_polygon(value):
             third = points[other_index]
             fourth = points[(other_index + 1) % point_count]
             if _segments_intersect(first, second, third, fourth):
-                raise ValidationError('patrol polygon must not cross itself')
+                raise ValidationError(f'{purpose} must not cross itself')
 
     signed_double_area = sum(
         point['x'] * points[(index + 1) % point_count]['y']
@@ -261,9 +268,21 @@ def validate_patrol_polygon(value):
         for index, point in enumerate(points)
     )
     area = abs(signed_double_area) / 2.0
-    if not 0.25 <= area <= 250.0:
-        raise ValidationError('patrol polygon area must be between 0.25 and 250 m^2')
+    if not minimum_area <= area <= 250.0:
+        raise ValidationError(
+            f'{purpose} area must be between {minimum_area:g} and 250 m^2'
+        )
     return points
+
+
+def validate_patrol_polygon(value):
+    """Validate a simple map-frame polygon used to generate patrol coverage."""
+    return _validate_simple_polygon(
+        value,
+        purpose='patrol polygon',
+        maximum_points=12,
+        minimum_area=0.25,
+    )
 
 
 def build_patrol_area_payload(value, default_map='test1'):
@@ -281,6 +300,88 @@ def build_patrol_area_payload(value, default_map='test1'):
             value.get('spacing_m', 0.6), 'spacing_m', 0.3, 3.0
         ),
     }
+
+
+def validate_keepout_polygon(value):
+    """Validate a simple map-frame polygon used as a navigation keepout."""
+    return _validate_simple_polygon(
+        value,
+        purpose='keepout polygon',
+        maximum_points=24,
+        minimum_area=0.01,
+    )
+
+
+def build_keepout_zone_payload(value, default_map='test1'):
+    """Normalize one persistent polygonal navigation keepout zone."""
+    if not isinstance(value, dict):
+        raise ValidationError('request body must be a JSON object')
+    name = _clean_name(value.get('name'), 'name')
+    if not name:
+        raise ValidationError('keepout zone name is required')
+    return {
+        'map': _validate_map_name(value.get('map'), default_map),
+        'name': name,
+        'polygon': validate_keepout_polygon(value.get('polygon')),
+    }
+
+
+def _point_on_segment(x, y, first, second):
+    cross = (
+        (x - first['x']) * (second['y'] - first['y'])
+        - (y - first['y']) * (second['x'] - first['x'])
+    )
+    if abs(cross) > 1e-9:
+        return False
+    return (
+        min(first['x'], second['x']) - 1e-9 <= x
+        <= max(first['x'], second['x']) + 1e-9
+        and min(first['y'], second['y']) - 1e-9 <= y
+        <= max(first['y'], second['y']) + 1e-9
+    )
+
+
+def point_in_polygon(x, y, polygon):
+    """Return True for points inside or exactly on a polygon boundary."""
+    inside = False
+    for index, first in enumerate(polygon):
+        second = polygon[(index + 1) % len(polygon)]
+        if _point_on_segment(x, y, first, second):
+            return True
+        if (first['y'] > y) == (second['y'] > y):
+            continue
+        crossing_x = (
+            (second['x'] - first['x']) * (y - first['y'])
+            / (second['y'] - first['y'])
+            + first['x']
+        )
+        if x < crossing_x:
+            inside = not inside
+    return inside
+
+
+def point_to_polygon_distance(x, y, polygon):
+    """Return the shortest map-frame distance to a polygon, or zero inside."""
+    if point_in_polygon(x, y, polygon):
+        return 0.0
+    shortest = math.inf
+    for index, first in enumerate(polygon):
+        second = polygon[(index + 1) % len(polygon)]
+        edge_x = second['x'] - first['x']
+        edge_y = second['y'] - first['y']
+        length_squared = edge_x * edge_x + edge_y * edge_y
+        if length_squared <= 1e-18:
+            projection = 0.0
+        else:
+            projection = (
+                (x - first['x']) * edge_x
+                + (y - first['y']) * edge_y
+            ) / length_squared
+            projection = max(0.0, min(1.0, projection))
+        closest_x = first['x'] + projection * edge_x
+        closest_y = first['y'] + projection * edge_y
+        shortest = min(shortest, math.hypot(x - closest_x, y - closest_y))
+    return shortest
 
 
 def build_patrol_payload(value, area, waypoints):
@@ -314,20 +415,54 @@ def build_patrol_payload(value, area, waypoints):
 
 
 def patrol_vision_readiness(status):
-    """Fail closed unless patrol has complete, non-actuating hazard vision."""
+    """Fail closed unless patrol perception is complete and non-actuating."""
     if not isinstance(status, dict):
-        return False, 'floor-hazard vision status is invalid'
+        return False, 'patrol vision status is invalid'
     if status.get('state') != 'ready':
-        return False, 'floor-hazard vision is not ready'
+        return False, 'patrol vision is not ready'
     if status.get('action_output') != 'disabled':
         return False, 'vision action output must be disabled for patrol'
-    if status.get('mode') != 'floor-hazards':
-        return False, 'vision must be in floor-hazards mode for patrol'
+    if status.get('mode') != 'patrol':
+        return False, 'vision must be in patrol mode for patrol'
+    confirmation = status.get('danger_confirmation')
+    if not isinstance(confirmation, dict):
+        return False, 'danger confirmation status is unavailable'
+    if confirmation.get('topic') != '/vision/danger_confirmed':
+        return False, 'danger confirmation topic is invalid'
+    requirements = (
+        ('minimum_confidence', 0.6),
+        ('minimum_observations', 3),
+        ('minimum_duration_seconds', 0.75),
+        ('minimum_iou', 0.25),
+    )
+    try:
+        confirmation_ready = all(
+            float(confirmation[field]) >= minimum
+            for field, minimum in requirements
+        )
+    except (KeyError, TypeError, ValueError):
+        confirmation_ready = False
+    if not confirmation_ready:
+        return False, 'danger confirmation criteria are below safe limits'
+    try:
+        maximum_gap = float(confirmation['maximum_gap_seconds'])
+        cooldown = float(confirmation['cooldown_seconds'])
+    except (KeyError, TypeError, ValueError):
+        return False, 'danger confirmation timing metadata is invalid'
+    if not 0.1 <= maximum_gap <= 2.0 or cooldown < 1.0:
+        return False, 'danger confirmation timing is outside safe limits'
     object_status = status.get('object_detection')
     if not isinstance(object_status, dict) or not object_status.get(
         'ready', False
     ):
         return False, 'object detector is unavailable for patrol'
+    if object_status.get('person_detection_ready') is not True:
+        return False, 'person detector is unavailable for patrol'
+    face_status = status.get('face_detection')
+    if not isinstance(face_status, dict) or face_status.get('ready') is not True:
+        return False, 'face detector is unavailable for patrol'
+    if face_status.get('identification') is not False:
+        return False, 'patrol face detection must not identify people'
     missing = object_status.get('missing_dangerous_classes')
     if not isinstance(missing, list) or any(
         not isinstance(label, str) or not label for label in missing
@@ -411,18 +546,23 @@ class OccupancyMap:
         *,
         occupied_threshold=50,
         minimum_clearance_m=0.18,
+        keepout_clearance_m=0.32,
     ):
         if not MAP_NAME_PATTERN.fullmatch(str(map_name)):
             raise ValueError('unsupported map name')
         threshold = int(occupied_threshold)
         clearance = float(minimum_clearance_m)
+        keepout_clearance = float(keepout_clearance_m)
         if not 1 <= threshold <= 100:
             raise ValueError('occupied_threshold must be between 1 and 100')
         if not 0.0 <= clearance <= 2.0:
             raise ValueError('minimum_clearance_m must be between 0 and 2')
+        if not 0.0 <= keepout_clearance <= 2.0:
+            raise ValueError('keepout_clearance_m must be between 0 and 2')
         self.map_name = str(map_name)
         self.occupied_threshold = threshold
         self.minimum_clearance_m = clearance
+        self.keepout_clearance_m = keepout_clearance
         self._lock = threading.RLock()
         self._snapshot = None
         self._revision = 0
@@ -474,6 +614,7 @@ class OccupancyMap:
                 },
                 'occupied_threshold': self.occupied_threshold,
                 'minimum_clearance_m': self.minimum_clearance_m,
+                'keepout_clearance_m': self.keepout_clearance_m,
                 'encoding': 'rle-value-count',
                 'data': cells,
                 'runs': _encode_occupancy_runs(cells),
@@ -517,7 +658,28 @@ class OccupancyMap:
             math.floor(local_y / snapshot['resolution']),
         )
 
-    def validate_waypoints(self, waypoints):
+    def validate_polygon_bounds(self, polygon, label='Polygon'):
+        """Reject a polygon with any vertex outside the active map."""
+        with self._lock:
+            snapshot = self._snapshot
+            if snapshot is None:
+                raise ConflictError('occupancy map is not available yet')
+            snapshot = dict(snapshot)
+            snapshot['origin'] = dict(snapshot['origin'])
+        for index, point in enumerate(polygon):
+            column, row = self._world_to_cell(
+                snapshot, point['x'], point['y']
+            )
+            if not (
+                0 <= column < snapshot['width']
+                and 0 <= row < snapshot['height']
+            ):
+                raise ValidationError(
+                    f'{label} point {index + 1} is outside the active map'
+                )
+        return True
+
+    def validate_waypoints(self, waypoints, keepout_zones=()):
         """Reject goals outside free map cells or without safe clearance."""
         with self._lock:
             snapshot = self._snapshot
@@ -528,12 +690,21 @@ class OccupancyMap:
             snapshot['origin'] = dict(snapshot['origin'])
 
         for index, waypoint in enumerate(waypoints):
+            label = waypoint.get('label') or f'Waypoint {index + 1}'
+            for zone in keepout_zones:
+                distance = point_to_polygon_distance(
+                    waypoint['x'], waypoint['y'], zone['polygon']
+                )
+                if distance <= snapshot['keepout_clearance_m'] + 1e-9:
+                    raise ValidationError(
+                        f"{label} is inside or too close to keepout zone "
+                        f"'{zone['name']}'"
+                    )
             column, row = self._world_to_cell(
                 snapshot,
                 waypoint['x'],
                 waypoint['y'],
             )
-            label = waypoint.get('label') or f'Waypoint {index + 1}'
             if not (
                 0 <= column < snapshot['width']
                 and 0 <= row < snapshot['height']
@@ -574,7 +745,13 @@ class OccupancyMap:
         return True
 
     @staticmethod
-    def _point_error(snapshot, waypoint):
+    def _point_error(snapshot, waypoint, keepout_zones=()):
+        for zone in keepout_zones:
+            distance = point_to_polygon_distance(
+                waypoint['x'], waypoint['y'], zone['polygon']
+            )
+            if distance <= snapshot['keepout_clearance_m'] + 1e-9:
+                return f"inside or too close to keepout zone '{zone['name']}'"
         column, row = OccupancyMap._world_to_cell(
             snapshot, waypoint['x'], waypoint['y']
         )
@@ -606,7 +783,13 @@ class OccupancyMap:
                     return 'in or too close to an obstacle'
         return None
 
-    def generate_patrol_waypoints(self, polygon, spacing_m, maximum=120):
+    def generate_patrol_waypoints(
+        self,
+        polygon,
+        spacing_m,
+        maximum=120,
+        keepout_zones=(),
+    ):
         """Generate a deterministic serpentine route inside a safe polygon."""
         points = validate_patrol_polygon(polygon)
         spacing = _finite_number(spacing_m, 'spacing_m', 0.3, 3.0)
@@ -677,7 +860,9 @@ class OccupancyMap:
                         'x': cosine * local_u - sine * scan_v,
                         'y': sine * local_u + cosine * scan_v,
                     }
-                    if self._point_error(snapshot, waypoint) is None:
+                    if self._point_error(
+                        snapshot, waypoint, keepout_zones
+                    ) is None:
                         scan_points.append(waypoint)
             if reverse:
                 scan_points.reverse()
@@ -704,8 +889,45 @@ class OccupancyMap:
                 'yaw': yaw,
                 'dwell_seconds': 0.0,
             })
-        self.validate_waypoints(result)
+        self.validate_waypoints(result, keepout_zones)
         return result
+
+    def keepout_mask(self, keepout_zones):
+        """Rasterize persistent polygons into a Nav2-compatible mask."""
+        with self._lock:
+            if self._snapshot is None:
+                raise ConflictError('occupancy map is not available yet')
+            snapshot = dict(self._snapshot)
+            snapshot['origin'] = dict(self._snapshot['origin'])
+
+        resolution = snapshot['resolution']
+        origin = snapshot['origin']
+        cosine = math.cos(origin['yaw'])
+        sine = math.sin(origin['yaw'])
+        data = []
+        for row in range(snapshot['height']):
+            local_y = (row + 0.5) * resolution
+            for column in range(snapshot['width']):
+                local_x = (column + 0.5) * resolution
+                world_x = (
+                    origin['x'] + cosine * local_x - sine * local_y
+                )
+                world_y = (
+                    origin['y'] + sine * local_x + cosine * local_y
+                )
+                blocked = any(
+                    point_in_polygon(world_x, world_y, zone['polygon'])
+                    for zone in keepout_zones
+                )
+                data.append(100 if blocked else 0)
+        return {
+            'frame': snapshot['frame'],
+            'width': snapshot['width'],
+            'height': snapshot['height'],
+            'resolution': resolution,
+            'origin': origin,
+            'data': data,
+        }
 
 
 class TaskStore:
@@ -771,6 +993,19 @@ class TaskStore:
             )
             self._connection.execute(
                 '''
+                CREATE TABLE IF NOT EXISTS keepout_zones (
+                    id TEXT PRIMARY KEY,
+                    map_name TEXT NOT NULL,
+                    name TEXT COLLATE NOCASE NOT NULL,
+                    polygon TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(map_name, name)
+                )
+                '''
+            )
+            self._connection.execute(
+                '''
                 CREATE TABLE IF NOT EXISTS hazard_observations (
                     id TEXT PRIMARY KEY,
                     task_id TEXT,
@@ -780,13 +1015,46 @@ class TaskStore:
                     confidence REAL NOT NULL,
                     box TEXT NOT NULL,
                     robot_pose TEXT,
+                    confirmation TEXT,
                     created_at TEXT NOT NULL
                 )
                 '''
             )
             self._connection.execute(
+                '''
+                CREATE TABLE IF NOT EXISTS vision_alerts (
+                    id TEXT PRIMARY KEY,
+                    task_id TEXT,
+                    map_name TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    label TEXT NOT NULL,
+                    confidence REAL NOT NULL,
+                    box TEXT NOT NULL,
+                    robot_pose TEXT,
+                    confirmation TEXT NOT NULL,
+                    photo_name TEXT,
+                    created_at TEXT NOT NULL
+                )
+                '''
+            )
+            hazard_columns = {
+                row['name']
+                for row in self._connection.execute(
+                    'PRAGMA table_info(hazard_observations)'
+                ).fetchall()
+            }
+            if 'confirmation' not in hazard_columns:
+                self._connection.execute(
+                    'ALTER TABLE hazard_observations '
+                    'ADD COLUMN confirmation TEXT'
+                )
+            self._connection.execute(
                 'CREATE INDEX IF NOT EXISTS hazard_map_created_idx '
                 'ON hazard_observations(map_name, created_at)'
+            )
+            self._connection.execute(
+                'CREATE INDEX IF NOT EXISTS vision_alert_created_idx '
+                'ON vision_alerts(created_at)'
             )
             self._connection.execute(
                 '''
@@ -1033,6 +1301,69 @@ class TaskStore:
                 raise KeyError(area_id)
 
     @staticmethod
+    def _row_to_keepout_zone(row):
+        if row is None:
+            return None
+        return {
+            'id': row['id'],
+            'map': row['map_name'],
+            'name': row['name'],
+            'polygon': json.loads(row['polygon']),
+            'created_at': row['created_at'],
+            'updated_at': row['updated_at'],
+        }
+
+    def save_keepout_zone(self, payload):
+        """Create or update a named keepout zone within one map."""
+        timestamp = utc_now()
+        zone_id = str(uuid.uuid4())
+        polygon_json = json.dumps(
+            payload['polygon'], sort_keys=True, separators=(',', ':')
+        )
+        with self._lock, self._connection:
+            self._connection.execute(
+                '''
+                INSERT INTO keepout_zones (
+                    id, map_name, name, polygon, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(map_name, name) DO UPDATE SET
+                    polygon = excluded.polygon,
+                    updated_at = excluded.updated_at
+                ''',
+                (
+                    zone_id,
+                    payload['map'],
+                    payload['name'],
+                    polygon_json,
+                    timestamp,
+                    timestamp,
+                ),
+            )
+            row = self._connection.execute(
+                'SELECT * FROM keepout_zones WHERE map_name = ? AND name = ?',
+                (payload['map'], payload['name']),
+            ).fetchone()
+        return self._row_to_keepout_zone(row)
+
+    def list_keepout_zones(self, map_name):
+        with self._lock:
+            rows = self._connection.execute(
+                'SELECT * FROM keepout_zones WHERE map_name = ? '
+                'ORDER BY name COLLATE NOCASE ASC',
+                (str(map_name),),
+            ).fetchall()
+        return [self._row_to_keepout_zone(row) for row in rows]
+
+    def delete_keepout_zone(self, zone_id, map_name):
+        with self._lock, self._connection:
+            cursor = self._connection.execute(
+                'DELETE FROM keepout_zones WHERE id = ? AND map_name = ?',
+                (str(zone_id), str(map_name)),
+            )
+            if cursor.rowcount != 1:
+                raise KeyError(zone_id)
+
+    @staticmethod
     def _row_to_hazard(row):
         if row is None:
             return None
@@ -1047,6 +1378,10 @@ class TaskStore:
             'robot_pose': (
                 json.loads(row['robot_pose']) if row['robot_pose'] else None
             ),
+            'confirmation': (
+                json.loads(row['confirmation'])
+                if row['confirmation'] else None
+            ),
             'created_at': row['created_at'],
         }
 
@@ -1060,8 +1395,8 @@ class TaskStore:
                 '''
                 INSERT INTO hazard_observations (
                     id, task_id, map_name, label, risk, confidence,
-                    box, robot_pose, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    box, robot_pose, confirmation, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''',
                 (
                     observation_id,
@@ -1072,6 +1407,14 @@ class TaskStore:
                     payload['confidence'],
                     json.dumps(payload['box'], separators=(',', ':')),
                     json.dumps(pose, separators=(',', ':')) if pose else None,
+                    (
+                        json.dumps(
+                            payload.get('confirmation'),
+                            separators=(',', ':'),
+                            sort_keys=True,
+                        )
+                        if payload.get('confirmation') else None
+                    ),
                     timestamp,
                 ),
             )
@@ -1090,6 +1433,98 @@ class TaskStore:
                 (str(map_name), limit),
             ).fetchall()
         return [self._row_to_hazard(row) for row in rows]
+
+    @staticmethod
+    def _row_to_vision_alert(row):
+        if row is None:
+            return None
+        return {
+            'id': row['id'],
+            'task_id': row['task_id'],
+            'map': row['map_name'],
+            'category': row['category'],
+            'label': row['label'],
+            'confidence': float(row['confidence']),
+            'box': json.loads(row['box']),
+            'robot_pose': (
+                json.loads(row['robot_pose']) if row['robot_pose'] else None
+            ),
+            'confirmation': json.loads(row['confirmation']),
+            'photo_name': row['photo_name'],
+            'created_at': row['created_at'],
+        }
+
+    def record_vision_alert(self, payload, limit=25):
+        """Persist an alert and prune its journal to at most 25 entries."""
+        limit = max(1, min(int(limit), 25))
+        category = str(payload['category'])
+        if category not in {'danger', 'person'}:
+            raise ValueError('vision alert category is invalid')
+        alert_id = str(uuid.uuid4())
+        timestamp = utc_now()
+        pose = payload.get('robot_pose')
+        with self._lock, self._connection:
+            self._connection.execute(
+                '''
+                INSERT INTO vision_alerts (
+                    id, task_id, map_name, category, label, confidence,
+                    box, robot_pose, confirmation, photo_name, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''',
+                (
+                    alert_id,
+                    payload.get('task_id'),
+                    payload['map'],
+                    category,
+                    payload['label'],
+                    payload['confidence'],
+                    json.dumps(payload['box'], separators=(',', ':')),
+                    json.dumps(pose, separators=(',', ':')) if pose else None,
+                    json.dumps(
+                        payload['confirmation'],
+                        sort_keys=True,
+                        separators=(',', ':'),
+                    ),
+                    payload.get('photo_name'),
+                    timestamp,
+                ),
+            )
+            rows = self._connection.execute(
+                'SELECT id, photo_name FROM vision_alerts '
+                'ORDER BY created_at DESC, rowid DESC'
+            ).fetchall()
+            expired = rows[limit:]
+            if expired:
+                self._connection.executemany(
+                    'DELETE FROM vision_alerts WHERE id = ?',
+                    ((row['id'],) for row in expired),
+                )
+            row = self._connection.execute(
+                'SELECT * FROM vision_alerts WHERE id = ?',
+                (alert_id,),
+            ).fetchone()
+        removed_photos = [
+            item['photo_name'] for item in expired if item['photo_name']
+        ]
+        return self._row_to_vision_alert(row), removed_photos
+
+    def get_vision_alert(self, alert_id):
+        with self._lock:
+            row = self._connection.execute(
+                'SELECT * FROM vision_alerts WHERE id = ?',
+                (str(alert_id),),
+            ).fetchone()
+        return self._row_to_vision_alert(row)
+
+    def list_vision_alerts(self, map_name, limit=25):
+        limit = max(1, min(int(limit), 25))
+        with self._lock:
+            rows = self._connection.execute(
+                'SELECT * FROM vision_alerts WHERE map_name = ? '
+                'ORDER BY created_at DESC, rowid DESC LIMIT ?',
+                (str(map_name), limit),
+            ).fetchall()
+        return [self._row_to_vision_alert(row) for row in rows]
 
     def close(self):
         with self._lock:

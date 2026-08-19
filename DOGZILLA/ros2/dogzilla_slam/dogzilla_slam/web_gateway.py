@@ -1,15 +1,18 @@
 """ROS-aware monitoring and autonomous-task gateway for DOGZILLA."""
 
 from action_msgs.msg import GoalStatus
+from datetime import datetime, timezone
 from geometry_msgs.msg import Twist
 import json
 from nav2_msgs.action import ComputePathToPose, NavigateToPose
+from nav2_msgs.msg import CostmapFilterInfo
 from nav_msgs.msg import OccupancyGrid, Odometry
 import math
 import os
 from pathlib import Path
 import threading
 import time
+import uuid
 
 import rclpy
 from rclpy.action import ActionClient
@@ -24,6 +27,7 @@ from std_msgs.msg import Bool, String
 from tf2_ros import Buffer, TransformException, TransformListener
 
 from .web_core import build_location_payload
+from .web_core import build_keepout_zone_payload
 from .web_core import build_delivery_payload
 from .web_core import build_patrol_area_payload
 from .web_core import build_patrol_payload
@@ -41,6 +45,9 @@ from .web_core import ValidationError
 from .web_http import GatewayHTTPServer
 from .object_detector import validate_detection_payload
 from .vision_core import validate_request
+from .vision_core import validate_danger_confirmation
+from .vision_core import validate_patrol_detection_payload
+from .vision_core import DangerConfirmationTracker
 from .vision_core import VisionConfigurationError
 
 
@@ -79,23 +86,38 @@ class DogzillaWebGateway(Node):
             26.0,
             100.0,
         )
-        self.hazard_minimum_confidence = self._float_environment(
-            'DOGZILLA_WEB_HAZARD_CONFIDENCE',
-            0.55,
-            0.30,
-            0.99,
-        )
-        self.hazard_confirmations = self._integer_environment(
-            'DOGZILLA_WEB_HAZARD_CONFIRMATIONS',
-            3,
-            2,
-            10,
-        )
         database_path = os.environ.get(
             'DOGZILLA_WEB_DATABASE',
             '/data/tasks.sqlite3',
         )
         self.store = TaskStore(database_path)
+        default_alert_directory = Path(database_path).parent / 'alerts'
+        self.alert_directory = Path(os.environ.get(
+            'DOGZILLA_WEB_ALERT_DIRECTORY',
+            str(default_alert_directory),
+        )).resolve()
+        self.alert_directory.mkdir(parents=True, exist_ok=True)
+        if not self.alert_directory.is_dir():
+            raise RuntimeError('DOGZILLA web alert path is not a directory')
+        self._alert_cooldown = self._float_environment(
+            'DOGZILLA_WEB_ALERT_COOLDOWN',
+            30.0,
+            5.0,
+            300.0,
+        )
+        self._person_tracker = DangerConfirmationTracker(
+            minimum_confidence=0.65,
+            minimum_observations=3,
+            minimum_duration_seconds=0.8,
+            minimum_iou=0.35,
+            maximum_gap_seconds=1.5,
+            cooldown_seconds=8.0,
+            required_label='person',
+            require_dangerous=False,
+        )
+        self._recent_alerts = {}
+        self._prune_alert_photos()
+        self._restore_alert_deduplication()
         self.occupancy_map = OccupancyMap(
             self.map_name,
             occupied_threshold=self._integer_environment(
@@ -107,6 +129,12 @@ class DogzillaWebGateway(Node):
             minimum_clearance_m=self._float_environment(
                 'DOGZILLA_WEB_GOAL_CLEARANCE',
                 0.18,
+                0.0,
+                2.0,
+            ),
+            keepout_clearance_m=self._float_environment(
+                'DOGZILLA_WEB_KEEPOUT_CLEARANCE',
+                0.32,
                 0.0,
                 2.0,
             ),
@@ -124,11 +152,6 @@ class DogzillaWebGateway(Node):
         self._vision_frame_received = 0.0
         self._vision_status_signature = None
         self._vision_action_status_signature = None
-        self._hazard_candidate = None
-        self._hazard_candidate_count = 0
-        self._hazard_candidate_time = 0.0
-        self._last_hazard_signature = None
-        self._last_hazard_time = 0.0
         self._graph = {
             'mode': 'stopped',
             'nodes': [],
@@ -139,6 +162,16 @@ class DogzillaWebGateway(Node):
         map_qos = QoSProfile(depth=1)
         map_qos.reliability = ReliabilityPolicy.RELIABLE
         map_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
+        self._keepout_mask_publisher = self.create_publisher(
+            OccupancyGrid,
+            '/keepout_filter_mask',
+            map_qos,
+        )
+        self._keepout_info_publisher = self.create_publisher(
+            CostmapFilterInfo,
+            '/keepout_filter_info',
+            map_qos,
+        )
         self.create_subscription(
             BatteryState,
             '/battery_state',
@@ -156,6 +189,12 @@ class DogzillaWebGateway(Node):
             String,
             '/vision/detections',
             self._on_vision_detections,
+            10,
+        )
+        self.create_subscription(
+            String,
+            '/vision/danger_confirmed',
+            self._on_danger_confirmed,
             10,
         )
         vision_status_qos = QoSProfile(depth=1)
@@ -225,6 +264,39 @@ class DogzillaWebGateway(Node):
             {'map': self.map_name, 'minimum_battery': self.minimum_battery},
         )
 
+    def _active_keepout_zones(self):
+        return self.store.list_keepout_zones(self.map_name)
+
+    def _publish_keepout_filter(self):
+        """Publish the saved polygons as a transient-local Nav2 mask."""
+        mask = self.occupancy_map.keepout_mask(
+            self._active_keepout_zones()
+        )
+        timestamp = self.get_clock().now().to_msg()
+        message = OccupancyGrid()
+        message.header.stamp = timestamp
+        message.header.frame_id = mask['frame']
+        message.info.map_load_time = timestamp
+        message.info.resolution = mask['resolution']
+        message.info.width = mask['width']
+        message.info.height = mask['height']
+        origin = mask['origin']
+        message.info.origin.position.x = origin['x']
+        message.info.origin.position.y = origin['y']
+        message.info.origin.orientation.z = math.sin(origin['yaw'] / 2.0)
+        message.info.origin.orientation.w = math.cos(origin['yaw'] / 2.0)
+        message.data = mask['data']
+        self._keepout_mask_publisher.publish(message)
+
+        information = CostmapFilterInfo()
+        information.header.stamp = timestamp
+        information.header.frame_id = mask['frame']
+        information.type = 0
+        information.filter_mask_topic = '/keepout_filter_mask'
+        information.base = 0.0
+        information.multiplier = 1.0
+        self._keepout_info_publisher.publish(information)
+
     @staticmethod
     def _integer_environment(name, default, lower, upper):
         try:
@@ -250,6 +322,188 @@ class DogzillaWebGateway(Node):
 
     def log_exception(self, message, exception):
         self.get_logger().error(f'{message}: {exception}')
+
+    @staticmethod
+    def _valid_alert_photo_name(name):
+        value = str(name)
+        if not value.startswith('alert-') or not value.endswith('.jpg'):
+            return False
+        identifier = value[6:-4]
+        return len(identifier) == 32 and all(
+            character in '0123456789abcdef' for character in identifier
+        )
+
+    def _delete_alert_photo(self, name):
+        if not self._valid_alert_photo_name(name):
+            return
+        path = self.alert_directory / str(name)
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as exc:
+            self.get_logger().warn(
+                f'Could not remove expired alert photo {name}: {exc}'
+            )
+
+    def _prune_alert_photos(self):
+        """Keep at most 25 files created by the alert-photo subsystem."""
+        try:
+            photos = [
+                path for path in self.alert_directory.iterdir()
+                if path.is_file() and self._valid_alert_photo_name(path.name)
+            ]
+            photos.sort(
+                key=lambda path: (path.stat().st_mtime_ns, path.name),
+                reverse=True,
+            )
+        except OSError as exc:
+            self.get_logger().warn(f'Could not inspect alert photos: {exc}')
+            return
+        for path in photos[25:]:
+            self._delete_alert_photo(path.name)
+
+    def _restore_alert_deduplication(self):
+        """Prevent a gateway restart from immediately repeating an alert."""
+        wall_now = datetime.now(timezone.utc)
+        monotonic_now = time.monotonic()
+        for alert in self.store.list_vision_alerts(self.map_name, 25):
+            try:
+                created = datetime.fromisoformat(
+                    alert['created_at'].replace('Z', '+00:00')
+                )
+                age = max(0.0, (wall_now - created).total_seconds())
+            except (AttributeError, TypeError, ValueError):
+                continue
+            if age >= self._alert_cooldown:
+                continue
+            key = (alert['category'], alert['label'])
+            self._recent_alerts.setdefault(key, []).append({
+                'time': monotonic_now - age,
+                'box': tuple(alert['box']),
+            })
+
+    @staticmethod
+    def _alert_box_iou(first, second):
+        first_x, first_y, first_width, first_height = (
+            float(value) for value in first
+        )
+        second_x, second_y, second_width, second_height = (
+            float(value) for value in second
+        )
+        overlap_width = max(
+            0.0,
+            min(first_x + first_width, second_x + second_width)
+            - max(first_x, second_x),
+        )
+        overlap_height = max(
+            0.0,
+            min(first_y + first_height, second_y + second_height)
+            - max(first_y, second_y),
+        )
+        intersection = overlap_width * overlap_height
+        union = (
+            first_width * first_height
+            + second_width * second_height
+            - intersection
+        )
+        return intersection / union if union > 0.0 else 0.0
+
+    @staticmethod
+    def _public_alert(alert):
+        value = dict(alert)
+        photo_name = value.pop('photo_name', None)
+        value['photo_url'] = (
+            f"/api/v1/alerts/{value['id']}/photo.jpg"
+            if photo_name else None
+        )
+        return value
+
+    def _record_vision_alert(
+        self,
+        *,
+        category,
+        detection,
+        confirmation,
+        mode,
+    ):
+        """Store one deduplicated web alert and its latest annotated frame."""
+        now = time.monotonic()
+        key = (str(category), str(detection['label']))
+        box = tuple(detection['box'])
+        with self._lock:
+            recent = [
+                item for item in self._recent_alerts.get(key, [])
+                if now - item['time'] < self._alert_cooldown
+            ]
+            if any(
+                self._alert_box_iou(box, item['box']) >= 0.35
+                for item in recent
+            ):
+                self._recent_alerts[key] = recent
+                return None
+            reservation = {'time': now, 'box': box}
+            recent.append(reservation)
+            self._recent_alerts[key] = recent
+            frame = self._vision_frame
+            frame_age = now - self._vision_frame_received
+            active_task_id = self._active['task_id'] if self._active else None
+        pose = self.telemetry.get('pose', stale_after=3.0)
+        robot_pose = None if pose is None or pose['stale'] else pose['value']
+
+        photo_name = None
+        photo_path = None
+        if frame is not None and frame_age <= 3.0:
+            candidate = f'alert-{uuid.uuid4().hex}.jpg'
+            if (
+                len(frame) <= 4 * 1024 * 1024
+                and frame.startswith(b'\xff\xd8')
+                and frame.endswith(b'\xff\xd9')
+            ):
+                photo_path = self.alert_directory / candidate
+                temporary = self.alert_directory / f'.{candidate}.tmp'
+                try:
+                    with temporary.open('xb') as stream:
+                        stream.write(frame)
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                    os.replace(temporary, photo_path)
+                    photo_name = candidate
+                except OSError as exc:
+                    temporary.unlink(missing_ok=True)
+                    self.get_logger().warn(
+                        f'Could not save alert photo: {exc}'
+                    )
+
+        try:
+            alert, removed_photos = self.store.record_vision_alert({
+                'task_id': active_task_id,
+                'map': self.map_name,
+                'category': category,
+                'label': detection['label'],
+                'confidence': detection['confidence'],
+                'box': detection['box'],
+                'robot_pose': robot_pose,
+                'confirmation': {
+                    'mode': mode,
+                    **confirmation,
+                },
+                'photo_name': photo_name,
+            }, limit=25)
+        except Exception as exc:
+            if photo_path is not None:
+                self._delete_alert_photo(photo_path.name)
+            with self._lock:
+                recent = self._recent_alerts.get(key, [])
+                self._recent_alerts[key] = [
+                    item for item in recent if item is not reservation
+                ]
+                if not self._recent_alerts[key]:
+                    self._recent_alerts.pop(key, None)
+            self.get_logger().error(f'Could not store vision alert: {exc}')
+            return None
+        for expired_name in removed_photos:
+            self._delete_alert_photo(expired_name)
+        self._prune_alert_photos()
+        return self._public_alert(alert)
 
     def _on_battery(self, message):
         percentage = None
@@ -300,78 +554,94 @@ class DogzillaWebGateway(Node):
         if not isinstance(detections, list) or len(detections) > 100:
             self.get_logger().warn('Invalid vision detection list ignored')
             return
-        if value.get('mode') in {'objects', 'floor-hazards'}:
+        if value.get('mode') in {
+            'objects', 'dangerous-objects', 'floor-hazards', 'patrol'
+        }:
             try:
-                detections = [
-                    validate_detection_payload(item) for item in detections
-                ]
+                validator = (
+                    validate_patrol_detection_payload
+                    if value.get('mode') == 'patrol'
+                    else validate_detection_payload
+                )
+                detections = [validator(item) for item in detections]
             except (TypeError, ValueError) as exc:
                 self.get_logger().warn(f'Invalid object detection ignored: {exc}')
                 return
             value['detections'] = detections
         self.telemetry.update('vision', value)
-        if value.get('mode') == 'floor-hazards':
-            self._observe_floor_hazards(detections)
-
-    def _observe_floor_hazards(self, detections):
-        """Debounce model results before recording or stopping a patrol."""
-        hazards = [
-            item for item in detections
-            if item.get('floor_hazard') is True
-            and item['confidence'] >= self.hazard_minimum_confidence
-        ]
-        now = time.monotonic()
-        if not hazards:
+        if value.get('mode') != 'patrol':
             with self._lock:
-                self._hazard_candidate = None
-                self._hazard_candidate_count = 0
+                self._person_tracker.reset()
             return
-        strongest = max(hazards, key=lambda item: item['confidence'])
-        signature = strongest['label']
+        now = time.monotonic()
         with self._lock:
-            continuing = (
-                signature == self._hazard_candidate
-                and now - self._hazard_candidate_time <= 1.5
+            confirmations = self._person_tracker.observe(
+                detections,
+                now=now,
             )
-            self._hazard_candidate_count = (
-                self._hazard_candidate_count + 1 if continuing else 1
-            )
-            self._hazard_candidate = signature
-            self._hazard_candidate_time = now
-            confirmed = self._hazard_candidate_count >= self.hazard_confirmations
-            duplicate = (
-                signature == self._last_hazard_signature
-                and now - self._last_hazard_time < 8.0
-            )
-            if confirmed and not duplicate:
-                self._last_hazard_signature = signature
-                self._last_hazard_time = now
-                self._hazard_candidate_count = 0
-        if confirmed and not duplicate:
-            self._handle_confirmed_hazard(strongest)
+        for confirmation in confirmations:
+            confirmed = {
+                'schema_version': 1,
+                'kind': 'person-confirmation',
+                'mode': 'patrol',
+                'source_frame': value.get('source_frame', ''),
+                'stamp': value.get('stamp'),
+                **confirmation,
+            }
+            self.telemetry.update('person_confirmation', confirmed)
+            self._handle_confirmed_person(confirmed)
 
-    def _handle_confirmed_hazard(self, detection):
-        pose = self.telemetry.get('pose', stale_after=3.0)
-        robot_pose = None if pose is None or pose['stale'] else pose['value']
+    def _on_danger_confirmed(self, message):
+        try:
+            value = validate_danger_confirmation(
+                self._json_message(message, 'danger confirmation')
+            )
+        except (TypeError, ValueError) as exc:
+            self.get_logger().warn(
+                f'Invalid danger confirmation ignored: {exc}'
+            )
+            return
+        self.telemetry.update('danger_confirmation', value)
+        self._handle_confirmed_hazard(value)
+
+    def _handle_confirmed_hazard(self, confirmed):
+        detection = confirmed['detection']
         with self._lock:
             active_task_id = self._active['task_id'] if self._active else None
             active_kind = (
                 self._active['payload']['kind'] if self._active else None
             )
-        observation = self.store.record_hazard({
-            'task_id': active_task_id,
-            'map': self.map_name,
-            'label': detection['label'],
-            'risk': detection.get('risk', 'danger'),
-            'confidence': detection['confidence'],
-            'box': detection['box'],
-            'robot_pose': robot_pose,
-        })
-        observation['position_semantics'] = (
-            'robot pose when observed; not the object position'
+        alert = self._record_vision_alert(
+            category='danger',
+            detection=detection,
+            confirmation=confirmed['confirmation'],
+            mode=confirmed['mode'],
         )
-        self.events.publish('hazard.confirmed', observation)
-        if active_kind != 'patrol':
+        observation = None
+        if alert is not None:
+            observation = self.store.record_hazard({
+                'task_id': active_task_id,
+                'map': self.map_name,
+                'label': detection['label'],
+                'risk': detection.get('risk', 'danger'),
+                'confidence': detection['confidence'],
+                'box': detection['box'],
+                'robot_pose': alert['robot_pose'],
+                'confirmation': {
+                    'mode': confirmed['mode'],
+                    **confirmed['confirmation'],
+                },
+            })
+            observation['position_semantics'] = (
+                'robot pose when observed; not the object position'
+            )
+            observation['photo_url'] = alert['photo_url']
+            self.events.publish('hazard.confirmed', observation)
+        if (
+            active_kind != 'patrol'
+            or confirmed['mode'] not in {'floor-hazards', 'patrol'}
+            or detection.get('floor_hazard') is not True
+        ):
             return
         reason = (
             f"Confirmed floor hazard: {detection['label']} "
@@ -387,6 +657,16 @@ class DogzillaWebGateway(Node):
             'safety.estop',
             {'latched': True, 'reason': reason, 'observation': observation},
         )
+
+    def _handle_confirmed_person(self, confirmed):
+        alert = self._record_vision_alert(
+            category='person',
+            detection=confirmed['detection'],
+            confirmation=confirmed['confirmation'],
+            mode='patrol',
+        )
+        if alert is not None:
+            self.events.publish('person.confirmed', alert)
 
     def _on_vision_status(self, message):
         try:
@@ -495,6 +775,7 @@ class DogzillaWebGateway(Node):
             return
         summary = self.occupancy_map.summary()
         self.telemetry.update('map', summary)
+        self._publish_keepout_filter()
         self.events.publish(
             'map.updated',
             {'name': self.map_name, 'revision': summary['revision']},
@@ -555,7 +836,7 @@ class DogzillaWebGateway(Node):
     def _patrol_vision_gate(self):
         vision = self.telemetry.get('vision_status', stale_after=5.0)
         if vision is None or vision['stale']:
-            return False, 'fresh floor-hazard vision status is unavailable'
+            return False, 'fresh patrol vision status is unavailable'
         return patrol_vision_readiness(vision['value'])
 
     def get_state(self):
@@ -579,8 +860,6 @@ class DogzillaWebGateway(Node):
                 'minimum_task_battery': self.minimum_battery,
                 'task_ready': ready,
                 'task_gate_reason': gate_reason,
-                'hazard_confidence': self.hazard_minimum_confidence,
-                'hazard_confirmations': self.hazard_confirmations,
             },
             'active_task': active_task,
         }
@@ -616,9 +895,9 @@ class DogzillaWebGateway(Node):
                 self._active is not None
                 and self._active['payload']['kind'] == 'patrol'
             )
-        if patrol_active and requested['mode'] != 'floor-hazards':
+        if patrol_active and requested['mode'] != 'patrol':
             raise ConflictError(
-                'cannot leave floor-hazards mode during an active patrol'
+                'cannot leave patrol vision mode during an active patrol'
             )
         message = String()
         message.data = json.dumps(
@@ -647,7 +926,7 @@ class DogzillaWebGateway(Node):
                 'x': payload['x'],
                 'y': payload['y'],
             },
-        ])
+        ], self._active_keepout_zones())
         location = self.store.save_location(payload)
         self.events.publish('location.saved', location)
         return location
@@ -663,7 +942,9 @@ class DogzillaWebGateway(Node):
         payload = build_patrol_area_payload(value, default_map=self.map_name)
         self._validate_active_map(payload)
         waypoints = self.occupancy_map.generate_patrol_waypoints(
-            payload['polygon'], payload['spacing_m']
+            payload['polygon'],
+            payload['spacing_m'],
+            keepout_zones=self._active_keepout_zones(),
         )
         area = self.store.save_patrol_area(payload)
         area['waypoint_count'] = len(waypoints)
@@ -673,6 +954,29 @@ class DogzillaWebGateway(Node):
     def delete_patrol_area(self, area_id):
         self.store.delete_patrol_area(area_id, self.map_name)
         self.events.publish('patrol_area.deleted', {'id': area_id})
+
+    def list_keepout_zones(self):
+        return self._active_keepout_zones()
+
+    def save_keepout_zone(self, value):
+        payload = build_keepout_zone_payload(
+            value, default_map=self.map_name
+        )
+        self._validate_active_map(payload)
+        self.occupancy_map.validate_polygon_bounds(
+            payload['polygon'], 'Keepout zone'
+        )
+        zone = self.store.save_keepout_zone(payload)
+        if self.occupancy_map.available():
+            self._publish_keepout_filter()
+        self.events.publish('keepout_zone.saved', zone)
+        return zone
+
+    def delete_keepout_zone(self, zone_id):
+        self.store.delete_keepout_zone(zone_id, self.map_name)
+        if self.occupancy_map.available():
+            self._publish_keepout_filter()
+        self.events.publish('keepout_zone.deleted', {'id': zone_id})
 
     def _patrol_area_and_waypoints(self, value):
         if not isinstance(value, dict):
@@ -684,7 +988,9 @@ class DogzillaWebGateway(Node):
         if area is None:
             raise KeyError(area_id)
         waypoints = self.occupancy_map.generate_patrol_waypoints(
-            area['polygon'], area['spacing_m']
+            area['polygon'],
+            area['spacing_m'],
+            keepout_zones=self._active_keepout_zones(),
         )
         return area, waypoints
 
@@ -699,7 +1005,9 @@ class DogzillaWebGateway(Node):
             self._validate_active_map(payload)
             area = {**payload, 'id': None}
             waypoints = self.occupancy_map.generate_patrol_waypoints(
-                area['polygon'], area['spacing_m']
+                area['polygon'],
+                area['spacing_m'],
+                keepout_zones=self._active_keepout_zones(),
             )
         distance = sum(
             math.hypot(
@@ -727,6 +1035,31 @@ class DogzillaWebGateway(Node):
     def list_hazards(self, limit=100):
         return self.store.list_hazards(self.map_name, limit)
 
+    def list_alerts(self, limit=25):
+        alerts = self.store.list_vision_alerts(self.map_name, limit)
+        return [self._public_alert(alert) for alert in alerts]
+
+    def get_alert_photo(self, alert_id):
+        alert = self.store.get_vision_alert(alert_id)
+        if alert is None or alert['map'] != self.map_name:
+            raise KeyError(alert_id)
+        photo_name = alert.get('photo_name')
+        if not photo_name or not self._valid_alert_photo_name(photo_name):
+            raise KeyError(alert_id)
+        path = self.alert_directory / photo_name
+        try:
+            body = path.read_bytes()
+        except FileNotFoundError as exc:
+            raise KeyError(alert_id) from exc
+        if (
+            not body
+            or len(body) > 4 * 1024 * 1024
+            or not body.startswith(b'\xff\xd8')
+            or not body.endswith(b'\xff\xd9')
+        ):
+            raise KeyError(alert_id)
+        return body
+
     def _validate_active_map(self, payload):
         if payload['map'] != self.map_name:
             raise ValidationError(
@@ -737,7 +1070,9 @@ class DogzillaWebGateway(Node):
     def create_delivery(self, value):
         payload = build_delivery_payload(value)
         self._validate_active_map(payload)
-        self.occupancy_map.validate_waypoints(payload['waypoints'])
+        self.occupancy_map.validate_waypoints(
+            payload['waypoints'], self._active_keepout_zones()
+        )
         task = self.store.create(payload)
         self.events.publish('task.created', task)
         return task
@@ -745,7 +1080,9 @@ class DogzillaWebGateway(Node):
     def create_route(self, value):
         payload = build_route_payload(value)
         self._validate_active_map(payload)
-        self.occupancy_map.validate_waypoints(payload['waypoints'])
+        self.occupancy_map.validate_waypoints(
+            payload['waypoints'], self._active_keepout_zones()
+        )
         task = self.store.create(payload)
         self.events.publish('task.created', task)
         return task
@@ -765,7 +1102,9 @@ class DogzillaWebGateway(Node):
         """Ask Nav2 for a non-executing path through validated waypoints."""
         payload = build_route_payload(value)
         self._validate_active_map(payload)
-        self.occupancy_map.validate_waypoints(payload['waypoints'])
+        self.occupancy_map.validate_waypoints(
+            payload['waypoints'], self._active_keepout_zones()
+        )
         if not self._planner.server_is_ready():
             raise ConflictError('Nav2 path planner is unavailable')
         pose = self.telemetry.get('pose', stale_after=3.0)
@@ -1189,9 +1528,10 @@ class DogzillaWebGateway(Node):
     def close(self):
         with self._lock:
             self._estop_latched = True
-        for _ in range(3):
-            self._publish_estop(True)
-            self._publish_stop()
+        if rclpy.ok():
+            for _ in range(3):
+                self._publish_estop(True)
+                self._publish_stop()
         self.store.close()
 
 

@@ -5,6 +5,7 @@ import unittest
 
 from dogzilla_slam.web_core import build_delivery_payload
 from dogzilla_slam.web_core import build_location_payload
+from dogzilla_slam.web_core import build_keepout_zone_payload
 from dogzilla_slam.web_core import build_patrol_area_payload
 from dogzilla_slam.web_core import build_patrol_payload
 from dogzilla_slam.web_core import build_route_payload
@@ -31,13 +32,28 @@ class WebCoreTest(unittest.TestCase):
     def test_patrol_requires_complete_non_actuating_hazard_coverage(self):
         status = {
             'state': 'ready',
-            'mode': 'floor-hazards',
+            'mode': 'patrol',
             'action_output': 'disabled',
+            'danger_confirmation': {
+                'topic': '/vision/danger_confirmed',
+                'minimum_confidence': 0.65,
+                'minimum_observations': 3,
+                'minimum_duration_seconds': 0.8,
+                'minimum_iou': 0.35,
+                'maximum_gap_seconds': 1.5,
+                'cooldown_seconds': 8.0,
+            },
             'object_detection': {
                 'ready': True,
                 'dangerous_coverage_complete': True,
                 'missing_dangerous_classes': [],
+                'person_detection_ready': True,
                 'models': ['generic', 'custom'],
+            },
+            'face_detection': {
+                'ready': True,
+                'method': 'opencv-haar-frontal-face',
+                'identification': False,
             },
         }
         self.assertEqual(patrol_vision_readiness(status), (True, 'ready'))
@@ -65,6 +81,22 @@ class WebCoreTest(unittest.TestCase):
 
         armed = {**status, 'action_output': 'enabled'}
         self.assertFalse(patrol_vision_readiness(armed)[0])
+        weak = {
+            **status,
+            'danger_confirmation': {
+                **status['danger_confirmation'],
+                'minimum_observations': 1,
+            },
+        }
+        self.assertFalse(patrol_vision_readiness(weak)[0])
+        loose_timing = {
+            **status,
+            'danger_confirmation': {
+                **status['danger_confirmation'],
+                'maximum_gap_seconds': 5.0,
+            },
+        }
+        self.assertFalse(patrol_vision_readiness(loose_timing)[0])
 
     def test_robot_graph_distinguishes_vision_control(self):
         self.assertEqual(
@@ -168,6 +200,31 @@ class WebCoreTest(unittest.TestCase):
                     {'x': 2, 'y': 2},
                     {'x': 0, 'y': 2},
                     {'x': 2, 'y': 0},
+                ],
+            })
+
+    def test_keepout_polygon_accepts_small_furniture_and_rejects_crossing(self):
+        zone = build_keepout_zone_payload({
+            'map': 'room1',
+            'name': 'Movable chair',
+            'polygon': [
+                {'x': 0.0, 'y': 0.0},
+                {'x': 0.4, 'y': 0.0},
+                {'x': 0.4, 'y': 0.4},
+                {'x': 0.0, 'y': 0.4},
+            ],
+        })
+        self.assertEqual(zone['name'], 'Movable chair')
+        self.assertEqual(len(zone['polygon']), 4)
+
+        with self.assertRaisesRegex(ValidationError, 'must not cross'):
+            build_keepout_zone_payload({
+                'name': 'Crossed',
+                'polygon': [
+                    {'x': 0, 'y': 0},
+                    {'x': 1, 'y': 1},
+                    {'x': 0, 'y': 1},
+                    {'x': 1, 'y': 0},
                 ],
             })
         with self.assertRaisesRegex(ValidationError, 'area must be'):
@@ -287,6 +344,52 @@ class WebCoreTest(unittest.TestCase):
         self.assertEqual(task['repeats'], 3)
         self.assertEqual(task['waypoints'][0]['dwell_seconds'], 1.5)
 
+    def test_keepout_mask_and_goal_validation_use_the_same_polygon(self):
+        occupancy = OccupancyMap(
+            'room1',
+            minimum_clearance_m=0.0,
+            keepout_clearance_m=0.32,
+        )
+        occupancy.update(
+            frame='map',
+            width=4,
+            height=4,
+            resolution=1.0,
+            origin_x=0.0,
+            origin_y=0.0,
+            origin_yaw=0.0,
+            data=[0] * 16,
+        )
+        zones = [{
+            'id': 'zone-1',
+            'name': 'Table',
+            'polygon': [
+                {'x': 0.0, 'y': 0.0},
+                {'x': 2.0, 'y': 0.0},
+                {'x': 2.0, 'y': 2.0},
+                {'x': 0.0, 'y': 2.0},
+            ],
+        }]
+        mask = occupancy.keepout_mask(zones)
+
+        self.assertEqual(mask['data'].count(100), 4)
+        self.assertEqual(mask['data'][0], 100)
+        self.assertEqual(mask['data'][-1], 0)
+        with self.assertRaisesRegex(ValidationError, "keepout zone 'Table'"):
+            occupancy.validate_waypoints(
+                [{'label': 'Goal', 'x': 1.0, 'y': 1.0}],
+                zones,
+            )
+        with self.assertRaisesRegex(ValidationError, 'too close'):
+            occupancy.validate_waypoints(
+                [{'label': 'Body overlap', 'x': 2.2, 'y': 1.0}],
+                zones,
+            )
+        self.assertTrue(occupancy.validate_waypoints(
+            [{'label': 'Goal', 'x': 3.0, 'y': 3.0}],
+            zones,
+        ))
+
     def test_task_store_persists_and_recovers_interrupted_tasks(self):
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / 'tasks.sqlite3'
@@ -374,6 +477,33 @@ class WebCoreTest(unittest.TestCase):
                 store.delete_patrol_area(first['id'], 'room1')
             store.close()
 
+    def test_task_store_upserts_and_deletes_keepout_zones(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = TaskStore(Path(directory) / 'tasks.sqlite3')
+            payload = build_keepout_zone_payload({
+                'map': 'room1',
+                'name': 'Rolling cabinet',
+                'polygon': [
+                    {'x': 0, 'y': 0},
+                    {'x': 1, 'y': 0},
+                    {'x': 1, 'y': 1},
+                    {'x': 0, 'y': 1},
+                ],
+            })
+            first = store.save_keepout_zone(payload)
+            payload['name'] = 'rolling CABINET'
+            payload['polygon'][1]['x'] = 1.5
+            updated = store.save_keepout_zone(payload)
+
+            self.assertEqual(updated['id'], first['id'])
+            self.assertEqual(updated['polygon'][1]['x'], 1.5)
+            self.assertEqual(len(store.list_keepout_zones('room1')), 1)
+            store.delete_keepout_zone(first['id'], 'room1')
+            self.assertEqual(store.list_keepout_zones('room1'), [])
+            with self.assertRaises(KeyError):
+                store.delete_keepout_zone(first['id'], 'room1')
+            store.close()
+
     def test_task_store_records_hazard_at_robot_observation_pose(self):
         with tempfile.TemporaryDirectory() as directory:
             store = TaskStore(Path(directory) / 'tasks.sqlite3')
@@ -392,6 +522,37 @@ class WebCoreTest(unittest.TestCase):
             self.assertEqual(observation['robot_pose']['x'], 1.0)
             self.assertEqual(store.list_hazards('room1'), [observation])
             self.assertEqual(store.list_hazards('room2'), [])
+            store.close()
+
+    def test_task_store_keeps_only_the_latest_25_vision_alerts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = TaskStore(Path(directory) / 'tasks.sqlite3')
+            removed = []
+            for index in range(27):
+                _, expired = store.record_vision_alert({
+                    'task_id': 'patrol-1',
+                    'map': 'room1',
+                    'category': 'person' if index % 2 else 'danger',
+                    'label': 'person' if index % 2 else 'knife',
+                    'confidence': 0.9,
+                    'box': [10, 20, 30, 40],
+                    'robot_pose': None,
+                    'confirmation': {
+                        'mode': 'patrol',
+                        'observations': 3,
+                    },
+                    'photo_name': f'alert-{index:032x}.jpg',
+                })
+                removed.extend(expired)
+
+            alerts = store.list_vision_alerts('room1', 25)
+            self.assertEqual(len(alerts), 25)
+            self.assertEqual(
+                removed,
+                ['alert-00000000000000000000000000000000.jpg',
+                 'alert-00000000000000000000000000000001.jpg'],
+            )
+            self.assertIsNotNone(store.get_vision_alert(alerts[0]['id']))
             store.close()
 
     def test_event_bus_and_telemetry_cache_return_copies(self):

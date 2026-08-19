@@ -64,6 +64,7 @@ usage() {
         '                        Test /dev/video0 without moving the robot.' \
         '  vision [MODE] [COLOR]' \
         '                        Start safe Yahboom-style camera recognition.' \
+        '                        Use MODE patrol for dangers, people, and faces.' \
         '  vision-control MODE [COLOR]' \
         '                        Explicitly arm guarded Yahboom-style motion.' \
         '  vision-mode MODE [COLOR]' \
@@ -819,7 +820,7 @@ start_visual_shadow() {
 validate_vision_mode() {
     local mode="${1:-raw}"
     case "${mode}" in
-        raw|color|color-track|color-action|face|face-track|watchdog|qr|qr-action|line|line-follow|objects|floor-hazards)
+        raw|color|color-track|color-action|face|face-track|watchdog|qr|qr-action|line|line-follow|objects|dangerous-objects|floor-hazards|patrol)
             printf '%s\n' "${mode}"
             ;;
         face-handshake)
@@ -827,7 +828,7 @@ validate_vision_mode() {
             ;;
         *)
             printf '%s\n' \
-                'MODE must be raw, color, color-track, color-action, face, face-track, watchdog, qr, qr-action, line, line-follow, objects, or floor-hazards.' >&2
+                'MODE must be raw, color, color-track, color-action, face, face-track, watchdog, qr, qr-action, line, line-follow, objects, dangerous-objects, floor-hazards, or patrol.' >&2
             return 2
             ;;
     esac
@@ -1106,6 +1107,7 @@ raise SystemExit(0 if math.isfinite(value) and 2 <= value <= 120 else 1)
                 'Use --floor, or test in standalone camera-only Vision.' >&2
             return 1
         fi
+        mode='patrol'
         service="${PERCEPTION_SERVICE_NAME}"
     elif vision_is_running; then
         service="${VISION_SERVICE_NAME}"
@@ -1245,7 +1247,8 @@ start_vision() {
     assert_mission_allows_start
     mode="$(validate_vision_mode "${1:-raw}")"
     color="$(validate_vision_color "${2:-red}")"
-    if [[ "${mode}" == objects || "${mode}" == floor-hazards ]]; then
+    if [[ "${mode}" == objects || "${mode}" == dangerous-objects \
+        || "${mode}" == floor-hazards || "${mode}" == patrol ]]; then
         require_object_model
     fi
     if container_is_running || drive_is_running || navigation_is_running \
