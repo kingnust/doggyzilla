@@ -19,14 +19,17 @@ usage() {
     printf '%s\n' \
         'Internal web helper. Preferred operator interface:' \
         '  dogzilla mission [start] [MAP] [--rviz|--headless] [--imu]' \
-        '  dogzilla mission status|logs|token|stop' \
+        '  dogzilla mission status|logs|password|stop' \
         '' \
         'Internal helper commands:' \
-        '  init                  Generate the local access token and defaults.' \
+        '  init                  Create the local password and defaults.' \
         '  start [MAP]           Start the dashboard (default map: test1).' \
         '  status                Show the gateway container and local URL.' \
         '  logs                  Follow gateway logs.' \
-        '  show-token            Print the browser login token.' \
+        '  show-password         Print the browser login password.' \
+        '  prepare-map MAP       Freeze tasks before localization stops.' \
+        '  switch-map MAP        Change the live gateway map without restart.' \
+        '  wait-map MAP [SEC]    Wait for new-map localization stability.' \
         '  stop                  Stop the web gateway.' \
         '' \
         'Start navigation separately with:' \
@@ -42,18 +45,15 @@ append_default() {
 }
 
 initialize_environment() {
-    local token
     if [[ ! -e "${ENV_FILE}" ]]; then
         install -m 0600 /dev/null "${ENV_FILE}"
     fi
     chmod 0600 "${ENV_FILE}"
-    if ! grep -q '^DOGZILLA_WEB_TOKEN=..' "${ENV_FILE}"; then
-        token="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
-        append_default DOGZILLA_WEB_TOKEN "${token}"
-    fi
+    append_default DOGZILLA_WEB_PASSWORD 'yahboom'
     append_default DOGZILLA_WEB_HOST '0.0.0.0'
     append_default DOGZILLA_WEB_PORT '8080'
     append_default DOGZILLA_WEB_MAP_NAME 'test1'
+    append_default DOGZILLA_WEB_MANUAL_DRIVE_ENABLED 'false'
     append_default DOGZILLA_WEB_MIN_BATTERY '28'
     append_default DOGZILLA_WEB_OCCUPIED_THRESHOLD '50'
     append_default DOGZILLA_WEB_GOAL_CLEARANCE '0.18'
@@ -64,6 +64,29 @@ initialize_environment() {
 environment_value() {
     local name="$1"
     sed -n "s/^${name}=//p" "${ENV_FILE}" | tail -n 1
+}
+
+set_environment_value() {
+    local name="$1"
+    local value="$2"
+    local temporary="${ENV_FILE}.tmp"
+    umask 077
+    awk -v name="${name}" -v value="${value}" '
+        BEGIN { replaced = 0 }
+        index($0, name "=") == 1 {
+            if (!replaced) {
+                print name "=" value
+                replaced = 1
+            }
+            next
+        }
+        { print }
+        END {
+            if (!replaced) print name "=" value
+        }
+    ' "${ENV_FILE}" > "${temporary}"
+    chmod 0600 "${temporary}"
+    mv -f "${temporary}" "${ENV_FILE}"
 }
 
 start_gateway() {
@@ -81,7 +104,7 @@ start_gateway() {
     export DOGZILLA_WEB_MAP_NAME="${map_name}"
     compose up --detach --no-build --force-recreate "${SERVICE_NAME}"
     show_status
-    printf 'Use "dogzilla mission token" for the browser login.\n'
+    printf 'Use "dogzilla mission password" for the browser login.\n'
 }
 
 show_status() {
@@ -95,14 +118,105 @@ show_status() {
     printf 'Dashboard: http://%s:%s\n' "${host_ip}" "${port}"
 }
 
-show_token() {
-    local token
-    token="$(environment_value DOGZILLA_WEB_TOKEN)"
-    if [[ -z "${token}" ]]; then
-        printf 'No token is configured. Run init first.\n' >&2
+show_password() {
+    local password
+    password="$(environment_value DOGZILLA_WEB_PASSWORD)"
+    if [[ -z "${password}" ]]; then
+        printf 'No password is configured. Run init first.\n' >&2
         exit 1
     fi
-    printf '%s\n' "${token}"
+    printf '%s\n' "${password}"
+}
+
+request_gateway_map() {
+    local endpoint="$1"
+    local map_name="$2"
+    local password
+    local port
+    if [[ ! "${map_name}" =~ ^[A-Za-z0-9._-]{1,64}$ ]]; then
+        printf 'Map name may contain only letters, numbers, dot, underscore, and dash.\n' >&2
+        exit 1
+    fi
+    password="$(environment_value DOGZILLA_WEB_PASSWORD)"
+    port="$(environment_value DOGZILLA_WEB_PORT)"
+    port="${port:-8080}"
+    DOGZILLA_WEB_REQUEST_PASSWORD="${password}" python3 -c '
+import json
+import os
+import sys
+import urllib.request
+
+port, endpoint, map_name = sys.argv[1:]
+request = urllib.request.Request(
+    f"http://127.0.0.1:{port}/api/v1/map/{endpoint}",
+    data=json.dumps({"map": map_name}).encode("utf-8"),
+    headers={
+        "Content-Type": "application/json",
+        "X-Dogzilla-Password": os.environ["DOGZILLA_WEB_REQUEST_PASSWORD"],
+    },
+    method="POST",
+)
+with urllib.request.urlopen(request, timeout=5) as response:
+    result = json.load(response)
+print("Map switch {}: {}".format(result["state"], map_name))
+' "${port}" "${endpoint}" "${map_name}"
+}
+
+prepare_gateway_map() {
+    request_gateway_map switch/prepare "$1"
+}
+
+switch_gateway_map() {
+    local map_name="$1"
+    request_gateway_map switch "${map_name}"
+    set_environment_value DOGZILLA_WEB_MAP_NAME "${map_name}"
+}
+
+wait_for_gateway_map() {
+    local map_name="$1"
+    local timeout="${2:-120}"
+    local password
+    local port
+    if [[ ! "${timeout}" =~ ^[1-9][0-9]*$ ]]; then
+        printf 'Timeout must be a positive integer.\n' >&2
+        exit 1
+    fi
+    password="$(environment_value DOGZILLA_WEB_PASSWORD)"
+    port="$(environment_value DOGZILLA_WEB_PORT)"
+    port="${port:-8080}"
+    DOGZILLA_WEB_REQUEST_PASSWORD="${password}" python3 -c '
+import json
+import os
+import sys
+import time
+import urllib.request
+
+port, map_name, timeout = sys.argv[1], sys.argv[2], int(sys.argv[3])
+deadline = time.monotonic() + timeout
+while time.monotonic() < deadline:
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{port}/api/v1/state",
+        headers={
+            "X-Dogzilla-Password": os.environ["DOGZILLA_WEB_REQUEST_PASSWORD"]
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=3) as response:
+            state = json.load(response)
+    except Exception:
+        time.sleep(1)
+        continue
+    configuration = state.get("configuration", {})
+    if (
+        configuration.get("map") == map_name
+        and not configuration.get("map_switch_pending", True)
+    ):
+        print(f"Localization is stable on map {map_name}.")
+        raise SystemExit(0)
+    time.sleep(1)
+print(f"Localization did not stabilize on map {map_name} within {timeout}s.", file=sys.stderr)
+raise SystemExit(1)
+' "${port}" "${map_name}" "${timeout}"
 }
 
 main() {
@@ -126,9 +240,33 @@ main() {
             initialize_environment
             compose logs --follow --tail 100 "${SERVICE_NAME}"
             ;;
-        show-token)
+        show-password|show-token)
             initialize_environment >/dev/null
-            show_token
+            show_password
+            ;;
+        switch-map)
+            initialize_environment >/dev/null
+            if [[ -z "${2:-}" ]]; then
+                printf 'Map name is required.\n' >&2
+                exit 1
+            fi
+            switch_gateway_map "$2"
+            ;;
+        prepare-map)
+            initialize_environment >/dev/null
+            if [[ -z "${2:-}" ]]; then
+                printf 'Map name is required.\n' >&2
+                exit 1
+            fi
+            prepare_gateway_map "$2"
+            ;;
+        wait-map)
+            initialize_environment >/dev/null
+            if [[ -z "${2:-}" ]]; then
+                printf 'Map name is required.\n' >&2
+                exit 1
+            fi
+            wait_for_gateway_map "$2" "${3:-120}"
             ;;
         stop)
             compose stop --timeout 10 "${SERVICE_NAME}"

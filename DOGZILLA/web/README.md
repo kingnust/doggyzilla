@@ -16,13 +16,13 @@ has been stopped, the normal one-command startup is:
 cd /home/pi/DOGZILLA
 ./deploy/dogzilla-map build
 ./deploy/dogzilla-map mission test1 --headless
-./deploy/dogzilla-map mission token
+./deploy/dogzilla-map mission password
 ```
 
 `mission` starts Nav2 and the web gateway in order, waits for both health checks
 and required ROS interfaces, and rolls both back if startup fails. `test1`
 selects the matching PBStream/YAML/PGM map bundle. `--headless` skips RViz, and
-`token` prints the existing dashboard login token. Startup never queues a goal.
+`password` prints the dashboard login password. Startup never queues a goal.
 
 The lower-level two-terminal equivalent remains available for diagnostics:
 
@@ -34,12 +34,12 @@ cd /home/pi/DOGZILLA
 # Terminal 2
 cd /home/pi/DOGZILLA
 ./deploy/dogzilla-web start test1
-./deploy/dogzilla-web show-token
+./deploy/dogzilla-web show-password
 ```
 
 Open the URL printed by `start` on a device on the same trusted LAN, then use
-the printed token to sign in. The token lives in the ignored `.env` file and is
-stored only in browser session storage.
+the printed password to sign in. The default is `yahboom`; it lives in the
+ignored `.env` file and is stored only in browser session storage.
 
 Useful operator commands:
 
@@ -92,9 +92,10 @@ The dashboard values come directly from these runtime sources:
 | Robot/Nav2 mode | ROS node graph and `/navigate_to_pose` action | Refreshed every second; action availability is required before dispatch. |
 | Mission state | SQLite task store and Nav2 goal results | Updated at every queue, waypoint, cancellation, and terminal transition. |
 
-The JSON API is under `/api/v1`, with a bearer token required for every API
-and event-stream request. `/healthz` and the static login page are the only
-unauthenticated routes.
+The JSON API is under `/api/v1`, with the `X-Dogzilla-Password` header required
+for every API and event-stream request. The previous bearer token remains a
+temporary compatibility fallback. `/healthz` and the static login page are the
+only unauthenticated routes.
 
 Core API routes:
 
@@ -105,14 +106,28 @@ GET  /api/v1/tasks
 GET  /api/v1/locations
 POST /api/v1/locations
 DELETE /api/v1/locations/{id}
+GET  /api/v1/keepout-zones
+POST /api/v1/keepout-zones
+DELETE /api/v1/keepout-zones/{id}
 POST /api/v1/routes/preview
 POST /api/v1/tasks/delivery
 POST /api/v1/tasks/route
 POST /api/v1/tasks/{id}/cancel
+POST /api/v1/map/switch/prepare
+POST /api/v1/map/switch
+POST /api/v1/autonomy/speed
+POST /api/v1/drive
 POST /api/v1/estop
 POST /api/v1/estop/reset
 GET  /api/v1/events
 ```
+
+`/api/v1/autonomy/speed` accepts independent integer `speed_level` and
+`turn_level` values from 1 through 9. It updates the safe-base limits applied
+to Nav2 before an autonomous task starts. The manual `/api/v1/drive` code is
+retained for future work but returns a conflict while the default
+`DOGZILLA_WEB_MANUAL_DRIVE_ENABLED=false` setting is active, and the dashboard
+does not show its direction pad.
 
 A delivery request uses map-frame metres and radians:
 
@@ -149,7 +164,8 @@ remains the only owner of the controller and LiDAR ports. Both containers use
 host networking and the same `ROS_DOMAIN_ID` so they can exchange ROS messages.
 
 Do not forward port 8080 directly to the public internet. For remote access,
-put it behind a VPN or a TLS-authenticated reverse proxy and rotate the token.
+put it behind a VPN or a TLS-authenticated reverse proxy and change the default
+password.
 
 Optional `.env` tuning:
 

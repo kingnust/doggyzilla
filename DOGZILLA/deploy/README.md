@@ -95,7 +95,7 @@ dogzilla vision-mode line-follow
 ```
 
 The dashboard Vision Lab shows the annotated frame and current detections. Its
-frame endpoint uses the same bearer-token authentication as the mission API.
+frame endpoint uses the same password authentication as the mission API.
 Color/QR/handshake action proposals and line-follow intent are visible but
 remain disarmed in this normal mode.
 
@@ -534,14 +534,14 @@ normal browser or SSH mode. `mission start room1 --headless` is an equivalent,
 more explicit spelling. If neither `--headless` nor `--rviz` is supplied,
 Mission Mode defaults to headless operation.
 
-The coordinator refuses to replace an active mapping, drive, navigation, or
-web container. On a free system it starts navigation first, starts the web
-gateway second, waits for both container health checks, and verifies the
-required ROS topics, Nav2 actions and nodes, and `map -> base_link` transform.
-It gives both services one ROS log session and records only its own managed
-state in `logs/mission-current`. It never queues a goal automatically. If any
-startup check fails or startup is interrupted, it stops the web gateway first
-and then follows the normal navigation shutdown path.
+The coordinator refuses to replace an active mapping, drive, navigation,
+vision, perception, or web container. On a free system it starts navigation,
+the camera-based patrol perception service, and the web gateway; waits for all
+three health checks; and verifies the required ROS topics, Nav2 actions and
+nodes, and `map -> base_link` transform. Confirmed camera hazards create a web
+notification, map-scoped record, and photo, but do not cancel Mission Mode or
+latch emergency stop. It never queues a goal automatically. If any startup
+check fails or startup is interrupted, it safely rolls back the services.
 
 Inspect a managed session without moving the robot:
 
@@ -552,14 +552,39 @@ Inspect a managed session without moving the robot:
 `status` prints the coordinator state, selected map, log session, navigation
 container status, ROS topics, web container status, and dashboard address.
 
-Print the existing private browser token:
+Print the browser password:
 
 ```bash
-./deploy/dogzilla-map mission token
+./deploy/dogzilla-map mission password
 ```
 
-`token` prints the existing token used by the dashboard login. It does not
-start a service or queue a mission. Keep this token private.
+The default local password is `yahboom`. The command does not start a service
+or queue a mission. Use the dashboard only on a trusted private network.
+
+The dashboard exposes separate autonomous walking and turning sliders. Both
+accept whole-number levels from 1 to 9 and can be changed only while no task is
+active. Changing either level updates the existing safe-base serial owner,
+which clamps the Nav2 velocity stream; the web gateway never opens the
+controller serial port itself. Manual web driving remains implemented behind
+the disabled `DOGZILLA_WEB_MANUAL_DRIVE_ENABLED=false` feature flag and its
+direction pad is hidden for now.
+
+Keepout polygons are stored under the active map name. A zone created on
+`room1` is not loaded, edited, or deleted while `room2` is active, even when
+the two zones have the same display name.
+
+Switch a running Mission Mode session to another complete saved map:
+
+```bash
+./deploy/dogzilla-map mission switch-map room2
+```
+
+The camera, perception, and web gateway stay online. Motion is stopped and
+only localization/navigation is restarted because Cartographer loads a
+`.pbstream` at process startup. The gateway clears the previous TF/map state,
+loads only `room2` keepout zones, and blocks new tasks until the new occupancy
+map and 20 stable localization samples arrive. A failed switch automatically
+attempts to restore the previous map.
 
 Follow both navigation and web logs:
 

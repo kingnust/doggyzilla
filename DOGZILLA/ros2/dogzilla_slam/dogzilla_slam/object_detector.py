@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 import math
 from pathlib import Path
+import time
 
 import cv2
 import numpy as np
@@ -1025,6 +1026,8 @@ class ObjectPerception:
         requested_classes=CORE_REQUESTED_CLASSES,
         floor_scan_columns=2,
         floor_scan_overlap=0.18,
+        detectors_per_cycle=None,
+        detection_cache_seconds=2.0,
     ):
         self.detectors = tuple(detectors)
         if not self.detectors:
@@ -1047,6 +1050,21 @@ class ObjectPerception:
             raise ValueError('floor_scan_overlap must be from 0 to 0.45')
         self.floor_scan_columns = columns
         self.floor_scan_overlap = overlap
+        if detectors_per_cycle is None:
+            detector_budget = len(self.detectors)
+        else:
+            detector_budget = int(detectors_per_cycle)
+        if not 1 <= detector_budget <= len(self.detectors):
+            raise ValueError(
+                'detectors_per_cycle must be from 1 to the detector count'
+            )
+        cache_seconds = float(detection_cache_seconds)
+        if not 0.0 <= cache_seconds <= 10.0:
+            raise ValueError('detection_cache_seconds must be from 0 to 10')
+        self.detectors_per_cycle = detector_budget
+        self.detection_cache_seconds = cache_seconds
+        self._next_detector_index = 0
+        self._detection_cache = {}
         self.requested_classes = tuple(
             canonical_label(item) for item in requested_classes
         )
@@ -1099,7 +1117,16 @@ class ObjectPerception:
                 'columns': self.floor_scan_columns,
                 'overlap': self.floor_scan_overlap,
             },
+            'scheduler': {
+                'detectors_per_cycle': self.detectors_per_cycle,
+                'cache_seconds': self.detection_cache_seconds,
+            },
         }
+
+    def reset_cache(self):
+        """Discard detections from older frames or a previous vision mode."""
+        self._detection_cache.clear()
+        self._next_detector_index = 0
 
     def _is_floor_candidate(self, box, width, height):
         x, y, box_width, box_height = box
@@ -1174,20 +1201,42 @@ class ObjectPerception:
 
     def detect(self, frame, *, focus_floor=False):
         height, width = frame.shape[:2]
-        combined = []
-        for detector in self.detectors:
+        now = time.monotonic()
+        selected = []
+        for offset in range(self.detectors_per_cycle):
+            selected.append(
+                (self._next_detector_index + offset) % len(self.detectors)
+            )
+        self._next_detector_index = (
+            self._next_detector_index + self.detectors_per_cycle
+        ) % len(self.detectors)
+        for index in selected:
+            detector = self.detectors[index]
             if focus_floor:
-                combined.extend(
-                    self._detect_with_floor_focus(detector, frame)
-                )
+                detected = self._detect_with_floor_focus(detector, frame)
             else:
-                combined.extend(self._remap_detections(
+                detected = self._remap_detections(
                     detector.detect(frame),
                     0,
                     0,
                     'full-frame',
-                ))
-        combined.sort(key=lambda item: float(item['confidence']), reverse=True)
+                )
+            self._detection_cache[index] = (now, detected)
+
+        combined = []
+        for index, (detected_at, items) in tuple(self._detection_cache.items()):
+            if now - detected_at > self.detection_cache_seconds:
+                self._detection_cache.pop(index, None)
+                continue
+            fresh = index in selected
+            combined.extend({**item, 'fresh': fresh} for item in items)
+        combined.sort(
+            key=lambda item: (
+                item.get('fresh') is True,
+                float(item['confidence']),
+            ),
+            reverse=True,
+        )
 
         detections = []
         for item in combined:
@@ -1245,6 +1294,7 @@ class ObjectPerception:
                 'model': str(item.get('model', 'unknown')),
                 'class_id': int(item.get('class_id', -1)),
                 'scan': str(item.get('scan', 'full-frame')),
+                'fresh': item.get('fresh') is True,
                 '_raw_box': (x, y, box_width, box_height),
             }
             detections.append(detection)

@@ -8,11 +8,13 @@ import tempfile
 import unittest
 
 from dogzilla_slam.web_core import EventBus
+from dogzilla_slam.web_core import ConflictError
 from dogzilla_slam.web_core import ValidationError
 from dogzilla_slam.web_http import GatewayRequestHandler
 
 
 TOKEN = 'a-secure-test-token-that-is-long-enough'
+PASSWORD = 'yahboom'
 
 
 class FakeGateway:
@@ -87,6 +89,13 @@ class FakeGateway:
                 'task_ready': True,
                 'task_gate_reason': 'ready',
             },
+            'autonomy': {
+                'speed_level': 1,
+                'turn_level': 1,
+                'purpose': 'autonomous-navigation',
+                'integer_range': [1, 9],
+            },
+            'manual_drive': {'enabled': False, 'control': 'hold-to-drive'},
             'active_task': None,
         }
 
@@ -111,6 +120,12 @@ class FakeGateway:
 
     def get_vision_frame(self):
         return b'\xff\xd8fake-jpeg\xff\xd9'
+
+    def wait_for_vision_frame(self, after_sequence, timeout=1.0):
+        del timeout
+        if int(after_sequence) >= 4:
+            return None, 4
+        return b'\xff\xd8new-frame\xff\xd9', 4
 
     def set_vision_mode(self, body):
         if body.get('mode') == 'teach':
@@ -216,12 +231,40 @@ class FakeGateway:
         self.estop = False
         return {'estop_latched': False}
 
+    def set_autonomy_settings(self, body):
+        return {
+            'speed_level': int(body['speed_level']),
+            'turn_level': int(body['turn_level']),
+            'max_linear_mps': 0.25,
+            'max_angular_rps': 1.0,
+            'purpose': 'autonomous-navigation',
+            'integer_range': [1, 9],
+        }
+
+    def set_manual_drive(self, _body):
+        raise ConflictError('manual web driving is disabled')
+
+    def switch_map(self, body):
+        return {
+            'map': body['map'],
+            'previous_map': 'test1',
+            'state': 'waiting-for-localization',
+            'keepout_zone_count': 0,
+        }
+
+    def prepare_map_switch(self, body):
+        return {
+            'map': 'test1',
+            'target_map': body['map'],
+            'state': 'prepared',
+        }
+
 
 def request(server, method, path, body=None, authorized=False):
     encoded = b'' if body is None else json.dumps(body).encode()
     headers = Message()
     if authorized:
-        headers['Authorization'] = f'Bearer {TOKEN}'
+        headers['X-Dogzilla-Password'] = PASSWORD
     if body is not None:
         headers['Content-Type'] = 'application/json'
         headers['Content-Length'] = str(len(encoded))
@@ -270,7 +313,8 @@ class WebHTTPTest(unittest.TestCase):
         self.gateway = FakeGateway()
         self.server = SimpleNamespace(
             service=self.gateway,
-            token=TOKEN,
+            password=PASSWORD,
+            legacy_token=TOKEN,
             static_directory=static.resolve(),
         )
 
@@ -296,8 +340,70 @@ class WebHTTPTest(unittest.TestCase):
             '/api/v1/state',
         )
         self.assertEqual(status, 401)
-        self.assertEqual(headers['WWW-Authenticate'], 'Bearer')
-        self.assertIn('token', payload['error'])
+        self.assertNotIn('WWW-Authenticate', headers)
+        self.assertIn('password', payload['error'])
+
+    def test_legacy_bearer_token_remains_accepted_during_transition(self):
+        encoded = b''
+        headers = Message()
+        headers['Authorization'] = f'Bearer {TOKEN}'
+        handler = GatewayRequestHandler.__new__(GatewayRequestHandler)
+        handler.server = self.server
+        handler.command = 'GET'
+        handler.path = '/api/v1/state'
+        handler.request_version = 'HTTP/1.1'
+        handler.requestline = 'GET /api/v1/state HTTP/1.1'
+        handler.client_address = ('127.0.0.1', 12345)
+        handler.close_connection = True
+        handler.headers = headers
+        handler.rfile = BytesIO(encoded)
+        handler.wfile = BytesIO()
+        handler.do_GET()
+        status = int(handler.wfile.getvalue().split(b' ', 2)[1])
+        self.assertEqual(status, 200)
+
+    def test_autonomous_speed_and_stashed_manual_command_routes(self):
+        status, _, settings = request(
+            self.server,
+            'POST',
+            '/api/v1/autonomy/speed',
+            {'speed_level': 7, 'turn_level': 3},
+            authorized=True,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(settings['speed_level'], 7)
+        self.assertEqual(settings['turn_level'], 3)
+
+        status, _, drive = request(
+            self.server,
+            'POST',
+            '/api/v1/drive',
+            {'direction': 'forward'},
+            authorized=True,
+        )
+        self.assertEqual(status, 409)
+        self.assertIn('disabled', drive['error'])
+
+        status, _, prepared = request(
+            self.server,
+            'POST',
+            '/api/v1/map/switch/prepare',
+            {'map': 'room2'},
+            authorized=True,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(prepared['target_map'], 'room2')
+
+        status, _, switched = request(
+            self.server,
+            'POST',
+            '/api/v1/map/switch',
+            {'map': 'room2'},
+            authorized=True,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(switched['map'], 'room2')
+        self.assertEqual(switched['state'], 'waiting-for-localization')
 
     def test_authenticated_delivery_lifecycle_and_estop(self):
         status, _, task = request(
@@ -352,6 +458,26 @@ class WebHTTPTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(headers['Content-Type'], 'image/jpeg')
         self.assertTrue(payload.startswith(b'\xff\xd8'))
+
+        status, headers, payload = request(
+            self.server,
+            'GET',
+            '/api/v1/vision/frame.jpg?after=3',
+            authorized=True,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(headers['X-Dogzilla-Frame-Sequence'], '4')
+        self.assertTrue(payload.startswith(b'\xff\xd8'))
+
+        status, headers, payload = request(
+            self.server,
+            'GET',
+            '/api/v1/vision/frame.jpg?after=4',
+            authorized=True,
+        )
+        self.assertEqual(status, 204)
+        self.assertEqual(headers['X-Dogzilla-Frame-Sequence'], '4')
+        self.assertEqual(payload, b'')
 
         status, _, alerts = request(
             self.server,

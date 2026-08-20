@@ -494,12 +494,24 @@ class WebCoreTest(unittest.TestCase):
             payload['name'] = 'rolling CABINET'
             payload['polygon'][1]['x'] = 1.5
             updated = store.save_keepout_zone(payload)
+            room2_payload = build_keepout_zone_payload({
+                **payload,
+                'map': 'room2',
+                'name': 'Rolling cabinet',
+            })
+            room2 = store.save_keepout_zone(room2_payload)
 
             self.assertEqual(updated['id'], first['id'])
+            self.assertNotEqual(room2['id'], first['id'])
             self.assertEqual(updated['polygon'][1]['x'], 1.5)
             self.assertEqual(len(store.list_keepout_zones('room1')), 1)
+            self.assertEqual(
+                [zone['id'] for zone in store.list_keepout_zones('room2')],
+                [room2['id']],
+            )
             store.delete_keepout_zone(first['id'], 'room1')
             self.assertEqual(store.list_keepout_zones('room1'), [])
+            self.assertEqual(len(store.list_keepout_zones('room2')), 1)
             with self.assertRaises(KeyError):
                 store.delete_keepout_zone(first['id'], 'room1')
             store.close()

@@ -2,6 +2,7 @@
 
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor
 import threading
 import time
 
@@ -143,7 +144,9 @@ class DogzillaVisionNode(Node):
             ),
         )
         self._lock = threading.RLock()
+        self._processor_lock = threading.Lock()
         self._last_process = 0.0
+        self._last_object_submit = 0.0
         self._sequence = 0
         self._danger_sequence = 0
         self._frame_failures = 0
@@ -158,6 +161,25 @@ class DogzillaVisionNode(Node):
             raise ValueError('object_process_hz must be between 0.2 and 10')
         if not 40 <= self._jpeg_quality <= 95:
             raise ValueError('jpeg_quality must be between 40 and 95')
+        detector_count = (
+            len(object_perception.detectors)
+            if object_perception is not None
+            else 1
+        )
+        self._object_cycle_hz = min(
+            self._process_hz,
+            self._object_process_hz * detector_count,
+        )
+        self._object_executor = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix='dogzilla-object-inference',
+        )
+        self._object_future = None
+        self._cached_object_result = None
+        self._object_generation = 0
+        self._object_async = True
+        self._vision_closed = False
+        cv2.setNumThreads(1)
 
         status_qos = QoSProfile(depth=1)
         status_qos.reliability = ReliabilityPolicy.RELIABLE
@@ -359,6 +381,8 @@ class DogzillaVisionNode(Node):
             floor_scan_overlap=float(
                 self.get_parameter('floor_scan_overlap').value
             ),
+            detectors_per_cycle=1,
+            detection_cache_seconds=2.0,
         )
         missing = perception.coverage()['missing_dangerous_classes']
         if missing:
@@ -376,6 +400,9 @@ class DogzillaVisionNode(Node):
             'color': self._processor.color,
             'process_hz': self._process_hz,
             'object_process_hz': self._object_process_hz,
+            'object_cycle_hz': self._object_cycle_hz,
+            'display_hz': self._process_hz,
+            'object_inference': 'single-background-worker',
             'action_output': 'disabled',
             'object_detection': self._processor.object_status(),
             'face_detection': self._processor.face_status(),
@@ -416,11 +443,14 @@ class DogzillaVisionNode(Node):
             default_mode=self._processor.mode,
             default_color=self._processor.color,
         )
-        with self._lock:
+        with self._processor_lock:
             self._processor.configure(
                 validated['mode'],
                 validated['color'],
             )
+        with self._lock:
+            self._object_generation += 1
+            self._cached_object_result = None
             self._danger_tracker.reset()
         self._publish_status('ready')
         self.get_logger().info(
@@ -451,62 +481,78 @@ class DogzillaVisionNode(Node):
             return SetParametersResult(successful=False, reason=str(exc))
         return SetParametersResult(successful=True)
 
-    def _on_image(self, message):
-        now = time.monotonic()
-        rate = (
-            self._object_process_hz
-            if self._processor.mode in {
-                'objects', 'dangerous-objects', 'floor-hazards', 'patrol'
-            }
-            else self._process_hz
-        )
-        if now - self._last_process < 1.0 / rate:
-            return
-        self._last_process = now
-        try:
-            frame = image_to_bgr(message)
-            with self._lock:
-                annotated, result = self._processor.process(frame)
-                if result['mode'] in {
-                    'dangerous-objects', 'floor-hazards', 'patrol'
-                }:
-                    confirmations = self._danger_tracker.observe(
-                        result['detections'], now=now
-                    )
-                else:
-                    confirmations = []
-            encoded, jpeg = cv2.imencode(
-                '.jpg',
-                annotated,
-                [cv2.IMWRITE_JPEG_QUALITY, self._jpeg_quality],
-            )
-            if not encoded:
-                raise RuntimeError('OpenCV JPEG encoder returned no image')
-        except Exception as exc:
-            self._frame_failures += 1
-            if self._frame_failures == 1 or self._frame_failures % 30 == 0:
-                self.get_logger().error(
-                    f'Vision frame processing failed '
-                    f'({self._frame_failures} failures): {exc}'
-                )
-            return
-
-        self._frame_failures = 0
-        self._sequence += 1
-        result.update({
-            'sequence': self._sequence,
+    @staticmethod
+    def _source_metadata(message):
+        return {
             'source_frame': message.header.frame_id,
             'stamp': {
                 'sec': int(message.header.stamp.sec),
                 'nanosec': int(message.header.stamp.nanosec),
             },
-        })
-        frame_message = CompressedImage()
-        frame_message.header = message.header
-        frame_message.format = 'jpeg'
-        frame_message.data = jpeg.tobytes()
-        self._frame_publisher.publish(frame_message)
+        }
 
+    @staticmethod
+    def _is_object_mode(mode):
+        return mode in {
+            'objects', 'dangerous-objects', 'floor-hazards', 'patrol'
+        }
+
+    def _process_object_frame(
+        self,
+        frame,
+        mode,
+        generation,
+        source,
+        observed_at,
+    ):
+        with self._lock:
+            if generation != self._object_generation:
+                return None
+        with self._processor_lock:
+            if mode != self._processor.mode:
+                return None
+            _annotated, result = self._processor.process(frame)
+        with self._lock:
+            if generation != self._object_generation or result['mode'] != mode:
+                return None
+            fresh = [
+                detection for detection in result['detections']
+                if detection.get('fresh', True)
+            ]
+            confirmations = (
+                self._danger_tracker.observe(fresh, now=observed_at)
+                if mode in {'dangerous-objects', 'floor-hazards', 'patrol'}
+                else []
+            )
+        result.update(source)
+        result['fresh_detection_count'] = len(fresh)
+        return generation, result, confirmations
+
+    def _collect_object_result(self):
+        future = self._object_future
+        if future is None or not future.done():
+            return
+        self._object_future = None
+        try:
+            completed = future.result()
+        except Exception as exc:
+            self._record_frame_failure(exc)
+            return
+        if completed is None:
+            return
+        with self._lock:
+            generation, result, confirmations = completed
+            if (
+                generation != self._object_generation
+                or result.get('mode') != self._processor.mode
+            ):
+                return
+            self._cached_object_result = result
+        self._publish_result(result, confirmations)
+
+    def _publish_result(self, result, confirmations=()):
+        self._sequence += 1
+        result['sequence'] = self._sequence
         detection_message = String()
         detection_message.data = json.dumps(
             result,
@@ -533,6 +579,94 @@ class DogzillaVisionNode(Node):
                 allow_nan=False,
             )
             self._danger_publisher.publish(danger_message)
+
+    def _publish_frame(self, annotated, header):
+        encoded, jpeg = cv2.imencode(
+            '.jpg',
+            annotated,
+            [cv2.IMWRITE_JPEG_QUALITY, self._jpeg_quality],
+        )
+        if not encoded:
+            raise RuntimeError('OpenCV JPEG encoder returned no image')
+        frame_message = CompressedImage()
+        frame_message.header = header
+        frame_message.format = 'jpeg'
+        frame_message.data = jpeg.tobytes()
+        self._frame_publisher.publish(frame_message)
+
+    def _record_frame_failure(self, exc):
+        self._frame_failures += 1
+        if self._frame_failures == 1 or self._frame_failures % 30 == 0:
+            self.get_logger().error(
+                f'Vision frame processing failed '
+                f'({self._frame_failures} failures): {exc}'
+            )
+
+    def _process_synchronously(self, frame, message, now):
+        with self._processor_lock:
+            annotated, result = self._processor.process(frame)
+        with self._lock:
+            fresh = [
+                detection for detection in result['detections']
+                if detection.get('fresh', True)
+            ]
+            confirmations = (
+                self._danger_tracker.observe(fresh, now=now)
+                if result['mode'] in {
+                    'dangerous-objects', 'floor-hazards', 'patrol'
+                }
+                else []
+            )
+        result.update(self._source_metadata(message))
+        result['fresh_detection_count'] = len(fresh)
+        self._publish_frame(annotated, message.header)
+        self._publish_result(result, confirmations)
+
+    def _on_image(self, message):
+        now = time.monotonic()
+        if now - self._last_process < 1.0 / self._process_hz:
+            return
+        self._last_process = now
+        try:
+            frame = image_to_bgr(message)
+            with self._lock:
+                mode = self._processor.mode
+                generation = self._object_generation
+            self._collect_object_result()
+            if not self._is_object_mode(mode) or not self._object_async:
+                self._process_synchronously(frame, message, now)
+            else:
+                if (
+                    self._object_future is None
+                    and now - self._last_object_submit
+                    >= 1.0 / self._object_cycle_hz
+                ):
+                    self._last_object_submit = now
+                    self._object_future = self._object_executor.submit(
+                        self._process_object_frame,
+                        frame.copy(),
+                        mode,
+                        generation,
+                        self._source_metadata(message),
+                        now,
+                    )
+                with self._lock:
+                    cached = self._cached_object_result
+                    annotated = self._processor.render_object_result(
+                        frame,
+                        cached if cached and cached.get('mode') == mode else None,
+                    )
+                self._publish_frame(annotated, message.header)
+        except Exception as exc:
+            self._record_frame_failure(exc)
+            return
+        self._frame_failures = 0
+
+    def destroy_node(self):
+        if not self._vision_closed:
+            self._vision_closed = True
+            self._object_executor.shutdown(wait=True, cancel_futures=True)
+        return super().destroy_node()
 
 
 def main(args=None):

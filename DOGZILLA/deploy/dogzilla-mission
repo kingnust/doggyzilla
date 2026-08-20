@@ -15,10 +15,11 @@ VISION_CONTROL_CONTAINER="dogzilla_vision_control"
 PERCEPTION_CONTAINER="dogzilla_perception"
 WEB_CONTAINER="dogzilla_web"
 STARTUP_TIMEOUT="${DOGZILLA_MISSION_STARTUP_TIMEOUT:-120}"
+CAMERA_DEVICE="${DOGZILLA_MISSION_CAMERA_DEVICE:-/dev/video0}"
 OBJECT_MODEL_FILE="${REPO_ROOT}/models/yolox_nano.onnx"
-OBJECT_MODEL_SHA256="c789161ed43c8269fcd4e67c67eeeb4e80c622da2eb296a20bc6007bd18a0b7d"
+OBJECT_MODEL_SHA256="${DOGZILLA_MISSION_OBJECT_MODEL_SHA256:-c789161ed43c8269fcd4e67c67eeeb4e80c622da2eb296a20bc6007bd18a0b7d}"
 OPEN_IMAGES_MODEL_FILE="${REPO_ROOT}/models/yolov8n-oiv7.onnx"
-OPEN_IMAGES_MODEL_SHA256="73c1d27ff67f964b2c43965943fcaa608a09c29a9ea90ff4ef59779c12222870"
+OPEN_IMAGES_MODEL_SHA256="${DOGZILLA_MISSION_OPEN_IMAGES_SHA256:-73c1d27ff67f964b2c43965943fcaa608a09c29a9ea90ff4ef59779c12222870}"
 
 usage() {
     printf '%s\n' \
@@ -29,9 +30,10 @@ usage() {
         '                        Start Nav2, hazard vision, and the dashboard.' \
         '  MAP [--rviz|--headless] [--imu]' \
         '                        Shortcut for "mission start MAP ...".' \
+        '  switch-map MAP       Keep camera/web up; restart localization only.' \
         '  status                Show navigation, vision, and dashboard state.' \
         '  logs                  Follow navigation, vision, and dashboard logs.' \
-        '  token                 Print the existing browser login token.' \
+        '  password              Print the browser login password.' \
         '  stop                  Stop dashboard/vision, then navigation safely.'
 }
 
@@ -59,6 +61,13 @@ validate_map_name() {
             exit 1
         fi
     done
+}
+
+camera_is_ready() {
+    if [[ -c "${CAMERA_DEVICE}" ]]; then
+        return 0
+    fi
+    [[ "${CAMERA_DEVICE}" != /dev/video0 && -r "${CAMERA_DEVICE}" ]]
 }
 
 container_status() {
@@ -112,6 +121,8 @@ write_state() {
     local map_name="$1"
     local state="$2"
     local session="${3:-pending}"
+    local display_mode="${4:-headless}"
+    local use_imu="${5:-false}"
     local temporary="${STATE_FILE}.tmp"
     mkdir -p "${REPO_ROOT}/logs"
     umask 077
@@ -119,6 +130,8 @@ write_state() {
         printf 'state=%s\n' "${state}"
         printf 'map=%s\n' "${map_name}"
         printf 'session=%s\n' "${session}"
+        printf 'display=%s\n' "${display_mode}"
+        printf 'use_imu=%s\n' "${use_imu}"
         printf 'started_utc=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
     } > "${temporary}"
     mv -f "${temporary}" "${STATE_FILE}"
@@ -167,8 +180,11 @@ verify_ros_readiness() {
         for topic in /scan /map /odom /battery_state /joint_states; do
             grep -qx "${topic}" <<< "${topics}"
         done
-        for topic in /vision/status /vision/detections
-        /vision/danger_confirmed /vision/annotated/compressed; do
+        for topic in \
+            /vision/status \
+            /vision/detections \
+            /vision/danger_confirmed \
+            /vision/annotated/compressed; do
             grep -qx "${topic}" <<< "${topics}"
         done
         actions="$(ros2 action list)"
@@ -203,8 +219,9 @@ verify_object_model() {
 }
 
 start_perception() {
-    if [[ ! -c /dev/video0 ]]; then
-        printf 'Mission camera is missing: /dev/video0\n' >&2
+    if ! camera_is_ready; then
+        printf 'Mission camera is missing or unreadable: %s\n' \
+            "${CAMERA_DEVICE}" >&2
         return 1
     fi
     verify_object_model
@@ -258,8 +275,11 @@ stop_mission() {
 }
 
 start_mission() {
+    local display_mode='headless'
     local map_name='test1'
     local session
+    local use_imu=false
+    local argument
     local -a navigation_arguments
 
     if (($# > 0)) && [[ "$1" != --* ]]; then
@@ -270,8 +290,9 @@ start_mission() {
     validate_map_name "${map_name}"
     assert_runtime_is_free
     verify_object_model
-    if [[ ! -c /dev/video0 ]]; then
-        printf 'Mission camera is missing: /dev/video0\n' >&2
+    if ! camera_is_ready; then
+        printf 'Mission camera is missing or unreadable: %s\n' \
+            "${CAMERA_DEVICE}" >&2
         exit 1
     fi
 
@@ -288,8 +309,15 @@ start_mission() {
     else
         navigation_arguments+=("$@")
     fi
+    for argument in "${navigation_arguments[@]}"; do
+        case "${argument}" in
+            --rviz) display_mode='rviz' ;;
+            --headless) display_mode='headless' ;;
+            --imu) use_imu=true ;;
+        esac
+    done
 
-    write_state "${map_name}" starting
+    write_state "${map_name}" starting pending "${display_mode}" "${use_imu}"
     MISSION_STARTUP_COMPLETE=false
     trap rollback_on_failure EXIT
     trap 'exit 130' INT
@@ -314,7 +342,7 @@ start_mission() {
         return 1
     fi
 
-    write_state "${map_name}" ready "${session}"
+    write_state "${map_name}" ready "${session}" "${display_mode}" "${use_imu}"
     MISSION_STARTUP_COMPLETE=true
     trap - EXIT INT TERM
     printf '%s\n' \
@@ -323,7 +351,113 @@ start_mission() {
         "ROS logs: logs/sessions/${session}" \
         'Floor-hazard perception is detection-only and camera based.' \
         'No movement has been queued automatically.' \
-        'Use "dogzilla mission token" for browser login.'
+        'Use "dogzilla mission password" for browser login.'
+}
+
+start_navigation_for_switch() {
+    local map_name="$1"
+    local display_mode="$2"
+    local use_imu="$3"
+    local -a arguments=(navigate "${map_name}" "--${display_mode}")
+    if [[ "${use_imu}" == true ]]; then
+        arguments+=(--imu)
+    fi
+    DOGZILLA_MISSION_START=1 DOGZILLA_MISSION_SWITCH=1 \
+        "${MAP_COMMAND}" "${arguments[@]}"
+}
+
+stop_navigation_only() {
+    "${DOCKER_COMMAND}" compose \
+        --project-directory "${REPO_ROOT}" \
+        --file "${COMPOSE_FILE}" \
+        stop --timeout 20 navigation
+}
+
+rollback_map_switch() {
+    local old_map="$1"
+    local display_mode="$2"
+    local use_imu="$3"
+    printf 'Map switch failed; restoring map %s.\n' "${old_map}" >&2
+    stop_navigation_only || true
+    "${WEB_COMMAND}" prepare-map "${old_map}" || return 1
+    "${WEB_COMMAND}" switch-map "${old_map}" || return 1
+    start_navigation_for_switch \
+        "${old_map}" "${display_mode}" "${use_imu}" || return 1
+    wait_for_healthy "${NAVIGATION_CONTAINER}" 'Restored navigation' \
+        || return 1
+    verify_ros_readiness || return 1
+    "${WEB_COMMAND}" wait-map "${old_map}" "${STARTUP_TIMEOUT}" || return 1
+    return 0
+}
+
+switch_mission_map() {
+    local map_name="$1"
+    local old_map
+    local display_mode
+    local use_imu
+    local session
+    validate_timeout
+    validate_map_name "${map_name}"
+    if [[ ! -f "${STATE_FILE}" ]] \
+        || [[ "$(state_value state || true)" != ready ]]; then
+        printf 'Mission Mode must be ready before switching maps.\n' >&2
+        exit 1
+    fi
+    old_map="$(state_value map)"
+    if [[ "${map_name}" == "${old_map}" ]]; then
+        printf 'Mission Mode is already using map %s.\n' "${map_name}"
+        return 0
+    fi
+    display_mode="$(state_value display || true)"
+    display_mode="${display_mode:-headless}"
+    use_imu="$(state_value use_imu || true)"
+    use_imu="${use_imu:-false}"
+    if [[ "${display_mode}" != headless && "${display_mode}" != rviz ]]; then
+        printf 'Mission state contains an invalid display mode.\n' >&2
+        exit 1
+    fi
+    if [[ "${use_imu}" != true && "${use_imu}" != false ]]; then
+        printf 'Mission state contains an invalid IMU setting.\n' >&2
+        exit 1
+    fi
+
+    write_state \
+        "${old_map}" switching "$(state_value session)" \
+        "${display_mode}" "${use_imu}"
+    if ! "${WEB_COMMAND}" prepare-map "${map_name}"; then
+        write_state \
+            "${old_map}" ready "$(state_value session)" \
+            "${display_mode}" "${use_imu}"
+        return 1
+    fi
+    if ! stop_navigation_only \
+        || ! "${WEB_COMMAND}" switch-map "${map_name}" \
+        || ! start_navigation_for_switch \
+            "${map_name}" "${display_mode}" "${use_imu}" \
+        || ! wait_for_healthy "${NAVIGATION_CONTAINER}" 'Navigation' \
+        || ! verify_ros_readiness \
+        || ! "${WEB_COMMAND}" wait-map \
+            "${map_name}" "${STARTUP_TIMEOUT}"; then
+        if rollback_map_switch \
+            "${old_map}" "${display_mode}" "${use_imu}"; then
+            session="$(sed -n '1p' "${REPO_ROOT}/logs/current-session")"
+            write_state \
+                "${old_map}" ready "${session}" \
+                "${display_mode}" "${use_imu}"
+        else
+            write_state \
+                "${old_map}" failed rollback-failed \
+                "${display_mode}" "${use_imu}"
+            printf 'Automatic rollback failed; Mission Mode needs inspection.\n' >&2
+        fi
+        return 1
+    fi
+    session="$(sed -n '1p' "${REPO_ROOT}/logs/current-session")"
+    write_state \
+        "${map_name}" ready "${session}" \
+        "${display_mode}" "${use_imu}"
+    printf 'Mission Mode switched to map %s.\n' "${map_name}"
+    printf 'Camera, perception, and web gateway stayed online.\n'
 }
 
 show_mission_status() {
@@ -352,14 +486,21 @@ main() {
             shift
             start_mission "$@"
             ;;
+        switch-map)
+            if [[ -z "${2:-}" ]]; then
+                printf 'Map name is required.\n' >&2
+                exit 1
+            fi
+            switch_mission_map "$2"
+            ;;
         status)
             show_mission_status
             ;;
         logs)
             follow_mission_logs
             ;;
-        token)
-            "${WEB_COMMAND}" show-token
+        password|token)
+            "${WEB_COMMAND}" show-password
             ;;
         stop)
             stop_mission

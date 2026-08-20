@@ -26,9 +26,17 @@ class GatewayHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, address, service, token, static_directory):
+    def __init__(
+        self,
+        address,
+        service,
+        password,
+        static_directory,
+        legacy_token='',
+    ):
         self.service = service
-        self.token = str(token)
+        self.password = str(password)
+        self.legacy_token = str(legacy_token)
         self.static_directory = Path(static_directory).resolve()
         super().__init__(address, GatewayRequestHandler)
 
@@ -70,28 +78,46 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
     def _error(self, status, message):
         self._json(status, {'error': str(message)})
 
-    def _jpeg(self, body):
+    def _jpeg(self, body, sequence=None):
         self.send_response(HTTPStatus.OK)
         self.send_header('Content-Type', 'image/jpeg')
         self.send_header('Content-Length', str(len(body)))
+        if sequence is not None:
+            self.send_header('X-Dogzilla-Frame-Sequence', str(sequence))
         self._security_headers(api=True)
         self.end_headers()
         self.wfile.write(body)
 
+    def _no_content(self, sequence=None):
+        self.send_response(HTTPStatus.NO_CONTENT)
+        self.send_header('Content-Length', '0')
+        if sequence is not None:
+            self.send_header('X-Dogzilla-Frame-Sequence', str(sequence))
+        self._security_headers(api=True)
+        self.end_headers()
+
     def _authorized(self):
+        supplied_password = self.headers.get('X-Dogzilla-Password', '')
+        if supplied_password and hmac.compare_digest(
+            supplied_password,
+            self.server.password,
+        ):
+            return True
         header = self.headers.get('Authorization', '')
         scheme, separator, supplied = header.partition(' ')
         if separator != ' ' or scheme.lower() != 'bearer':
             return False
-        return hmac.compare_digest(supplied, self.server.token)
+        accepted = [self.server.password]
+        if self.server.legacy_token:
+            accepted.append(self.server.legacy_token)
+        return any(hmac.compare_digest(supplied, value) for value in accepted)
 
     def _require_authorized(self):
         if self._authorized():
             return True
         self.send_response(HTTPStatus.UNAUTHORIZED)
-        self.send_header('WWW-Authenticate', 'Bearer')
         self.send_header('Content-Type', 'application/json; charset=utf-8')
-        body = b'{"error":"valid bearer token required"}'
+        body = b'{"error":"valid DOGZILLA password required"}'
         self.send_header('Content-Length', str(len(body)))
         self._security_headers(api=True)
         self.end_headers()
@@ -156,7 +182,19 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
             if path == '/api/v1/state':
                 self._json(HTTPStatus.OK, self.server.service.get_state())
             elif path == '/api/v1/vision/frame.jpg':
-                self._jpeg(self.server.service.get_vision_frame())
+                query = parse_qs(parsed.query)
+                if 'after' not in query:
+                    self._jpeg(self.server.service.get_vision_frame())
+                else:
+                    after = int(query['after'][0])
+                    frame, sequence = self.server.service.wait_for_vision_frame(
+                        after,
+                        timeout=1.0,
+                    )
+                    if frame is None:
+                        self._no_content(sequence)
+                    else:
+                        self._jpeg(frame, sequence)
             elif path == '/api/v1/map':
                 self._json(HTTPStatus.OK, self.server.service.get_map())
             elif path == '/api/v1/locations':
@@ -277,6 +315,26 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                 self._json(
                     HTTPStatus.OK,
                     self.server.service.set_vision_mode(body),
+                )
+            elif path == '/api/v1/map/switch':
+                self._json(
+                    HTTPStatus.OK,
+                    self.server.service.switch_map(body),
+                )
+            elif path == '/api/v1/map/switch/prepare':
+                self._json(
+                    HTTPStatus.OK,
+                    self.server.service.prepare_map_switch(body),
+                )
+            elif path == '/api/v1/autonomy/speed':
+                self._json(
+                    HTTPStatus.OK,
+                    self.server.service.set_autonomy_settings(body),
+                )
+            elif path == '/api/v1/drive':
+                self._json(
+                    HTTPStatus.OK,
+                    self.server.service.set_manual_drive(body),
                 )
             else:
                 self._error(HTTPStatus.NOT_FOUND, 'not found')

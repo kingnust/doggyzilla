@@ -94,6 +94,12 @@ class WebDashboardTest(unittest.TestCase):
             'keepout-save',
             'keepout-delete',
             'keepout-status',
+            'drive-speed',
+            'drive-speed-value',
+            'drive-turn',
+            'drive-turn-value',
+            'drive-state',
+            'drive-message',
         ):
             with self.subTest(element_id=element_id):
                 self.assertIn(f'id="{element_id}"', html)
@@ -177,6 +183,23 @@ class WebDashboardTest(unittest.TestCase):
             "['hazard.confirmed', 'person.confirmed'].includes(event.type)",
             javascript,
         )
+
+    def test_dashboard_uses_password_and_autonomous_integer_sliders(self):
+        html = (STATIC_DIRECTORY / 'index.html').read_text()
+        javascript = (STATIC_DIRECTORY / 'app.js').read_text()
+
+        self.assertIn('id="password"', html)
+        self.assertNotIn('id="token"', html)
+        self.assertIn("headers.set('X-Dogzilla-Password', password)", javascript)
+        self.assertIn('<p class="eyebrow">Autonomous navigation</p>', html)
+        self.assertIn('id="manual-drive-controls" class="drive-pad hidden"', html)
+        self.assertIn('id="drive-speed" type="range" min="1" max="9" step="1"', html)
+        self.assertIn('id="drive-turn" type="range" min="1" max="9" step="1"', html)
+        self.assertIn('data-drive="forward"', html)
+        self.assertIn('data-drive="turn-left"', html)
+        self.assertIn("'/api/v1/autonomy/speed'", javascript)
+        self.assertIn("'/api/v1/drive'", javascript)
+        self.assertIn("button.addEventListener('pointerup'", javascript)
 
 
 if __name__ == '__main__':

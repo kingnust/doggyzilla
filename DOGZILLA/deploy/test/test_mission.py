@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import hashlib
 import subprocess
 import tempfile
 import textwrap
@@ -21,13 +22,23 @@ class MissionCommandTest(unittest.TestCase):
         (self.root / "deploy").mkdir()
         (self.root / "logs").mkdir()
         (self.root / "maps").mkdir()
+        (self.root / "models").mkdir()
         (self.root / "deploy" / "compose.yaml").write_text(
             "services: {}\n", encoding="utf-8"
         )
         for suffix in ("pbstream", "yaml", "pgm"):
             (self.root / "maps" / f"room1.{suffix}").write_bytes(b"fixture\n")
+            (self.root / "maps" / f"room2.{suffix}").write_bytes(b"fixture\n")
+        object_model = b"synthetic yolox fixture\n"
+        open_images_model = b"synthetic open-images fixture\n"
+        (self.root / "models" / "yolox_nano.onnx").write_bytes(object_model)
+        (self.root / "models" / "yolov8n-oiv7.onnx").write_bytes(
+            open_images_model
+        )
 
         self.call_log = self.root / "calls.log"
+        self.camera_device = self.root / "video0"
+        self.camera_device.write_bytes(b"synthetic camera device\n")
         self.map_command = self._write_executable(
             "fake-map",
             r"""
@@ -72,8 +83,11 @@ class MissionCommandTest(unittest.TestCase):
                 status)
                     printf 'web status\n'
                     ;;
-                show-token)
-                    printf 'test-token\n'
+                show-password|show-token)
+                    printf 'yahboom\n'
+                    ;;
+                prepare-map|switch-map|wait-map)
+                    exit 0
                     ;;
             esac
             """,
@@ -95,6 +109,7 @@ class MissionCommandTest(unittest.TestCase):
                         dogzilla_visual_shadow) marker="${TEST_ROOT}/shadow.running" ;;
                         dogzilla_vision) marker="${TEST_ROOT}/vision.running" ;;
                         dogzilla_vision_control) marker="${TEST_ROOT}/vision-control.running" ;;
+                        dogzilla_perception) marker="${TEST_ROOT}/perception.running" ;;
                         dogzilla_web) marker="${TEST_ROOT}/web.running" ;;
                     esac
                     [[ -n "${marker}" && -f "${marker}" ]] || exit 1
@@ -110,6 +125,13 @@ class MissionCommandTest(unittest.TestCase):
                     [[ "${TEST_ROS_READY:-1}" == 1 ]]
                     ;;
                 compose)
+                    if [[ "$*" == *' up '*perception* ]]; then
+                        : > "${TEST_ROOT}/perception.running"
+                    elif [[ "$*" == *' stop '*perception* ]]; then
+                        rm -f "${TEST_ROOT}/perception.running"
+                    elif [[ "$*" == *' stop '*navigation* ]]; then
+                        rm -f "${TEST_ROOT}/navigation.running"
+                    fi
                     exit 0
                     ;;
                 *)
@@ -127,6 +149,13 @@ class MissionCommandTest(unittest.TestCase):
                 "DOGZILLA_MISSION_WEB_COMMAND": str(self.web_command),
                 "DOGZILLA_MISSION_DOCKER_COMMAND": str(self.docker_command),
                 "DOGZILLA_MISSION_STARTUP_TIMEOUT": "2",
+                "DOGZILLA_MISSION_CAMERA_DEVICE": str(self.camera_device),
+                "DOGZILLA_MISSION_OBJECT_MODEL_SHA256": hashlib.sha256(
+                    object_model
+                ).hexdigest(),
+                "DOGZILLA_MISSION_OPEN_IMAGES_SHA256": hashlib.sha256(
+                    open_images_model
+                ).hexdigest(),
                 "TEST_CALL_LOG": str(self.call_log),
                 "TEST_ROOT": str(self.root),
             }
@@ -180,6 +209,36 @@ class MissionCommandTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("map:navigate room1 --headless", self._calls())
+
+    def test_switch_map_keeps_web_and_perception_while_restarting_navigation(self) -> None:
+        started = self._run("start", "room1", "--headless")
+        self.assertEqual(started.returncode, 0, started.stderr)
+        self.call_log.write_text('', encoding='utf-8')
+
+        switched = self._run("switch-map", "room2")
+
+        self.assertEqual(switched.returncode, 0, switched.stderr)
+        calls = self._calls()
+        self.assertIn("web:prepare-map room2", calls)
+        self.assertIn("web:switch-map room2", calls)
+        self.assertLess(
+            calls.index("web:prepare-map room2"),
+            calls.index("docker:compose"),
+        )
+        self.assertLess(
+            calls.index("docker:compose"),
+            calls.index("web:switch-map room2"),
+        )
+        self.assertIn("map:navigate room2 --headless", calls)
+        self.assertIn("web:wait-map room2 2", calls)
+        self.assertNotIn("web:stop", calls)
+        self.assertTrue((self.root / "perception.running").exists())
+        state = (self.root / "logs" / "mission-current").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("state=ready\n", state)
+        self.assertIn("map=room2\n", state)
+        self.assertIn("display=headless\n", state)
 
     def test_active_mapping_is_never_replaced(self) -> None:
         (self.root / "mapping.running").touch()

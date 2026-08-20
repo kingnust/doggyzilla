@@ -465,8 +465,15 @@ class VisionProcessor:
     def configure(self, mode, color):
         """Atomically apply a validated mode and colour preset."""
         requested = validate_request({'mode': mode, 'color': color})
+        mode_changed = requested['mode'] != self.mode
         self.mode = requested['mode']
         self.color = requested['color']
+        if (
+            mode_changed
+            and self.object_perception is not None
+            and hasattr(self.object_perception, 'reset_cache')
+        ):
+            self.object_perception.reset_cache()
         return requested
 
     @staticmethod
@@ -627,6 +634,50 @@ class VisionProcessor:
                 and detection['floor_candidate']
             ),
         )
+
+    def render_object_result(self, frame, result=None):
+        """Draw the newest object result over a current camera frame."""
+        annotated = frame.copy()
+        detections = [] if result is None else result.get('detections', [])
+        objects = [
+            detection for detection in detections
+            if detection.get('kind') == 'object'
+        ]
+        if self.object_perception is not None and objects:
+            annotated = self.object_perception.annotate(annotated, objects)
+        for detection in detections:
+            if detection.get('kind') != 'face':
+                continue
+            x, y, width, height = detection['box']
+            cv2.rectangle(
+                annotated,
+                (x, y),
+                (x + width, y + height),
+                (255, 190, 75),
+                2,
+            )
+            cv2.putText(
+                annotated,
+                'FACE',
+                (x, max(18, y - 6)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (255, 190, 75),
+                2,
+                cv2.LINE_AA,
+            )
+        mode = self.mode if result is None else result.get('mode', self.mode)
+        cv2.putText(
+            annotated,
+            str(mode).replace('-', ' ').upper(),
+            (12, 28),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.65,
+            (80, 240, 165),
+            2,
+            cv2.LINE_AA,
+        )
+        return annotated
 
     @staticmethod
     def _firmware_action_proposal(source, action_id, name):

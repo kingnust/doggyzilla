@@ -43,7 +43,7 @@ usb_cam (one owner) ---> /camera/image_raw ---> dogzilla_vision
                                     /vision/detections   annotated JPEG
                                                 |             |
                                                 +------ web gateway
-                                                        (token required)
+                                                        (password required)
 
 Explicitly armed vision-control only:
 
@@ -103,10 +103,10 @@ dogzilla vision-mode line
 dogzilla vision-mode line-follow
 ```
 
-Open the dashboard URL printed by the command. Obtain its token with:
+Open the dashboard URL printed by the command. Obtain its password with:
 
 ```bash
-./deploy/dogzilla-web show-token
+./deploy/dogzilla-web show-password
 ```
 
 Stop the camera, disarm control, stop movement, and close the dashboard:

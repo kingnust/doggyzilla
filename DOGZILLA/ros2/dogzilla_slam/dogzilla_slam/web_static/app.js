@@ -5,7 +5,8 @@
     [...document.querySelectorAll('[id]')].map((element) => [element.id, element]),
   );
   const targetButtons = [...document.querySelectorAll('[data-map-target]')];
-  let token = sessionStorage.getItem('dogzillaGatewayToken') || '';
+  const driveButtons = [...document.querySelectorAll('[data-drive]')];
+  let password = sessionStorage.getItem('dogzillaGatewayPassword') || '';
   let currentMap = 'test1';
   let pollTimer = null;
   let eventAbort = null;
@@ -22,6 +23,11 @@
   let previewGeneration = 0;
   let visionFrameTimer = null;
   let visionFrameUrl = '';
+  let visionFrameSequence = 0;
+  let driveTimer = null;
+  let driveDirection = '';
+  let driveRequestActive = false;
+  let pendingDriveDirection = '';
   const alertImageUrls = new Map();
   let patrolPolygon = [];
   let patrolWaypoints = [];
@@ -34,11 +40,11 @@
 
   async function api(path, options = {}) {
     const headers = new Headers(options.headers || {});
-    headers.set('Authorization', `Bearer ${token}`);
+    headers.set('X-Dogzilla-Password', password);
     if (options.body) headers.set('Content-Type', 'application/json');
     const response = await fetch(path, { ...options, headers, cache: 'no-store' });
     if (response.status === 401) {
-      disconnect('The gateway rejected that token.');
+      disconnect('The gateway rejected that password.');
       throw new Error('Authentication failed');
     }
     let payload = {};
@@ -57,20 +63,22 @@
   }
 
   function disconnect(message = '') {
-    token = '';
-    sessionStorage.removeItem('dogzillaGatewayToken');
+    stopManualDrive(false);
+    password = '';
+    sessionStorage.removeItem('dogzillaGatewayPassword');
     clearInterval(pollTimer);
     clearTimeout(previewTimer);
     clearTimeout(visionFrameTimer);
     if (visionFrameUrl) URL.revokeObjectURL(visionFrameUrl);
     visionFrameUrl = '';
+    visionFrameSequence = 0;
     alertImageUrls.forEach((url) => URL.revokeObjectURL(url));
     alertImageUrls.clear();
     if (eventAbort) eventAbort.abort();
     elements.app.classList.add('hidden');
     elements.login.classList.remove('hidden');
     elements['login-error'].textContent = message;
-    elements.token.value = '';
+    elements.password.value = '';
     setConnection(false);
   }
 
@@ -88,21 +96,31 @@
   }
 
   async function refreshVisionFrame() {
-    if (!token) return;
+    if (!password) return;
     if (document.hidden) {
       visionFrameTimer = setTimeout(refreshVisionFrame, 1000);
       return;
     }
     try {
-      const response = await fetch('/api/v1/vision/frame.jpg', {
-        headers: { Authorization: `Bearer ${token}` },
+      const response = await fetch(
+        `/api/v1/vision/frame.jpg?after=${visionFrameSequence}`,
+        {
+        headers: { 'X-Dogzilla-Password': password },
         cache: 'no-store',
-      });
+        },
+      );
       if (response.status === 401) {
-        disconnect('The gateway rejected that token.');
+        disconnect('The gateway rejected that password.');
         return;
       }
+      if (response.status === 204) return;
       if (!response.ok) throw new Error('Vision frame unavailable');
+      const sequence = Number(
+        response.headers.get('X-Dogzilla-Frame-Sequence'),
+      );
+      if (Number.isInteger(sequence) && sequence >= 0) {
+        visionFrameSequence = sequence;
+      }
       const nextUrl = URL.createObjectURL(await response.blob());
       const previousUrl = visionFrameUrl;
       visionFrameUrl = nextUrl;
@@ -114,7 +132,7 @@
       elements['vision-frame'].classList.remove('live');
       elements['vision-placeholder'].classList.remove('hidden');
     } finally {
-      if (token) visionFrameTimer = setTimeout(refreshVisionFrame, 250);
+      if (password) visionFrameTimer = setTimeout(refreshVisionFrame, 10);
     }
   }
 
@@ -825,7 +843,33 @@
     renderVision(telemetry);
     const safety = state.safety || {};
     const robot = state.robot || {};
-    currentMap = state.configuration?.map || telemetry.map?.value?.name || currentMap;
+    const nextMap = state.configuration?.map || telemetry.map?.value?.name || currentMap;
+    const mapChanged = nextMap !== currentMap;
+    currentMap = nextMap;
+    if (mapChanged) {
+      mapSnapshot = null;
+      mapCells = null;
+      mapImage = null;
+      keepoutPolygon = [];
+      keepoutZones = [];
+      selectedKeepoutZoneId = '';
+      patrolPolygon = [];
+      patrolWaypoints = [];
+      patrolAreas = [];
+      selectedPatrolAreaId = '';
+      plannedPath = [];
+      waypoints.pickup = null;
+      waypoints.dropoff = null;
+      setTimeout(() => {
+        Promise.all([
+          refreshMap(true),
+          refreshLocations(),
+          refreshPatrolAreas(),
+          refreshKeepoutZones(),
+          refreshAlerts(),
+        ]).catch((error) => showToast(error.message));
+      }, 0);
+    }
     elements['map-chip'].textContent = `map: ${currentMap}`;
     elements['robot-mode'].textContent = String(robot.mode || 'stopped').replaceAll('_', ' ');
     elements['gate-reason'].textContent = safety.task_ready
@@ -896,6 +940,29 @@
     }
 
     const latched = Boolean(safety.estop_latched);
+    const autonomy = state.autonomy || {};
+    const speedLevel = Number(autonomy.speed_level || 1);
+    const turnLevel = Number(autonomy.turn_level || 1);
+    elements['drive-speed'].value = String(speedLevel);
+    elements['drive-turn'].value = String(turnLevel);
+    elements['drive-speed-value'].value = String(speedLevel);
+    elements['drive-turn-value'].value = String(turnLevel);
+    const mapSwitchPending = Boolean(state.configuration?.map_switch_pending);
+    const autonomyBlocked = latched || Boolean(active) || mapSwitchPending;
+    elements['drive-state'].textContent = autonomyBlocked
+      ? (latched ? 'e-stop' : (mapSwitchPending ? 'map switching' : 'task active'))
+      : 'ready';
+    const manualEnabled = Boolean(state.manual_drive?.enabled);
+    elements['manual-drive-controls'].classList.toggle('hidden', !manualEnabled);
+    elements['manual-drive-controls'].setAttribute(
+      'aria-hidden',
+      String(!manualEnabled),
+    );
+    driveButtons.forEach((button) => {
+      button.disabled = !manualEnabled || autonomyBlocked;
+    });
+    elements['drive-speed'].disabled = autonomyBlocked;
+    elements['drive-turn'].disabled = autonomyBlocked;
     elements['safety-panel'].classList.toggle('latched', latched);
     elements['safety-title'].textContent = latched ? 'Emergency stop latched' : 'Emergency stop ready';
     elements['safety-detail'].textContent = latched
@@ -1012,7 +1079,7 @@
     if (!alert.photo_url) return '';
     if (alertImageUrls.has(alert.id)) return alertImageUrls.get(alert.id);
     const response = await fetch(alert.photo_url, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { 'X-Dogzilla-Password': password },
       cache: 'no-store',
     });
     if (!response.ok) return '';
@@ -1087,7 +1154,7 @@
       ]);
       renderState(state);
     } catch (error) {
-      if (token) {
+      if (password) {
         setConnection(false);
         elements['gate-reason'].textContent = error.message;
       }
@@ -1107,6 +1174,68 @@
       showToast('Mission cancellation requested.');
       await refreshAll();
     } catch (error) { showToast(error.message); }
+  }
+
+  async function sendManualDrive(direction) {
+    if (!password) return;
+    if (driveRequestActive) {
+      pendingDriveDirection = direction;
+      return;
+    }
+    driveRequestActive = true;
+    try {
+      await post('/api/v1/drive', { direction });
+    } catch (error) {
+      elements['drive-message'].textContent = error.message;
+      stopManualDrive(false);
+      pendingDriveDirection = direction === 'stop' ? '' : 'stop';
+    } finally {
+      driveRequestActive = false;
+      const pending = pendingDriveDirection;
+      pendingDriveDirection = '';
+      if (pending) sendManualDrive(pending);
+    }
+  }
+
+  function stopManualDrive(sendStop = true) {
+    clearInterval(driveTimer);
+    driveTimer = null;
+    driveDirection = '';
+    driveButtons.forEach((button) => button.classList.remove('active'));
+    if (sendStop && password) sendManualDrive('stop');
+  }
+
+  function startManualDrive(button) {
+    const direction = button.dataset.drive;
+    if (direction === 'stop') {
+      stopManualDrive(true);
+      return;
+    }
+    stopManualDrive(false);
+    driveDirection = direction;
+    button.classList.add('active');
+    elements['drive-message'].textContent = (
+      `${direction.replaceAll('-', ' ')} · release to stop`
+    );
+    sendManualDrive(direction);
+    driveTimer = setInterval(() => sendManualDrive(driveDirection), 200);
+  }
+
+  async function updateAutonomousSpeed() {
+    const speedLevel = Math.round(Number(elements['drive-speed'].value));
+    const turnLevel = Math.round(Number(elements['drive-turn'].value));
+    try {
+      const settings = await post('/api/v1/autonomy/speed', {
+        speed_level: speedLevel,
+        turn_level: turnLevel,
+      });
+      elements['drive-message'].textContent = (
+        `Autonomous walking ${settings.speed_level} · turning ${settings.turn_level}`
+      );
+    } catch (error) {
+      elements['drive-message'].textContent = error.message;
+      await refreshAll();
+    }
   }
 
   function waypoint(form, prefix, label) {
@@ -1149,7 +1278,7 @@
     eventAbort = new AbortController();
     try {
       const response = await fetch('/api/v1/events', {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { 'X-Dogzilla-Password': password },
         cache: 'no-store',
         signal: eventAbort.signal,
       });
@@ -1157,7 +1286,7 @@
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
-      while (token) {
+      while (password) {
         const { value, done } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
@@ -1165,14 +1294,37 @@
         buffer = records.pop() || '';
         if (records.map(handleGatewayEvent).some(Boolean)) await refreshAll();
       }
-      if (token) setTimeout(connectEvents, 1000);
+      if (password) setTimeout(connectEvents, 1000);
     } catch (error) {
-      if (error.name !== 'AbortError' && token) setTimeout(connectEvents, 3000);
+      if (error.name !== 'AbortError' && password) setTimeout(connectEvents, 3000);
     }
   }
 
   targetButtons.forEach((button) => {
     button.addEventListener('click', () => setActiveTarget(button.dataset.mapTarget));
+  });
+
+  elements['drive-speed'].addEventListener('input', () => {
+    elements['drive-speed-value'].value = elements['drive-speed'].value;
+  });
+  elements['drive-turn'].addEventListener('input', () => {
+    elements['drive-turn-value'].value = elements['drive-turn'].value;
+  });
+  elements['drive-speed'].addEventListener('change', updateAutonomousSpeed);
+  elements['drive-turn'].addEventListener('change', updateAutonomousSpeed);
+  driveButtons.forEach((button) => {
+    button.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      button.setPointerCapture?.(event.pointerId);
+      startManualDrive(button);
+    });
+    button.addEventListener('pointerup', () => stopManualDrive(true));
+    button.addEventListener('pointercancel', () => stopManualDrive(true));
+    button.addEventListener('contextmenu', (event) => event.preventDefault());
+  });
+  window.addEventListener('blur', () => stopManualDrive(true));
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) stopManualDrive(true);
   });
 
   elements['map-zoom-out'].addEventListener('click', () => {
@@ -1470,11 +1622,11 @@
 
   elements['login-form'].addEventListener('submit', async (event) => {
     event.preventDefault();
-    token = elements.token.value.trim();
+    password = elements.password.value.trim();
     elements['login-error'].textContent = '';
     try {
       const state = await api('/api/v1/state');
-      sessionStorage.setItem('dogzillaGatewayToken', token);
+      sessionStorage.setItem('dogzillaGatewayPassword', password);
       elements.login.classList.add('hidden');
       elements.app.classList.remove('hidden');
       renderState(state);
@@ -1544,13 +1696,16 @@
     catch (error) { showToast(error.message); }
   });
   elements.refresh.addEventListener('click', refreshAll);
-  elements.logout.addEventListener('click', () => disconnect());
+  elements.logout.addEventListener('click', () => {
+    stopManualDrive(true);
+    disconnect();
+  });
 
   updatePatrolCount();
   updateKeepoutCount();
 
-  if (token) {
-    elements.token.value = token;
+  if (password) {
+    elements.password.value = password;
     elements['login-form'].requestSubmit();
   }
 })();

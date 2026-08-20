@@ -201,6 +201,17 @@ button:hover { transform: translateY(-1px); } button:active { transform: transla
 .keepout-actions { padding-left: 1.25rem; border-left: 1px solid var(--line); }
 .danger-link { padding: .45rem; color: #ffb9be; background: transparent; font-size: .7rem; }
 
+.drive-settings { display: grid; grid-template-columns: 1fr auto; gap: .35rem .75rem; margin-top: 1rem; }
+.drive-settings label { display: flex; justify-content: space-between; color: var(--muted); font-size: .72rem; font-weight: 700; }
+.drive-settings label output { color: var(--green); font-family: "SFMono-Regular", Consolas, monospace; }
+.drive-settings input { grid-column: 1 / -1; width: 100%; padding: 0; accent-color: var(--green); }
+.drive-pad { display: grid; grid-template-columns: repeat(3, 3.35rem); justify-content: center; gap: .45rem; margin-top: 1rem; user-select: none; }
+.drive-button { width: 3.35rem; height: 3.35rem; padding: 0; border: 1px solid var(--line); color: var(--text); background: rgba(94, 240, 166, .09); font-size: 1.25rem; touch-action: none; }
+.drive-button.turn { color: var(--blue); background: rgba(105, 186, 255, .09); }
+.drive-button.stop { color: #ffb9be; background: rgba(255, 93, 104, .13); }
+.drive-button.active { border-color: var(--green); background: rgba(94, 240, 166, .24); box-shadow: 0 0 0 .15rem rgba(94, 240, 166, .08); }
+.drive-panel .form-message { color: var(--muted); line-height: 1.45; }
+
 .safety-panel { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 1rem; border-color: rgba(255, 93, 104, .18); }
 .safety-panel .subtle { margin: .45rem 0 0; font-size: .8rem; }
 .estop { display: grid; place-items: center; width: 7rem; height: 7rem; border: .38rem solid #8e242c; border-radius: 50%; background: radial-gradient(circle at 35% 25%, #ff707a, #c72b36 70%); box-shadow: 0 .5rem 0 #721d23, 0 1rem 2rem rgba(255, 42, 54, .18); font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; }

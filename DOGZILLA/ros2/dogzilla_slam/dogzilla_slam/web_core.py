@@ -1583,6 +1583,12 @@ class TelemetryCache:
                 'monotonic': time.monotonic(),
             }
 
+    def discard(self, *keys):
+        """Remove stale values that belong to a replaced data source."""
+        with self._lock:
+            for key in keys:
+                self._values.pop(str(key), None)
+
     def get(self, key, stale_after=10.0):
         with self._lock:
             item = deepcopy(self._values.get(str(key)))

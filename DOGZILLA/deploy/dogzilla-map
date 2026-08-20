@@ -1287,7 +1287,7 @@ start_vision() {
         "${mode}" "${color}"
     printf 'Robot action output is disabled; no serial device is exposed.\n'
     printf 'The authenticated Vision Lab dashboard is starting automatically.\n'
-    printf 'Run "dogzilla mission token" for its login token.\n'
+    printf 'Run "dogzilla mission password" for its login password.\n'
 }
 
 start_vision_control() {
@@ -1354,7 +1354,7 @@ start_vision_control() {
     printf 'ARMED Vision Control started: mode=%s, color=%s.\n' \
         "${mode}" "${color}"
     printf 'LiDAR is off. Run "dogzilla stop" to disarm and stop immediately.\n'
-    printf 'Run "dogzilla mission token" for the dashboard token.\n'
+    printf 'Run "dogzilla mission password" for the dashboard password.\n'
 }
 
 set_vision_mode() {
@@ -1975,7 +1975,9 @@ start_navigation() {
     ensure_runtime_directories
     ensure_image
     if container_is_running || drive_is_running || shadow_is_running \
-        || vision_device_is_running; then
+        || vision_is_running || vision_control_is_running \
+        || { perception_is_running \
+            && [[ "${DOGZILLA_MISSION_SWITCH:-0}" != 1 ]]; }; then
         printf 'Mapping or drive mode is running. Stop it first.\n' >&2
         printf 'Run "dogzilla stop" first.\n' >&2
         exit 1

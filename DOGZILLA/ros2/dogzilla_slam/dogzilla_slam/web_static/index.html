@@ -17,9 +17,9 @@
         <div class="brand-mark" aria-hidden="true"><span></span><span></span></div>
         <p class="eyebrow">Secure operator access</p>
         <h1>DOGZILLA</h1>
-        <p class="subtle">Enter the access token generated on the Raspberry Pi.</p>
-        <label for="token">Gateway token</label>
-        <input id="token" name="token" type="password" autocomplete="current-password" required>
+        <p class="subtle">Enter the DOGZILLA password.</p>
+        <label for="password">Gateway password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
         <button class="primary" type="submit">Connect to robot</button>
         <p id="login-error" class="form-error" role="alert"></p>
       </form>
@@ -332,6 +332,34 @@
           </article>
 
           <div class="right-column">
+            <article class="panel drive-panel" aria-labelledby="drive-title">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Autonomous navigation</p>
+                  <h2 id="drive-title">Mission speed</h2>
+                </div>
+                <span id="drive-state" class="map-chip">ready</span>
+              </div>
+              <div class="drive-settings">
+                <label for="drive-speed">Walking level <output id="drive-speed-value">1</output></label>
+                <input id="drive-speed" type="range" min="1" max="9" step="1" value="1">
+                <label for="drive-turn">Turning level <output id="drive-turn-value">1</output></label>
+                <input id="drive-turn" type="range" min="1" max="9" step="1" value="1">
+              </div>
+              <div id="manual-drive-controls" class="drive-pad hidden" aria-label="Manual drive controls" aria-hidden="true">
+                <button class="drive-button turn" data-drive="turn-left" type="button" aria-label="Turn left">↶</button>
+                <button class="drive-button" data-drive="forward" type="button" aria-label="Walk forward">↑</button>
+                <button class="drive-button turn" data-drive="turn-right" type="button" aria-label="Turn right">↷</button>
+                <button class="drive-button" data-drive="left" type="button" aria-label="Strafe left">←</button>
+                <button class="drive-button stop" data-drive="stop" type="button" aria-label="Stop">■</button>
+                <button class="drive-button" data-drive="right" type="button" aria-label="Strafe right">→</button>
+                <span></span>
+                <button class="drive-button" data-drive="backward" type="button" aria-label="Walk backward">↓</button>
+                <span></span>
+              </div>
+              <p id="drive-message" class="form-message" role="status">Choose whole-number levels from 1 to 9 before starting an autonomous task.</p>
+            </article>
+
             <article id="safety-panel" class="panel safety-panel">
               <div>
                 <p class="eyebrow">Safety control</p>

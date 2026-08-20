@@ -12,6 +12,7 @@ from sensor_msgs.msg import CompressedImage
 from std_msgs.msg import String
 
 from dogzilla_slam.web_gateway import DogzillaWebGateway
+from dogzilla_slam.web_core import ConflictError, ValidationError
 
 
 class WebGatewayNodeTest(unittest.TestCase):
@@ -26,6 +27,7 @@ class WebGatewayNodeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, patch.dict(
             os.environ,
             {
+                'DOGZILLA_WEB_PASSWORD': 'yahboom',
                 'DOGZILLA_WEB_TOKEN': '0123456789abcdefghijklmn',
                 'DOGZILLA_WEB_DATABASE': str(
                     Path(directory) / 'tasks.sqlite3'
@@ -37,6 +39,12 @@ class WebGatewayNodeTest(unittest.TestCase):
             rclpy.init()
             node = DogzillaWebGateway()
             try:
+                self.assertFalse(node.manual_drive_enabled)
+                with self.assertRaises(ConflictError):
+                    node.set_manual_drive({'direction': 'forward'})
+                stopped = node.set_manual_drive({'direction': 'stop'})
+                self.assertEqual(stopped['direction'], 'stop')
+
                 frame = CompressedImage()
                 frame.format = 'jpeg'
                 frame.data = b'\xff\xd8annotated-frame\xff\xd9'
@@ -91,6 +99,41 @@ class WebGatewayNodeTest(unittest.TestCase):
                 )
                 self.assertEqual(information.base, 0.0)
                 self.assertEqual(information.multiplier, 1.0)
+
+                with self.assertRaises(ConflictError):
+                    node.switch_map({'map': 'room2'})
+                node.prepare_map_switch({'map': 'room2'})
+                switched = node.switch_map({'map': 'room2'})
+                self.assertEqual(switched['map'], 'room2')
+                self.assertEqual(node.list_keepout_zones(), [])
+                node._on_map(message)
+                with self.assertRaises(ValidationError):
+                    node.save_keepout_zone({
+                        'map': 'test1',
+                        'name': 'Wrong map',
+                        'polygon': [
+                            {'x': 0.0, 'y': 0.0},
+                            {'x': 1.0, 'y': 0.0},
+                            {'x': 1.0, 'y': 1.0},
+                        ],
+                    })
+                room_zone = node.save_keepout_zone({
+                    'map': 'room2',
+                    'name': 'Room two furniture',
+                    'polygon': [
+                        {'x': 0.0, 'y': 0.0},
+                        {'x': 1.0, 'y': 0.0},
+                        {'x': 1.0, 'y': 1.0},
+                    ],
+                })
+                self.assertEqual(node.list_keepout_zones(), [room_zone])
+                node.prepare_map_switch({'map': 'test1'})
+                node.switch_map({'map': 'test1'})
+                node._on_map(message)
+                self.assertEqual(
+                    [item['name'] for item in node.list_keepout_zones()],
+                    ['Furniture'],
+                )
 
                 raw_detection = String()
                 raw_detection.data = json.dumps({
@@ -159,6 +202,40 @@ class WebGatewayNodeTest(unittest.TestCase):
                 self.assertTrue(
                     node.get_alert_photo(alerts[0]['id']).startswith(b'\xff\xd8')
                 )
+
+                estop_messages = Recorder()
+                priority_stop_messages = Recorder()
+                direct_stop_messages = Recorder()
+                node._estop_publisher = estop_messages
+                node._priority_stop_publisher = priority_stop_messages
+                node._direct_stop_publisher = direct_stop_messages
+                node._active = {
+                    'task_id': 'patrol-1',
+                    'payload': {'kind': 'patrol'},
+                }
+                patrol_hazard = json.loads(confirmed.data)
+                patrol_hazard['mode'] = 'patrol'
+                patrol_hazard['detection'].update({
+                    'label': 'broken glass',
+                    'box': [250, 200, 60, 40],
+                    'floor_candidate': True,
+                    'floor_hazard': True,
+                })
+                patrol_confirmation = String()
+                patrol_confirmation.data = json.dumps(patrol_hazard)
+                node._on_danger_confirmed(patrol_confirmation)
+
+                self.assertFalse(node._estop_latched)
+                self.assertEqual(node._cancel_requests, set())
+                self.assertEqual(estop_messages.messages, [])
+                self.assertEqual(priority_stop_messages.messages, [])
+                self.assertEqual(direct_stop_messages.messages, [])
+                self.assertNotIn(
+                    'safety.estop',
+                    [event['type'] for event in node.events.after(0, 0)],
+                )
+                self.assertEqual(node.list_hazards(10)[0]['label'], 'broken glass')
+                node._active = None
 
                 person = {
                     'mode': 'patrol',

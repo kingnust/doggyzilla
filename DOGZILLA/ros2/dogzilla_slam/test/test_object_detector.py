@@ -249,6 +249,47 @@ class ObjectDetectorTest(unittest.TestCase):
         self.assertTrue(all(shape[0] == 231 for shape in small.call_shapes[1:]))
         self.assertEqual(len(general.call_shapes), 1)
 
+    def test_detector_scheduler_rotates_models_and_marks_cached_results(self):
+        def detected(label, x):
+            return ({
+                'label': label,
+                'confidence': 0.8,
+                'box': (x, 100, 40, 40),
+                'class_id': 0,
+                'model': label,
+            },)
+
+        detectors = [
+            FakeDetector(('bottle',), detected('bottle', 10), 'first'),
+            FakeDetector(('knife',), detected('knife', 100), 'second'),
+            FakeDetector(('person',), detected('person', 200), 'third'),
+        ]
+        perception = ObjectPerception(
+            detectors,
+            detectors_per_cycle=1,
+            detection_cache_seconds=2.0,
+        )
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+
+        first = perception.detect(frame)
+        second = perception.detect(frame)
+        third = perception.detect(frame)
+
+        self.assertEqual([len(item.call_shapes) for item in detectors], [1, 1, 1])
+        self.assertEqual([item['label'] for item in first], ['bottle'])
+        self.assertEqual(
+            {item['label'] for item in third},
+            {'bottle', 'knife', 'person'},
+        )
+        self.assertEqual(
+            [item['label'] for item in second if item['fresh']],
+            ['knife'],
+        )
+        self.assertEqual(
+            [item['label'] for item in third if item['fresh']],
+            ['person'],
+        )
+
     def test_open_images_catalog_covers_engineering_and_indoor_classes(self):
         expected = {
             82: 'camera',

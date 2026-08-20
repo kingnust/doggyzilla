@@ -10,6 +10,7 @@ from nav_msgs.msg import OccupancyGrid, Odometry
 import math
 import os
 from pathlib import Path
+from rcl_interfaces.srv import SetParameters
 import threading
 import time
 import uuid
@@ -19,6 +20,7 @@ from rclpy.action import ActionClient
 from rclpy.duration import Duration
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.qos import qos_profile_sensor_data
 from rclpy.time import Time
@@ -44,6 +46,9 @@ from .web_core import utc_now
 from .web_core import ValidationError
 from .web_http import GatewayHTTPServer
 from .object_detector import validate_detection_payload
+from .speed_control import normalize_speed_level
+from .speed_control import SPEED_LEVELS
+from .speed_control import TURN_LEVELS
 from .vision_core import validate_request
 from .vision_core import validate_danger_confirmation
 from .vision_core import validate_patrol_detection_payload
@@ -67,11 +72,22 @@ class DogzillaWebGateway(Node):
             1,
             65535,
         )
-        self.web_token = os.environ.get('DOGZILLA_WEB_TOKEN', '').strip()
-        if len(self.web_token) < 24:
+        self.web_password = os.environ.get(
+            'DOGZILLA_WEB_PASSWORD',
+            'yahboom',
+        ).strip()
+        if not 6 <= len(self.web_password) <= 128:
             raise RuntimeError(
-                'DOGZILLA_WEB_TOKEN must contain at least 24 characters'
+                'DOGZILLA_WEB_PASSWORD must contain 6 to 128 characters'
             )
+        self.web_legacy_token = os.environ.get(
+            'DOGZILLA_WEB_TOKEN',
+            '',
+        ).strip()
+        self.manual_drive_enabled = self._boolean_environment(
+            'DOGZILLA_WEB_MANUAL_DRIVE_ENABLED',
+            False,
+        )
         self.map_name = os.environ.get(
             'DOGZILLA_WEB_MAP_NAME',
             'test1',
@@ -147,9 +163,21 @@ class DogzillaWebGateway(Node):
         self._stop_until = 0.0
         self._linear_speed = 0.0
         self._angular_speed = 0.0
+        self._drive_speed_level = 1
+        self._drive_turn_level = 1
+        self._autonomy_update_pending = False
+        self._manual_command_until = 0.0
+        self._map_switch_pending = False
+        self._map_switch_target = None
+        self._map_switch_received_map = False
+        self._map_switch_started_ns = 0
+        self._map_switch_pose_samples = 0
+        self._map_switch_last_pose = None
         self._waiting_for_map_pose = False
         self._vision_frame = None
         self._vision_frame_received = 0.0
+        self._vision_frame_sequence = 0
+        self._vision_frame_condition = threading.Condition(self._lock)
         self._vision_status_signature = None
         self._vision_action_status_signature = None
         self._graph = {
@@ -246,6 +274,10 @@ class DogzillaWebGateway(Node):
             '/safety/estop',
             10,
         )
+        self._safe_base_parameters = self.create_client(
+            SetParameters,
+            '/dogzilla_safe_base/set_parameters',
+        )
         self._navigate = ActionClient(
             self,
             NavigateToPose,
@@ -316,6 +348,18 @@ class DogzillaWebGateway(Node):
         if not math.isfinite(value) or not lower <= value <= upper:
             raise RuntimeError(f'{name} must be between {lower} and {upper}')
         return value
+
+    @staticmethod
+    def _boolean_environment(name, default):
+        value = os.environ.get(
+            name,
+            'true' if default else 'false',
+        ).strip().lower()
+        if value in {'1', 'true', 'yes', 'on'}:
+            return True
+        if value in {'0', 'false', 'no', 'off'}:
+            return False
+        raise RuntimeError(f'{name} must be true or false')
 
     def log_http(self, message):
         self.get_logger().debug(message)
@@ -576,7 +620,10 @@ class DogzillaWebGateway(Node):
         now = time.monotonic()
         with self._lock:
             confirmations = self._person_tracker.observe(
-                detections,
+                [
+                    detection for detection in detections
+                    if detection.get('fresh', True)
+                ],
                 now=now,
             )
         for confirmation in confirmations:
@@ -608,9 +655,6 @@ class DogzillaWebGateway(Node):
         detection = confirmed['detection']
         with self._lock:
             active_task_id = self._active['task_id'] if self._active else None
-            active_kind = (
-                self._active['payload']['kind'] if self._active else None
-            )
         alert = self._record_vision_alert(
             category='danger',
             detection=detection,
@@ -637,26 +681,6 @@ class DogzillaWebGateway(Node):
             )
             observation['photo_url'] = alert['photo_url']
             self.events.publish('hazard.confirmed', observation)
-        if (
-            active_kind != 'patrol'
-            or confirmed['mode'] not in {'floor-hazards', 'patrol'}
-            or detection.get('floor_hazard') is not True
-        ):
-            return
-        reason = (
-            f"Confirmed floor hazard: {detection['label']} "
-            f"({detection['confidence']:.0%})"
-        )
-        with self._lock:
-            self._estop_latched = True
-            self._cancel_requests.add(active_task_id)
-            self._cancel_reasons[active_task_id] = reason
-        self._publish_estop(True)
-        self._publish_stop()
-        self.events.publish(
-            'safety.estop',
-            {'latched': True, 'reason': reason, 'observation': observation},
-        )
 
     def _handle_confirmed_person(self, confirmed):
         alert = self._record_vision_alert(
@@ -710,6 +734,8 @@ class DogzillaWebGateway(Node):
         with self._lock:
             self._vision_frame = frame
             self._vision_frame_received = time.monotonic()
+            self._vision_frame_sequence += 1
+            self._vision_frame_condition.notify_all()
 
     @staticmethod
     def _quaternion_yaw(quaternion):
@@ -742,16 +768,56 @@ class DogzillaWebGateway(Node):
         self._waiting_for_map_pose = False
         translation = transform.transform.translation
         rotation = transform.transform.rotation
+        yaw = self._quaternion_yaw(rotation)
         with self._lock:
             linear_speed = self._linear_speed
             angular_speed = self._angular_speed
+            if self._map_switch_pending:
+                stamp_ns = (
+                    int(transform.header.stamp.sec) * 1_000_000_000
+                    + int(transform.header.stamp.nanosec)
+                )
+                if (
+                    not self._map_switch_received_map
+                    or stamp_ns < self._map_switch_started_ns
+                ):
+                    return
+                pose = (float(translation.x), float(translation.y), yaw)
+                previous = self._map_switch_last_pose
+                if previous is None:
+                    stable = True
+                else:
+                    yaw_delta = abs(
+                        math.atan2(
+                            math.sin(pose[2] - previous[2]),
+                            math.cos(pose[2] - previous[2]),
+                        )
+                    )
+                    stable = (
+                        math.hypot(
+                            pose[0] - previous[0],
+                            pose[1] - previous[1],
+                        ) <= 0.30
+                        and yaw_delta <= 0.35
+                    )
+                self._map_switch_pose_samples = (
+                    self._map_switch_pose_samples + 1 if stable else 1
+                )
+                self._map_switch_last_pose = pose
+                if self._map_switch_pose_samples >= 20:
+                    self._map_switch_pending = False
+                    self._map_switch_target = None
+                    self.events.publish(
+                        'map.switch_ready',
+                        {'map': self.map_name, 'pose_samples': 20},
+                    )
         self.telemetry.update(
             'pose',
             {
                 'frame': transform.header.frame_id or 'map',
                 'x': round(float(translation.x), 4),
                 'y': round(float(translation.y), 4),
-                'yaw': round(self._quaternion_yaw(rotation), 4),
+                'yaw': round(yaw, 4),
                 'linear_speed': round(linear_speed, 4),
                 'angular_speed': round(angular_speed, 4),
             },
@@ -774,6 +840,9 @@ class DogzillaWebGateway(Node):
             self.get_logger().error(f'Invalid occupancy map ignored: {exc}')
             return
         summary = self.occupancy_map.summary()
+        with self._lock:
+            if self._map_switch_pending:
+                self._map_switch_received_map = True
         self.telemetry.update('map', summary)
         self._publish_keepout_filter()
         self.events.publish(
@@ -818,6 +887,12 @@ class DogzillaWebGateway(Node):
         with self._lock:
             if self._estop_latched:
                 return False, 'emergency stop is latched'
+            if self._autonomy_update_pending:
+                return False, 'autonomous speed update is in progress'
+            if self._map_switch_pending:
+                return False, (
+                    'waiting for the new map and stable localization'
+                )
             nav_available = bool(self._graph['nav_available'])
         if not nav_available:
             return False, 'Nav2 navigate_to_pose action is unavailable'
@@ -829,6 +904,11 @@ class DogzillaWebGateway(Node):
             return False, 'fresh localization odometry is unavailable'
         if not self.occupancy_map.available():
             return False, 'map telemetry is unavailable'
+        if task is not None and task['payload']['map'] != self.map_name:
+            return False, (
+                f"task belongs to map '{task['payload']['map']}', not "
+                f"'{self.map_name}'"
+            )
         if task is not None and task['kind'] == 'patrol':
             return self._patrol_vision_gate()
         return True, 'ready'
@@ -852,7 +932,11 @@ class DogzillaWebGateway(Node):
         )
         return {
             'time': utc_now(),
-            'configuration': {'map': self.map_name},
+            'configuration': {
+                'map': self.map_name,
+                'map_switch_pending': self._map_switch_pending,
+                'map_switch_target': self._map_switch_target,
+            },
             'robot': graph,
             'telemetry': self.telemetry.snapshot(stale_after=10.0),
             'safety': {
@@ -860,6 +944,11 @@ class DogzillaWebGateway(Node):
                 'minimum_task_battery': self.minimum_battery,
                 'task_ready': ready,
                 'task_gate_reason': gate_reason,
+            },
+            'autonomy': self.get_autonomy_settings(),
+            'manual_drive': {
+                'enabled': self.manual_drive_enabled,
+                'control': 'hold-to-drive',
             },
             'active_task': active_task,
         }
@@ -873,6 +962,96 @@ class DogzillaWebGateway(Node):
     def get_map(self):
         return self.occupancy_map.payload()
 
+    def prepare_map_switch(self, value):
+        """Freeze motion and task dispatch before localization is stopped."""
+        if not isinstance(value, dict):
+            raise ValidationError('request body must be a JSON object')
+        map_name = str(value.get('map', '')).strip()
+        if not MAP_NAME_PATTERN.fullmatch(map_name):
+            raise ValidationError(
+                'map may contain only letters, numbers, dot, underscore, '
+                'and dash'
+            )
+        with self._lock:
+            if self._active is not None:
+                raise ConflictError(
+                    'cancel or finish the active task before switching maps'
+                )
+            self._map_switch_pending = True
+            self._map_switch_target = map_name
+            self._map_switch_received_map = False
+            self._map_switch_started_ns = 0
+            self._map_switch_pose_samples = 0
+            self._map_switch_last_pose = None
+            self._manual_command_until = 0.0
+        self.telemetry.discard('pose')
+        self._publish_stop()
+        result = {
+            'map': self.map_name,
+            'target_map': map_name,
+            'state': 'prepared',
+        }
+        self.events.publish('map.switch_prepared', result)
+        return result
+
+    def switch_map(self, value):
+        """Commit a prepared map after the old localization process stops."""
+        if not isinstance(value, dict):
+            raise ValidationError('request body must be a JSON object')
+        map_name = str(value.get('map', '')).strip()
+        if not MAP_NAME_PATTERN.fullmatch(map_name):
+            raise ValidationError(
+                'map may contain only letters, numbers, dot, underscore, '
+                'and dash'
+            )
+        with self._lock:
+            if self._active is not None:
+                raise ConflictError(
+                    'cancel or finish the active task before switching maps'
+                )
+            if (
+                not self._map_switch_pending
+                or self._map_switch_target != map_name
+            ):
+                raise ConflictError(
+                    'map switch must be prepared before it is committed'
+                )
+        replacement = OccupancyMap(
+            map_name,
+            occupied_threshold=self.occupancy_map.occupied_threshold,
+            minimum_clearance_m=self.occupancy_map.minimum_clearance_m,
+            keepout_clearance_m=self.occupancy_map.keepout_clearance_m,
+        )
+        with self._lock:
+            previous_map = self.map_name
+            self.map_name = map_name
+            self.occupancy_map = replacement
+            self._manual_command_until = 0.0
+            self._drive_speed_level = 1
+            self._drive_turn_level = 1
+            self._map_switch_pending = True
+            self._map_switch_target = map_name
+            self._map_switch_received_map = False
+            self._map_switch_started_ns = self.get_clock().now().nanoseconds
+            self._map_switch_pose_samples = 0
+            self._map_switch_last_pose = None
+            self._person_tracker.reset()
+            self._recent_alerts.clear()
+            self._restore_alert_deduplication()
+        self.telemetry.discard('map', 'pose')
+        try:
+            self._tf_buffer.clear()
+        except AttributeError:
+            pass
+        result = {
+            'map': map_name,
+            'previous_map': previous_map,
+            'state': 'waiting-for-localization',
+            'keepout_zone_count': len(self._active_keepout_zones()),
+        }
+        self.events.publish('map.switch_started', result)
+        return result
+
     def get_vision_frame(self):
         """Return the newest annotated JPEG while it is still live."""
         with self._lock:
@@ -883,6 +1062,28 @@ class DogzillaWebGateway(Node):
         if age > 3.0:
             raise ConflictError(f'vision frame is stale ({age:.1f}s old)')
         return frame
+
+    def wait_for_vision_frame(self, after_sequence, timeout=1.0):
+        """Return only a frame newer than the browser's last sequence."""
+        try:
+            after_sequence = int(after_sequence)
+        except (TypeError, ValueError) as exc:
+            raise ValidationError('vision frame sequence must be an integer') from exc
+        if after_sequence < 0:
+            raise ValidationError('vision frame sequence cannot be negative')
+        with self._vision_frame_condition:
+            self._vision_frame_condition.wait_for(
+                lambda: self._vision_frame_sequence > after_sequence,
+                timeout=float(timeout),
+            )
+            sequence = self._vision_frame_sequence
+            frame = self._vision_frame
+            age = time.monotonic() - self._vision_frame_received
+        if sequence <= after_sequence:
+            return None, sequence
+        if frame is None or age > 3.0:
+            raise ConflictError('vision frame is unavailable or stale')
+        return frame, sequence
 
     def set_vision_mode(self, value):
         """Publish one validated detection-only configuration request."""
@@ -913,6 +1114,142 @@ class DogzillaWebGateway(Node):
         }
         self.events.publish('vision.requested', response)
         return response
+
+    def get_autonomy_settings(self):
+        with self._lock:
+            speed_level = self._drive_speed_level
+            turn_level = self._drive_turn_level
+        return {
+            'speed_level': speed_level,
+            'turn_level': turn_level,
+            'max_linear_mps': SPEED_LEVELS[speed_level].max_linear,
+            'max_angular_rps': TURN_LEVELS[turn_level].max_angular,
+            'purpose': 'autonomous-navigation',
+            'integer_range': [1, 9],
+        }
+
+    def set_autonomy_settings(self, value):
+        if not isinstance(value, dict):
+            raise ValidationError('request body must be a JSON object')
+        try:
+            speed_level = normalize_speed_level(value.get('speed_level'))
+            turn_level = normalize_speed_level(value.get('turn_level'))
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
+        with self._lock:
+            if self._active is not None:
+                raise ConflictError(
+                    'cannot change manual drive speed during an active task'
+                )
+            if self._estop_latched:
+                raise ConflictError('emergency stop is latched')
+            if self._map_switch_pending:
+                raise ConflictError('map switching is still in progress')
+            self._autonomy_update_pending = True
+        self._publish_stop()
+        try:
+            if not self._safe_base_parameters.wait_for_service(
+                timeout_sec=1.0,
+            ):
+                raise ConflictError(
+                    'DOGZILLA safe-base controller is unavailable'
+                )
+            request = SetParameters.Request()
+            request.parameters = [
+                Parameter(
+                    'speed_level',
+                    Parameter.Type.INTEGER,
+                    speed_level,
+                ).to_parameter_msg(),
+                Parameter(
+                    'turn_level',
+                    Parameter.Type.INTEGER,
+                    turn_level,
+                ).to_parameter_msg(),
+            ]
+            response = self._wait_for_future(
+                self._safe_base_parameters.call_async(request),
+                2.0,
+                'DOGZILLA autonomous-speed update',
+            )
+            if len(response.results) != 2 or not all(
+                result.successful for result in response.results
+            ):
+                reason = next(
+                    (
+                        result.reason for result in response.results
+                        if not result.successful and result.reason
+                    ),
+                    'controller rejected the requested levels',
+                )
+                raise ConflictError(
+                    f'DOGZILLA autonomous-speed update failed: {reason}'
+                )
+            with self._lock:
+                self._drive_speed_level = speed_level
+                self._drive_turn_level = turn_level
+        finally:
+            with self._lock:
+                self._autonomy_update_pending = False
+        settings = self.get_autonomy_settings()
+        self.events.publish('autonomy.speed', settings)
+        return settings
+
+    def set_manual_drive(self, value):
+        if not isinstance(value, dict):
+            raise ValidationError('request body must be a JSON object')
+        direction = str(value.get('direction', '')).strip().lower()
+        commands = {
+            'stop': (0.0, 0.0, 0.0),
+            'forward': (1.0, 0.0, 0.0),
+            'backward': (-1.0, 0.0, 0.0),
+            'left': (0.0, 1.0, 0.0),
+            'right': (0.0, -1.0, 0.0),
+            'turn-left': (0.0, 0.0, 1.0),
+            'turn-right': (0.0, 0.0, -1.0),
+        }
+        if direction not in commands:
+            raise ValidationError(
+                'direction must be forward, backward, left, right, '
+                'turn-left, turn-right, or stop'
+            )
+        if direction == 'stop':
+            with self._lock:
+                self._manual_command_until = 0.0
+            self._priority_stop_publisher.publish(Twist())
+            return {
+                'direction': direction,
+                'enabled': self.manual_drive_enabled,
+            }
+        if not self.manual_drive_enabled:
+            raise ConflictError(
+                'manual web driving is stored for future use but disabled'
+            )
+        with self._lock:
+            if self._active is not None:
+                raise ConflictError(
+                    'manual driving is disabled during an active task'
+                )
+            if self._estop_latched:
+                raise ConflictError('emergency stop is latched')
+            if self._map_switch_pending:
+                raise ConflictError('map switching is still in progress')
+        battery_ready, battery_reason = self._battery_gate()
+        if not battery_ready:
+            raise ConflictError(battery_reason)
+        linear_x, linear_y, angular_z = commands[direction]
+        message = Twist()
+        message.linear.x = linear_x * SPEED_LEVELS[1].max_linear
+        message.linear.y = linear_y * SPEED_LEVELS[1].max_linear
+        message.angular.z = angular_z * TURN_LEVELS[1].max_angular
+        self._priority_stop_publisher.publish(message)
+        with self._lock:
+            self._manual_command_until = time.monotonic() + 0.35
+        return {
+            'direction': direction,
+            'enabled': True,
+            'speed_profile': 'fixed-conservative',
+        }
 
     def list_locations(self):
         return self.store.list_locations(self.map_name)
@@ -1247,6 +1584,14 @@ class DogzillaWebGateway(Node):
         with self._lock:
             estop_latched = self._estop_latched
             active = self._active
+            manual_expired = (
+                self._manual_command_until > 0.0
+                and now >= self._manual_command_until
+            )
+            if manual_expired:
+                self._manual_command_until = 0.0
+        if manual_expired:
+            self._priority_stop_publisher.publish(Twist())
         if estop_latched or now < self._stop_until:
             self._publish_stop()
         if estop_latched:
@@ -1542,8 +1887,9 @@ def main(args=None):
     server = GatewayHTTPServer(
         (node.web_host, node.web_port),
         node,
-        node.web_token,
+        node.web_password,
         static_directory,
+        legacy_token=node.web_legacy_token,
     )
     server_thread = threading.Thread(
         target=server.serve_forever,

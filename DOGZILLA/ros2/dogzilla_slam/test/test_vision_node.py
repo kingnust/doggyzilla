@@ -66,6 +66,7 @@ class VisionImageConversionTest(unittest.TestCase):
         node = DogzillaVisionNode()
         danger = Recorder()
         node._processor = DangerousProcessor()
+        node._object_async = False
         node._danger_publisher = danger
         node._detections_publisher = Recorder()
         node._frame_publisher = Recorder()
