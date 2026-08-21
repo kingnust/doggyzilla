@@ -234,7 +234,7 @@ class WebGatewayNodeTest(unittest.TestCase):
                     'safety.estop',
                     [event['type'] for event in node.events.after(0, 0)],
                 )
-                self.assertEqual(node.list_hazards(10)[0]['label'], 'broken glass')
+                self.assertEqual(node.list_hazards(10)[0]['label'], 'glass shard')
                 node._active = None
 
                 person = {
@@ -266,7 +266,7 @@ class WebGatewayNodeTest(unittest.TestCase):
                 node._on_vision_detections(detection)
 
                 alerts = node.list_alerts(25)
-                self.assertEqual(len(alerts), 2)
+                self.assertEqual(len(alerts), 3)
                 self.assertEqual(alerts[0]['category'], 'person')
                 event_types = [
                     event['type'] for event in node.events.after(0, 0)
@@ -281,7 +281,7 @@ class WebGatewayNodeTest(unittest.TestCase):
                     mode='patrol',
                 )
                 self.assertIsNone(duplicate)
-                self.assertEqual(len(node.list_alerts(25)), 2)
+                self.assertEqual(len(node.list_alerts(25)), 3)
                 second_person = node._record_vision_alert(
                     category='person',
                     detection={
@@ -292,7 +292,7 @@ class WebGatewayNodeTest(unittest.TestCase):
                     mode='patrol',
                 )
                 self.assertIsNotNone(second_person)
-                self.assertEqual(len(node.list_alerts(25)), 3)
+                self.assertEqual(len(node.list_alerts(25)), 4)
 
                 node._vision_frame_received = time.monotonic()
                 for index in range(27):
