@@ -1,0 +1,24 @@
+<!-- Fail closed for multi-pose actions: clear once, never spin or back up. -->
+<root main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <RecoveryNode number_of_retries="1" name="NavigateThroughPosesSafely">
+      <PipelineSequence name="PlanAndFollowThroughPoses">
+        <RateController hz="1.0">
+          <ReactiveSequence>
+            <RemovePassedGoals input_goals="{goals}" output_goals="{goals}"
+              radius="0.25"/>
+            <ComputePathThroughPoses goals="{goals}" path="{path}"
+              planner_id="GridBased"/>
+          </ReactiveSequence>
+        </RateController>
+        <FollowPath path="{path}" controller_id="FollowPath"/>
+      </PipelineSequence>
+      <Sequence name="ClearCostmapsOnce">
+        <ClearEntireCostmap name="ClearLocalCostmap"
+          service_name="local_costmap/clear_entirely_local_costmap"/>
+        <ClearEntireCostmap name="ClearGlobalCostmap"
+          service_name="global_costmap/clear_entirely_global_costmap"/>
+      </Sequence>
+    </RecoveryNode>
+  </BehaviorTree>
+</root>

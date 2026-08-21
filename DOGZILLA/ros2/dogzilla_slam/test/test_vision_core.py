@@ -6,6 +6,7 @@ import numpy as np
 from dogzilla_slam.vision_core import COLOR_PRESETS
 from dogzilla_slam.vision_core import DangerConfirmationTracker
 from dogzilla_slam.vision_core import QR_ACTIONS
+from dogzilla_slam.vision_core import SYSTEM_FACE_CASCADE
 from dogzilla_slam.vision_core import validate_request
 from dogzilla_slam.vision_core import validate_danger_confirmation
 from dogzilla_slam.vision_core import validate_face_detection_payload
@@ -39,6 +40,15 @@ class FakeObjectPerception:
 
 
 class VisionCoreTest(unittest.TestCase):
+    def test_face_detector_uses_validated_system_cascade(self):
+        processor = VisionProcessor(mode='face')
+
+        self.assertFalse(processor._face.empty())
+        self.assertEqual(
+            processor.face_status()['cascade'],
+            SYSTEM_FACE_CASCADE,
+        )
+
     def test_request_accepts_detection_and_disarmed_proposal_modes(self):
         self.assertEqual(
             validate_request({'mode': 'color_track', 'color': 'Blue'}),

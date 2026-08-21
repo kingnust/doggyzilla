@@ -1,5 +1,8 @@
-"""Start a conservative holonomic Nav2 stack for DOGZILLA."""
+"""Start a conservative forward-and-turn Nav2 stack for DOGZILLA."""
 
+import os
+
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
@@ -7,6 +10,17 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
+    package_share = get_package_share_directory('dogzilla_slam')
+    safe_navigation_tree = os.path.join(
+        package_share,
+        'behavior_trees',
+        'navigate_to_pose_safe.xml',
+    )
+    safe_navigation_through_poses_tree = os.path.join(
+        package_share,
+        'behavior_trees',
+        'navigate_through_poses_safe.xml',
+    )
     params_file = LaunchConfiguration('params_file')
     use_sim_time = LaunchConfiguration('use_sim_time')
     common_parameters = [params_file, {'use_sim_time': use_sim_time}]
@@ -58,7 +72,16 @@ def generate_launch_description():
             package='nav2_bt_navigator',
             executable='bt_navigator',
             name='bt_navigator',
-            parameters=common_parameters,
+            parameters=[
+                params_file,
+                {
+                    'use_sim_time': use_sim_time,
+                    'default_nav_to_pose_bt_xml': safe_navigation_tree,
+                    'default_nav_through_poses_bt_xml': (
+                        safe_navigation_through_poses_tree
+                    ),
+                },
+            ],
             output='screen',
         ),
         Node(

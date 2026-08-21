@@ -91,6 +91,12 @@ class WebGatewayNodeTest(unittest.TestCase):
                     mask_messages.messages[-1].data.count(100),
                     4,
                 )
+                published_masks = len(mask_messages.messages)
+                node._on_map(message)
+                self.assertEqual(
+                    len(mask_messages.messages),
+                    published_masks,
+                )
                 information = info_messages.messages[-1]
                 self.assertEqual(information.type, 0)
                 self.assertEqual(
@@ -234,7 +240,10 @@ class WebGatewayNodeTest(unittest.TestCase):
                     'safety.estop',
                     [event['type'] for event in node.events.after(0, 0)],
                 )
-                self.assertEqual(node.list_hazards(10)[0]['label'], 'glass shard')
+                self.assertEqual(
+                    node.list_hazards(10)[0]['label'],
+                    'glass shard',
+                )
                 node._active = None
 
                 person = {

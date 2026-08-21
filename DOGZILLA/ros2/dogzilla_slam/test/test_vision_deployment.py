@@ -113,11 +113,11 @@ class VisionDeploymentTest(unittest.TestCase):
         ]
         self.assertEqual(
             local_parameters['keepout_inflation']['inflation_radius'],
-            0.45,
+            0.25,
         )
         self.assertEqual(
             global_parameters['keepout_inflation']['inflation_radius'],
-            0.50,
+            0.30,
         )
 
     def test_armed_vision_control_has_only_camera_and_base_serial(self):

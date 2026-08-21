@@ -56,6 +56,17 @@ from .vision_core import DangerConfirmationTracker
 from .vision_core import VisionConfigurationError
 
 
+NAV2_STATUS_NAMES = {
+    GoalStatus.STATUS_UNKNOWN: 'unknown',
+    GoalStatus.STATUS_ACCEPTED: 'accepted',
+    GoalStatus.STATUS_EXECUTING: 'executing',
+    GoalStatus.STATUS_CANCELING: 'cancelling',
+    GoalStatus.STATUS_SUCCEEDED: 'succeeded',
+    GoalStatus.STATUS_CANCELED: 'cancelled',
+    GoalStatus.STATUS_ABORTED: 'aborted',
+}
+
+
 class DogzillaWebGateway(Node):
     """Aggregate telemetry and execute validated Nav2 waypoint tasks."""
 
@@ -174,6 +185,7 @@ class DogzillaWebGateway(Node):
         self._map_switch_pose_samples = 0
         self._map_switch_last_pose = None
         self._waiting_for_map_pose = False
+        self._keepout_map_signature = None
         self._vision_frame = None
         self._vision_frame_received = 0.0
         self._vision_frame_sequence = 0
@@ -212,7 +224,12 @@ class DogzillaWebGateway(Node):
             self._on_joints,
             qos_profile_sensor_data,
         )
-        self.create_subscription(Odometry, '/odom', self._on_odometry, 10)
+        self.create_subscription(
+            Odometry,
+            '/odom',
+            self._on_odometry,
+            qos_profile_sensor_data,
+        )
         self.create_subscription(
             String,
             '/vision/detections',
@@ -840,11 +857,25 @@ class DogzillaWebGateway(Node):
             self.get_logger().error(f'Invalid occupancy map ignored: {exc}')
             return
         summary = self.occupancy_map.summary()
+        map_signature = (
+            self.map_name,
+            summary['frame'],
+            summary['width'],
+            summary['height'],
+            summary['resolution'],
+            summary['origin']['x'],
+            summary['origin']['y'],
+            summary['origin']['yaw'],
+        )
         with self._lock:
             if self._map_switch_pending:
                 self._map_switch_received_map = True
+            publish_keepout = map_signature != self._keepout_map_signature
+            if publish_keepout:
+                self._keepout_map_signature = map_signature
         self.telemetry.update('map', summary)
-        self._publish_keepout_filter()
+        if publish_keepout:
+            self._publish_keepout_filter()
         self.events.publish(
             'map.updated',
             {'name': self.map_name, 'revision': summary['revision']},
@@ -1022,6 +1053,7 @@ class DogzillaWebGateway(Node):
             previous_map = self.map_name
             self.map_name = map_name
             self.occupancy_map = replacement
+            self._keepout_map_signature = None
             self._manual_command_until = 0.0
             self._drive_speed_level = 1
             self._drive_turn_level = 1
@@ -1759,9 +1791,10 @@ class DogzillaWebGateway(Node):
             self._finish_active('cancelled', cancel_reason)
             return
         if status != GoalStatus.STATUS_SUCCEEDED:
+            status_name = NAV2_STATUS_NAMES.get(status, 'unrecognized')
             self._finish_active(
                 'failed',
-                f'Nav2 waypoint finished with status {status}',
+                f'Nav2 waypoint {status_name} (status {status})',
             )
             return
         self.events.publish(

@@ -49,6 +49,11 @@ COLOR_PRESETS = {
 
 LINE_DEFAULT = ((55, 214, 183), (125, 253, 255))
 
+SYSTEM_FACE_CASCADE = (
+    '/usr/share/opencv4/haarcascades/'
+    'haarcascade_frontalface_default.xml'
+)
+
 
 class VisionConfigurationError(ValueError):
     """Raised when an unsupported vision mode or colour is requested."""
@@ -428,15 +433,28 @@ class VisionProcessor:
         self.color = validate_color(color)
         self.line_hsv = self._validate_hsv_range(line_hsv)
         self.object_perception = object_perception
-        cascade_path = (
-            cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-        )
-        self._face = cv2.CascadeClassifier(cascade_path)
-        if self._face.empty():
-            raise RuntimeError(
-                f'cannot load OpenCV face cascade: {cascade_path}'
-            )
+        self._face, self._face_cascade_path = self._load_face_cascade()
         self._qr = cv2.QRCodeDetector()
+
+    @staticmethod
+    def _load_face_cascade():
+        """Load the first valid face cascade, preferring Ubuntu's copy."""
+        bundled_path = (
+            cv2.data.haarcascades
+            + 'haarcascade_frontalface_default.xml'
+        )
+        errors = []
+        for cascade_path in dict.fromkeys((SYSTEM_FACE_CASCADE, bundled_path)):
+            try:
+                classifier = cv2.CascadeClassifier(cascade_path)
+                if not classifier.empty():
+                    return classifier, cascade_path
+                errors.append(f'{cascade_path}: empty classifier')
+            except (cv2.error, OSError, SystemError) as exc:
+                errors.append(f'{cascade_path}: {exc}')
+        raise RuntimeError(
+            'cannot load an OpenCV face cascade; ' + '; '.join(errors)
+        )
 
     @staticmethod
     def _validate_hsv_range(value):
@@ -568,6 +586,7 @@ class VisionProcessor:
         return {
             'ready': self._face is not None,
             'method': 'opencv-haar-frontal-face',
+            'cascade': self._face_cascade_path,
             'identification': False,
         }
 

@@ -35,8 +35,10 @@ for all commands.
 - `dogzilla_slam localization.launch.py`: frozen-PBStream Cartographer pure
   localization, RViz initial-pose handling, fixed-map serving, and `/odom` from
   the scan-matched `odom -> base_link` transform.
-- `dogzilla_slam nav2.launch.py`: conservative Nav2 planner, holonomic DWB
-  controller, live LiDAR costmaps, behaviors, and velocity smoothing.
+- `dogzilla_slam nav2.launch.py`: conservative Nav2 planner, forward-and-turn
+  DWB controller, live LiDAR costmaps, fail-closed recovery, and velocity
+  smoothing. Its footprint uses the measured 260 x 145 mm walking envelope
+  with 30 mm padding; automatic spin and backup recovery remain disabled.
 - `dogzilla_slam full_navigation.launch.py`: hardware, localization, Twist Mux,
   and optional Nav2 in one process group.
 - `dogzilla_slam save_map`: finishes the trajectory and writes PBStream,
