@@ -946,10 +946,6 @@ class DogzillaWebGateway(Node):
                 'task_gate_reason': gate_reason,
             },
             'autonomy': self.get_autonomy_settings(),
-            'manual_drive': {
-                'enabled': self.manual_drive_enabled,
-                'control': 'hold-to-drive',
-            },
             'active_task': active_task,
         }
 

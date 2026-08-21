@@ -192,14 +192,11 @@ class WebDashboardTest(unittest.TestCase):
         self.assertNotIn('id="token"', html)
         self.assertIn("headers.set('X-Dogzilla-Password', password)", javascript)
         self.assertIn('<p class="eyebrow">Autonomous navigation</p>', html)
-        self.assertIn('id="manual-drive-controls" class="drive-pad hidden"', html)
         self.assertIn('id="drive-speed" type="range" min="1" max="9" step="1"', html)
         self.assertIn('id="drive-turn" type="range" min="1" max="9" step="1"', html)
-        self.assertIn('data-drive="forward"', html)
-        self.assertIn('data-drive="turn-left"', html)
         self.assertIn("'/api/v1/autonomy/speed'", javascript)
-        self.assertIn("'/api/v1/drive'", javascript)
-        self.assertIn("button.addEventListener('pointerup'", javascript)
+        self.assertNotIn('data-drive=', html)
+        self.assertNotIn("'/api/v1/drive'", javascript)
 
 
 if __name__ == '__main__':

@@ -5,7 +5,6 @@
     [...document.querySelectorAll('[id]')].map((element) => [element.id, element]),
   );
   const targetButtons = [...document.querySelectorAll('[data-map-target]')];
-  const driveButtons = [...document.querySelectorAll('[data-drive]')];
   let password = sessionStorage.getItem('dogzillaGatewayPassword') || '';
   let currentMap = 'test1';
   let pollTimer = null;
@@ -24,10 +23,6 @@
   let visionFrameTimer = null;
   let visionFrameUrl = '';
   let visionFrameSequence = 0;
-  let driveTimer = null;
-  let driveDirection = '';
-  let driveRequestActive = false;
-  let pendingDriveDirection = '';
   const alertImageUrls = new Map();
   let patrolPolygon = [];
   let patrolWaypoints = [];
@@ -63,7 +58,6 @@
   }
 
   function disconnect(message = '') {
-    stopManualDrive(false);
     password = '';
     sessionStorage.removeItem('dogzillaGatewayPassword');
     clearInterval(pollTimer);
@@ -952,15 +946,6 @@
     elements['drive-state'].textContent = autonomyBlocked
       ? (latched ? 'e-stop' : (mapSwitchPending ? 'map switching' : 'task active'))
       : 'ready';
-    const manualEnabled = Boolean(state.manual_drive?.enabled);
-    elements['manual-drive-controls'].classList.toggle('hidden', !manualEnabled);
-    elements['manual-drive-controls'].setAttribute(
-      'aria-hidden',
-      String(!manualEnabled),
-    );
-    driveButtons.forEach((button) => {
-      button.disabled = !manualEnabled || autonomyBlocked;
-    });
     elements['drive-speed'].disabled = autonomyBlocked;
     elements['drive-turn'].disabled = autonomyBlocked;
     elements['safety-panel'].classList.toggle('latched', latched);
@@ -1176,51 +1161,6 @@
     } catch (error) { showToast(error.message); }
   }
 
-  async function sendManualDrive(direction) {
-    if (!password) return;
-    if (driveRequestActive) {
-      pendingDriveDirection = direction;
-      return;
-    }
-    driveRequestActive = true;
-    try {
-      await post('/api/v1/drive', { direction });
-    } catch (error) {
-      elements['drive-message'].textContent = error.message;
-      stopManualDrive(false);
-      pendingDriveDirection = direction === 'stop' ? '' : 'stop';
-    } finally {
-      driveRequestActive = false;
-      const pending = pendingDriveDirection;
-      pendingDriveDirection = '';
-      if (pending) sendManualDrive(pending);
-    }
-  }
-
-  function stopManualDrive(sendStop = true) {
-    clearInterval(driveTimer);
-    driveTimer = null;
-    driveDirection = '';
-    driveButtons.forEach((button) => button.classList.remove('active'));
-    if (sendStop && password) sendManualDrive('stop');
-  }
-
-  function startManualDrive(button) {
-    const direction = button.dataset.drive;
-    if (direction === 'stop') {
-      stopManualDrive(true);
-      return;
-    }
-    stopManualDrive(false);
-    driveDirection = direction;
-    button.classList.add('active');
-    elements['drive-message'].textContent = (
-      `${direction.replaceAll('-', ' ')} · release to stop`
-    );
-    sendManualDrive(direction);
-    driveTimer = setInterval(() => sendManualDrive(driveDirection), 200);
-  }
-
   async function updateAutonomousSpeed() {
     const speedLevel = Math.round(Number(elements['drive-speed'].value));
     const turnLevel = Math.round(Number(elements['drive-turn'].value));
@@ -1312,21 +1252,6 @@
   });
   elements['drive-speed'].addEventListener('change', updateAutonomousSpeed);
   elements['drive-turn'].addEventListener('change', updateAutonomousSpeed);
-  driveButtons.forEach((button) => {
-    button.addEventListener('pointerdown', (event) => {
-      event.preventDefault();
-      button.setPointerCapture?.(event.pointerId);
-      startManualDrive(button);
-    });
-    button.addEventListener('pointerup', () => stopManualDrive(true));
-    button.addEventListener('pointercancel', () => stopManualDrive(true));
-    button.addEventListener('contextmenu', (event) => event.preventDefault());
-  });
-  window.addEventListener('blur', () => stopManualDrive(true));
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden) stopManualDrive(true);
-  });
-
   elements['map-zoom-out'].addEventListener('click', () => {
     mapZoom = Math.max(1, mapZoom - 0.5);
     drawMap();
@@ -1697,7 +1622,6 @@
   });
   elements.refresh.addEventListener('click', refreshAll);
   elements.logout.addEventListener('click', () => {
-    stopManualDrive(true);
     disconnect();
   });
 

@@ -331,11 +331,6 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                     HTTPStatus.OK,
                     self.server.service.set_autonomy_settings(body),
                 )
-            elif path == '/api/v1/drive':
-                self._json(
-                    HTTPStatus.OK,
-                    self.server.service.set_manual_drive(body),
-                )
             else:
                 self._error(HTTPStatus.NOT_FOUND, 'not found')
         except ValidationError as exc:

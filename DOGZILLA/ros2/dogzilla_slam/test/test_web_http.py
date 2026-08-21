@@ -95,7 +95,6 @@ class FakeGateway:
                 'purpose': 'autonomous-navigation',
                 'integer_range': [1, 9],
             },
-            'manual_drive': {'enabled': False, 'control': 'hold-to-drive'},
             'active_task': None,
         }
 
@@ -362,7 +361,7 @@ class WebHTTPTest(unittest.TestCase):
         status = int(handler.wfile.getvalue().split(b' ', 2)[1])
         self.assertEqual(status, 200)
 
-    def test_autonomous_speed_and_stashed_manual_command_routes(self):
+    def test_autonomous_speed_route_and_manual_route_is_not_exposed(self):
         status, _, settings = request(
             self.server,
             'POST',
@@ -374,15 +373,15 @@ class WebHTTPTest(unittest.TestCase):
         self.assertEqual(settings['speed_level'], 7)
         self.assertEqual(settings['turn_level'], 3)
 
-        status, _, drive = request(
+        status, _, response = request(
             self.server,
             'POST',
             '/api/v1/drive',
             {'direction': 'forward'},
             authorized=True,
         )
-        self.assertEqual(status, 409)
-        self.assertIn('disabled', drive['error'])
+        self.assertEqual(status, 404)
+        self.assertEqual(response['error'], 'not found')
 
         status, _, prepared = request(
             self.server,

@@ -565,9 +565,9 @@ The dashboard exposes separate autonomous walking and turning sliders. Both
 accept whole-number levels from 1 to 9 and can be changed only while no task is
 active. Changing either level updates the existing safe-base serial owner,
 which clamps the Nav2 velocity stream; the web gateway never opens the
-controller serial port itself. Manual web driving remains implemented behind
-the disabled `DOGZILLA_WEB_MANUAL_DRIVE_ENABLED=false` feature flag and its
-direction pad is hidden for now.
+controller serial port itself. Manual-drive logic remains disabled and stored
+in the ROS gateway source for possible future use; it is not exposed by the
+dashboard or HTTP API.
 
 Keepout polygons are stored under the active map name. A zone created on
 `room1` is not loaded, edited, or deleted while `room2` is active, even when
