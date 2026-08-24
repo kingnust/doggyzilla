@@ -45,6 +45,119 @@ class WebGatewayNodeTest(unittest.TestCase):
                 stopped = node.set_manual_drive({'direction': 'stop'})
                 self.assertEqual(stopped['direction'], 'stop')
 
+                diagnostic_stops = Recorder()
+                diagnostic_estops = Recorder()
+                node._priority_stop_publisher = diagnostic_stops
+                node._direct_stop_publisher = diagnostic_stops
+                node._estop_publisher = diagnostic_estops
+                diagnostics = String()
+                diagnostics.data = json.dumps({
+                    'kind': 'navigation-diagnostics',
+                    'state': 'warning',
+                    'warning_only': True,
+                    'movement_action': 'none',
+                    'warnings': [{
+                        'code': 'angular_oscillation',
+                        'severity': 'warning',
+                        'message': 'rapid turn reversals were commanded',
+                    }],
+                    'metrics': {'angular_flip_count': 5},
+                })
+                node._on_navigation_diagnostics(diagnostics)
+                node._on_navigation_diagnostics(diagnostics)
+                diagnostic_events = [
+                    event['type'] for event in node.events.after(0, 0)
+                ]
+                self.assertEqual(
+                    diagnostic_events.count('navigation.warning'),
+                    1,
+                )
+                self.assertEqual(
+                    node.telemetry.get('navigation_diagnostics')[
+                        'value'
+                    ]['state'],
+                    'warning',
+                )
+                self.assertEqual(diagnostic_stops.messages, [])
+                self.assertEqual(diagnostic_estops.messages, [])
+
+                diagnostics.data = json.dumps({
+                    'kind': 'navigation-diagnostics',
+                    'state': 'healthy',
+                    'warning_only': True,
+                    'movement_action': 'none',
+                    'warnings': [],
+                    'metrics': {},
+                })
+                node._on_navigation_diagnostics(diagnostics)
+                diagnostic_events = [
+                    event['type'] for event in node.events.after(0, 0)
+                ]
+                self.assertEqual(
+                    diagnostic_events.count('navigation.warning_cleared'),
+                    1,
+                )
+                self.assertEqual(diagnostic_stops.messages, [])
+                self.assertEqual(diagnostic_estops.messages, [])
+
+                tuning_markers = Recorder()
+                node._navigation_tuning_marker_publisher = tuning_markers
+                tuning_status = String()
+                tuning_status.data = json.dumps({
+                    'schema_version': 1,
+                    'kind': 'navigation-tuning-recorder',
+                    'state': 'recording',
+                    'detail': 'Recording synchronized Nav2 tuning evidence',
+                    'goal_id': 'a' * 32,
+                    'operator_markers': 0,
+                    'artifact': None,
+                    'control_action': 'none',
+                })
+                node._on_navigation_tuning_status(tuning_status)
+                marker = node.mark_navigation_tuning({
+                    'note': 'Turned left then right repeatedly',
+                })
+                self.assertEqual(marker['control_action'], 'none')
+                self.assertEqual(len(tuning_markers.messages), 1)
+                marker_payload = json.loads(tuning_markers.messages[0].data)
+                self.assertEqual(
+                    marker_payload['note'],
+                    'Turned left then right repeatedly',
+                )
+                self.assertEqual(diagnostic_stops.messages, [])
+                self.assertEqual(diagnostic_estops.messages, [])
+                self.assertEqual(
+                    node.telemetry.get('navigation_tuning')['value']['state'],
+                    'recording',
+                )
+
+                tuning_status.data = json.dumps({
+                    'schema_version': 1,
+                    'kind': 'navigation-tuning-recorder',
+                    'state': 'complete',
+                    'detail': 'Trial finished: aborted',
+                    'goal_id': None,
+                    'operator_markers': 0,
+                    'artifact': {
+                        'data': '/logs/navigation-tuning/trial.jsonl',
+                        'summary': (
+                            '/logs/navigation-tuning/trial.summary.json'
+                        ),
+                        'bytes': 4096,
+                        'records': 20,
+                        'truncated': False,
+                        'maximum_bytes': 8388608,
+                    },
+                    'control_action': 'none',
+                })
+                node._on_navigation_tuning_status(tuning_status)
+                tuning_events = [
+                    event['type'] for event in node.events.after(0, 0)
+                ]
+                self.assertIn('navigation.tuning_started', tuning_events)
+                self.assertIn('navigation.tuning_marker', tuning_events)
+                self.assertIn('navigation.tuning_complete', tuning_events)
+
                 frame = CompressedImage()
                 frame.format = 'jpeg'
                 frame.data = b'\xff\xd8annotated-frame\xff\xd9'

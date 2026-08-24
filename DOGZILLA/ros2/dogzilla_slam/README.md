@@ -41,6 +41,18 @@ for all commands.
   with 30 mm padding; automatic spin and backup recovery remain disabled.
 - `dogzilla_slam full_navigation.launch.py`: hardware, localization, Twist Mux,
   and optional Nav2 in one process group.
+- `dogzilla_slam navigation_diagnostics`: warning-only observation of LiDAR,
+  scan-matched odometry, map TF, and commanded velocity. It uses persistence
+  and recovery hysteresis, publishes `/navigation/diagnostics`, and retains
+  two bounded JSONL files under the current `ROS_LOG_DIR`. It has no movement,
+  E-stop, parameter, or Nav2 action publisher.
+- `dogzilla_slam navigation_tuning_recorder`: starts one bounded trial for each
+  autonomous `NavigateToPose` goal. At 10 Hz it aligns DWB raw velocity,
+  smoothed and final velocity, measured scan odometry, map and odom poses,
+  global/local path error, four-sector LiDAR clearance, input age, diagnostics,
+  goal outcome, and tuning parameter changes. Camera frames, full costmaps,
+  joints, and unrelated ROS traffic are excluded. It publishes status only and
+  cannot command, slow, stop, or cancel the robot.
 - `dogzilla_slam save_map`: finishes the trajectory and writes PBStream,
   PGM, and YAML files. PBStream is written by Cartographer; PGM/YAML are saved
   from `/map` with Nav2 because Yahboom's ARM64 Cartographer converter crashes

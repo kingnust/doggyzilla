@@ -100,6 +100,11 @@ class WebDashboardTest(unittest.TestCase):
             'drive-turn-value',
             'drive-state',
             'drive-message',
+            'nav-diagnostics',
+            'nav-diagnostics-detail',
+            'nav-tuning',
+            'nav-tuning-detail',
+            'nav-tuning-marker',
         ):
             with self.subTest(element_id=element_id):
                 self.assertIn(f'id="{element_id}"', html)
@@ -197,6 +202,10 @@ class WebDashboardTest(unittest.TestCase):
         self.assertIn("'/api/v1/autonomy/speed'", javascript)
         self.assertNotIn('data-drive=', html)
         self.assertNotIn("'/api/v1/drive'", javascript)
+        self.assertIn("event.type === 'navigation.warning'", javascript)
+        self.assertIn('Warning · monitoring only', javascript)
+        self.assertIn("'/api/v1/navigation/tuning/marker'", javascript)
+        self.assertIn('Marker only: it does not slow, stop, or cancel', html)
 
 
 if __name__ == '__main__':

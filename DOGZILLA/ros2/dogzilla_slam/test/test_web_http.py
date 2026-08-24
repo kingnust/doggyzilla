@@ -240,6 +240,15 @@ class FakeGateway:
             'integer_range': [1, 9],
         }
 
+    def mark_navigation_tuning(self, body):
+        return {
+            'schema_version': 1,
+            'kind': 'navigation-tuning-marker',
+            'state': 'requested',
+            'note': body.get('note', 'Operator marked unstable movement'),
+            'control_action': 'none',
+        }
+
     def set_manual_drive(self, _body):
         raise ConflictError('manual web driving is disabled')
 
@@ -403,6 +412,18 @@ class WebHTTPTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(switched['map'], 'room2')
         self.assertEqual(switched['state'], 'waiting-for-localization')
+
+        status, _, marker = request(
+            self.server,
+            'POST',
+            '/api/v1/navigation/tuning/marker',
+            {'note': 'Oscillating near the doorway'},
+            authorized=True,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(marker['state'], 'requested')
+        self.assertEqual(marker['control_action'], 'none')
+        self.assertEqual(marker['note'], 'Oscillating near the doorway')
 
     def test_authenticated_delivery_lifecycle_and_estop(self):
         status, _, task = request(

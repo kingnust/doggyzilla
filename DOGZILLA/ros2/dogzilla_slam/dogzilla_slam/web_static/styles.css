@@ -211,6 +211,8 @@ button:hover { transform: translateY(-1px); } button:active { transform: transla
 .drive-button.stop { color: #ffb9be; background: rgba(255, 93, 104, .13); }
 .drive-button.active { border-color: var(--green); background: rgba(94, 240, 166, .24); box-shadow: 0 0 0 .15rem rgba(94, 240, 166, .08); }
 .drive-panel .form-message { color: var(--muted); line-height: 1.45; }
+.tuning-recorder { display: grid; gap: .28rem; }
+.tuning-recorder button { justify-self: start; margin-top: .35rem; }
 
 .safety-panel { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 1rem; border-color: rgba(255, 93, 104, .18); }
 .safety-panel .subtle { margin: .45rem 0 0; font-size: .8rem; }
@@ -234,7 +236,8 @@ button:hover { transform: translateY(-1px); } button:active { transform: transla
 .detail-grid .wide { grid-column: 1 / -1; }
 .detail-grid span { color: var(--muted); font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
 .detail-grid strong { font: 700 .8rem "SFMono-Regular", Consolas, monospace; }
-.detail-grid strong.ready { color: var(--green); }.detail-grid strong.unavailable { color: var(--red); }
+.detail-grid strong.ready { color: var(--green); }.detail-grid strong.unavailable { color: var(--red); }.detail-grid strong.warning { color: var(--amber); }
+.detail-grid small { color: var(--muted); font-size: .68rem; line-height: 1.4; }
 
 .toast { position: fixed; right: 1.5rem; bottom: 1.5rem; max-width: 24rem; padding: .85rem 1rem; border: 1px solid var(--line); border-radius: .75rem; background: #132a22; box-shadow: 0 1rem 3rem rgba(0, 0, 0, .4); opacity: 0; transform: translateY(1rem); pointer-events: none; transition: .2s ease; font-size: .8rem; }
 .toast.visible { opacity: 1; transform: translateY(0); }

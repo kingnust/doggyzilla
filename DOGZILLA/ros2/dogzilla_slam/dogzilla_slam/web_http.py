@@ -331,6 +331,11 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                     HTTPStatus.OK,
                     self.server.service.set_autonomy_settings(body),
                 )
+            elif path == '/api/v1/navigation/tuning/marker':
+                self._json(
+                    HTTPStatus.OK,
+                    self.server.service.mark_navigation_tuning(body),
+                )
             else:
                 self._error(HTTPStatus.NOT_FOUND, 'not found')
         except ValidationError as exc:

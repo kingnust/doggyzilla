@@ -614,6 +614,32 @@ headless mission is running. The browser then previews the real Nav2 path and
 dispatches its validated pickup and drop-off points one at a time. Keep the
 robot supervised and the software emergency stop visible during testing.
 
+#### Targeted navigation tuning records
+
+Mission Mode automatically records one bounded tuning trial for each Nav2
+goal. The recorder synchronizes only the signals needed to explain controller
+behavior: DWB raw command, velocity-smoothed command, final command, measured
+scan odometry, map/odom pose, global and local path error, LiDAR sector
+clearance and validity, input age, diagnostics, goal outcome, and relevant
+runtime parameter changes. It deliberately excludes camera images, joint
+traffic, full costmaps, and arbitrary ROS topics.
+
+While a goal is active, **Mark unstable movement** adds an operator timestamp
+to the trial. The marker and recorder are observation-only; neither changes
+velocity, cancels a goal, or adjusts Nav2 parameters. Each JSONL trial is at
+most 8 MiB, includes three seconds of pre-roll, and produces a compact summary
+with path error, command tracking, turn reversals, stalled-command time,
+localization jumps, clearance, data age, and outcome. A mission log session
+retains at most 12 completed trials under:
+
+```text
+logs/sessions/SESSION/navigation-tuning/
+```
+
+The exact Nav2 configuration SHA-256 and the relevant controller, planner,
+costmap, smoother, and safe-base parameter changes are stored with the trial,
+so later tuning is tied to the settings that actually produced the motion.
+
 ### Serial telemetry
 
 The single serial owner publishes standard ROS messages in mapping, drive, and

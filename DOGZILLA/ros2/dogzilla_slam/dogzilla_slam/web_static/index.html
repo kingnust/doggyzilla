@@ -385,6 +385,14 @@
                 <div><span>ROS nodes</span><strong id="ros-node-count">—</strong></div>
                 <div><span>Joint positions</span><strong id="joint-count">—</strong></div>
                 <div><span>Current motion</span><strong id="velocity-detail">—</strong></div>
+                <div class="wide"><span>Navigation diagnostics</span><strong id="nav-diagnostics">Not running</strong><small id="nav-diagnostics-detail">Warning-only monitor has no telemetry.</small></div>
+                <div class="wide tuning-recorder">
+                  <span>Navigation tuning recorder</span>
+                  <strong id="nav-tuning">Waiting</strong>
+                  <small id="nav-tuning-detail">Starts automatically for each autonomous goal.</small>
+                  <button id="nav-tuning-marker" class="ghost compact" type="button" disabled>Mark unstable movement</button>
+                  <small>Marker only: it does not slow, stop, or cancel the robot.</small>
+                </div>
                 <div class="wide"><span>Loaded map</span><strong id="map-detail">—</strong></div>
               </div>
             </article>

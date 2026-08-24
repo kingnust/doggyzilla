@@ -906,6 +906,54 @@
     elements['velocity-detail'].textContent = Number.isFinite(linear) && Number.isFinite(angular)
       ? `${linear.toFixed(2)} m/s · ${angular.toFixed(2)} rad/s`
       : 'No reading';
+    const diagnostics = telemetry.navigation_diagnostics;
+    const diagnosticsValue = diagnostics?.value;
+    const diagnosticsState = diagnosticsValue?.state || 'unavailable';
+    const diagnosticsWarnings = Array.isArray(diagnosticsValue?.warnings)
+      ? diagnosticsValue.warnings
+      : [];
+    elements['nav-diagnostics'].textContent = diagnosticsState === 'warning'
+      ? 'Warning · monitoring only'
+      : diagnosticsState === 'healthy'
+        ? 'Healthy · monitoring only'
+        : diagnosticsState === 'starting'
+          ? 'Starting · monitoring only'
+          : 'Not running';
+    elements['nav-diagnostics'].className = diagnosticsState === 'warning'
+      ? 'warning'
+      : diagnosticsState === 'healthy'
+        ? 'ready'
+        : 'unavailable';
+    elements['nav-diagnostics-detail'].textContent = diagnosticsWarnings.length
+      ? diagnosticsWarnings.map((warning) => warning.message).join(' · ')
+      : diagnosticsState === 'healthy'
+        ? 'LiDAR, odometry, and map transform are within forgiving limits.'
+        : 'No automatic slowing, stopping, or mission cancellation is enabled.';
+    const tuning = telemetry.navigation_tuning;
+    const tuningValue = tuning?.value;
+    const tuningState = tuningValue?.state || 'unavailable';
+    const tuningArtifact = tuningValue?.artifact;
+    elements['nav-tuning'].textContent = tuningState === 'recording'
+      ? `Recording · ${Number(tuningValue.operator_markers || 0)} marker(s)`
+      : tuningState === 'complete'
+        ? 'Last trial complete'
+        : tuningState === 'error'
+          ? 'Recorder error'
+          : tuningState === 'idle'
+            ? 'Waiting for goal'
+            : 'Not running';
+    elements['nav-tuning'].className = tuningState === 'recording'
+      ? 'warning'
+      : tuningState === 'complete' || tuningState === 'idle'
+        ? 'ready'
+        : 'unavailable';
+    const artifactSize = Number(tuningArtifact?.bytes);
+    elements['nav-tuning-detail'].textContent = tuningValue?.detail
+      ? `${tuningValue.detail}${Number.isFinite(artifactSize)
+        ? ` · ${(artifactSize / 1048576).toFixed(2)} MiB`
+        : ''}`
+      : 'Starts automatically for each autonomous goal.';
+    elements['nav-tuning-marker'].disabled = tuningState !== 'recording';
     const map = telemetry.map;
     const mapValue = map?.value;
     elements['map-detail'].textContent = Number.isFinite(mapValue?.width)
@@ -1206,6 +1254,18 @@
           ? ' Photo saved.'
           : ' Photo unavailable.';
         showToast(`${category}: ${observation.label || 'object'}${confidenceText}.${photo}`);
+      } else if (event.type === 'navigation.warning') {
+        const warnings = Array.isArray(event.data?.warnings)
+          ? event.data.warnings
+          : [];
+        const detail = warnings.map((warning) => warning.message).join(' · ');
+        showToast(`Navigation warning only: ${detail || 'check diagnostics'}`);
+      } else if (event.type === 'navigation.warning_cleared') {
+        showToast('Navigation warning cleared after stable data.');
+      } else if (event.type === 'navigation.tuning_complete') {
+        showToast('Navigation tuning trial saved.');
+      } else if (event.type === 'navigation.tuning_error') {
+        showToast(`Navigation recorder error: ${event.data?.detail || 'unknown error'}`);
       }
     } catch (_) {
       return false;
@@ -1604,6 +1664,20 @@
         color: elements['vision-color'].value,
       });
       showToast(`${response.mode.replaceAll('-', ' ')} requested. Robot actions remain disabled.`);
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      await refreshAll();
+    }
+  });
+
+  elements['nav-tuning-marker'].addEventListener('click', async () => {
+    elements['nav-tuning-marker'].disabled = true;
+    try {
+      await post('/api/v1/navigation/tuning/marker', {
+        note: 'Operator marked unstable movement',
+      });
+      showToast('Unstable movement marked. Navigation was not changed.');
     } catch (error) {
       showToast(error.message);
     } finally {

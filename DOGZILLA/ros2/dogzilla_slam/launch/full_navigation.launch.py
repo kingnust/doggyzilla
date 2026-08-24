@@ -79,4 +79,19 @@ def generate_launch_description():
             launch_arguments={'params_file': nav2_config}.items(),
             condition=IfCondition(use_nav2),
         ),
+        Node(
+            package='dogzilla_slam',
+            executable='navigation_diagnostics',
+            name='dogzilla_navigation_diagnostics',
+            condition=IfCondition(use_nav2),
+            output='screen',
+        ),
+        Node(
+            package='dogzilla_slam',
+            executable='navigation_tuning_recorder',
+            name='dogzilla_navigation_tuning_recorder',
+            parameters=[{'nav2_params_file': nav2_config}],
+            condition=IfCondition(use_nav2),
+            output='screen',
+        ),
     ])

@@ -63,6 +63,10 @@ setup(
             'firmware_rest_monitor = '
             'dogzilla_slam.firmware_rest_monitor:main',
             'localization_manager = dogzilla_slam.localization_manager:main',
+            'navigation_diagnostics = '
+            'dogzilla_slam.navigation_diagnostics:main',
+            'navigation_tuning_recorder = '
+            'dogzilla_slam.navigation_tuning_recorder:main',
             'object_model_validate = '
             'dogzilla_slam.object_model_validate:main',
             'object_acceptance = dogzilla_slam.object_acceptance:main',

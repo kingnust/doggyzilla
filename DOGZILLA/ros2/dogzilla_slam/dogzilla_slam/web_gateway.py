@@ -192,6 +192,8 @@ class DogzillaWebGateway(Node):
         self._vision_frame_condition = threading.Condition(self._lock)
         self._vision_status_signature = None
         self._vision_action_status_signature = None
+        self._navigation_diagnostics_signature = None
+        self._navigation_tuning_signature = None
         self._graph = {
             'mode': 'stopped',
             'nodes': [],
@@ -258,6 +260,18 @@ class DogzillaWebGateway(Node):
             vision_status_qos,
         )
         self.create_subscription(
+            String,
+            '/navigation/diagnostics',
+            self._on_navigation_diagnostics,
+            vision_status_qos,
+        )
+        self.create_subscription(
+            String,
+            '/navigation/tuning/status',
+            self._on_navigation_tuning_status,
+            vision_status_qos,
+        )
+        self.create_subscription(
             CompressedImage,
             '/vision/annotated/compressed',
             self._on_vision_frame,
@@ -266,6 +280,11 @@ class DogzillaWebGateway(Node):
         self._vision_command_publisher = self.create_publisher(
             String,
             '/vision/mode_command',
+            10,
+        )
+        self._navigation_tuning_marker_publisher = self.create_publisher(
+            String,
+            '/navigation/tuning/marker',
             10,
         )
         self.create_subscription(
@@ -586,6 +605,130 @@ class DogzillaWebGateway(Node):
             'joints',
             {'count': len(positions), 'positions': positions},
         )
+
+    def _on_navigation_diagnostics(self, message):
+        """Expose passive warnings without changing navigation state."""
+        try:
+            value = self._json_message(
+                message,
+                'navigation diagnostics',
+            )
+            state = value.get('state')
+            warnings = value.get('warnings')
+            if value.get('kind') != 'navigation-diagnostics':
+                raise ValueError('navigation diagnostics kind is invalid')
+            if value.get('warning_only') is not True:
+                raise ValueError('navigation diagnostics are not warning-only')
+            if value.get('movement_action') != 'none':
+                raise ValueError('navigation diagnostics requested movement')
+            if state not in {'starting', 'healthy', 'warning'}:
+                raise ValueError('navigation diagnostics state is invalid')
+            if not isinstance(warnings, list) or len(warnings) > 10:
+                raise ValueError('navigation diagnostics warnings are invalid')
+            normalized = []
+            for warning in warnings:
+                if not isinstance(warning, dict):
+                    raise ValueError(
+                        'navigation diagnostics warning is invalid'
+                    )
+                code = str(warning.get('code', '')).strip()
+                detail = str(warning.get('message', '')).strip()
+                if (
+                    not code
+                    or len(code) > 64
+                    or not detail
+                    or len(detail) > 200
+                ):
+                    raise ValueError(
+                        'navigation diagnostics warning is invalid'
+                    )
+                normalized.append({**warning, 'code': code, 'message': detail})
+            value['warnings'] = normalized
+        except ValueError as exc:
+            self.get_logger().warn(str(exc))
+            return
+
+        self.telemetry.update('navigation_diagnostics', value)
+        signature = (state, tuple(item['code'] for item in normalized))
+        with self._lock:
+            previous = self._navigation_diagnostics_signature
+            self._navigation_diagnostics_signature = signature
+        if signature == previous:
+            return
+        if state == 'warning':
+            self.events.publish('navigation.warning', value)
+        elif previous is not None and previous[0] == 'warning':
+            self.events.publish('navigation.warning_cleared', value)
+
+    def _on_navigation_tuning_status(self, message):
+        """Expose the read-only tuning recorder and its bounded artifact."""
+        try:
+            value = self._json_message(message, 'navigation tuning status')
+            state = value.get('state')
+            detail = str(value.get('detail', '')).strip()
+            goal_id = value.get('goal_id')
+            artifact = value.get('artifact')
+            if value.get('kind') != 'navigation-tuning-recorder':
+                raise ValueError('navigation tuning status kind is invalid')
+            if value.get('control_action') != 'none':
+                raise ValueError('navigation tuning recorder requested control')
+            if state not in {'idle', 'recording', 'complete', 'error'}:
+                raise ValueError('navigation tuning recorder state is invalid')
+            if not detail or len(detail) > 200:
+                raise ValueError('navigation tuning recorder detail is invalid')
+            if goal_id is not None and (
+                not isinstance(goal_id, str)
+                or len(goal_id) != 32
+                or any(
+                    character not in '0123456789abcdef'
+                    for character in goal_id
+                )
+            ):
+                raise ValueError('navigation tuning goal identifier is invalid')
+            if artifact is not None:
+                if not isinstance(artifact, dict):
+                    raise ValueError('navigation tuning artifact is invalid')
+                for name in ('data', 'summary'):
+                    path = artifact.get(name)
+                    if not isinstance(path, str) or not 1 <= len(path) <= 1024:
+                        raise ValueError('navigation tuning artifact is invalid')
+                artifact = {
+                    'data': artifact['data'],
+                    'summary': artifact['summary'],
+                    'bytes': int(artifact.get('bytes', 0)),
+                    'records': int(artifact.get('records', 0)),
+                    'truncated': bool(artifact.get('truncated', False)),
+                    'maximum_bytes': int(artifact.get('maximum_bytes', 0)),
+                }
+                if min(
+                    artifact['bytes'],
+                    artifact['records'],
+                    artifact['maximum_bytes'],
+                ) < 0:
+                    raise ValueError('navigation tuning artifact is invalid')
+                value['artifact'] = artifact
+            markers = int(value.get('operator_markers', 0))
+            if not 0 <= markers <= 10000:
+                raise ValueError('navigation tuning marker count is invalid')
+            value['operator_markers'] = markers
+            value['detail'] = detail
+        except (TypeError, ValueError) as exc:
+            self.get_logger().warn(str(exc))
+            return
+
+        self.telemetry.update('navigation_tuning', value)
+        signature = (state, goal_id, detail)
+        with self._lock:
+            previous = self._navigation_tuning_signature
+            self._navigation_tuning_signature = signature
+        if signature == previous:
+            return
+        if state == 'recording':
+            self.events.publish('navigation.tuning_started', value)
+        elif state == 'complete':
+            self.events.publish('navigation.tuning_complete', value)
+        elif state == 'error':
+            self.events.publish('navigation.tuning_error', value)
 
     def _on_odometry(self, message):
         with self._lock:
@@ -1142,6 +1285,39 @@ class DogzillaWebGateway(Node):
         }
         self.events.publish('vision.requested', response)
         return response
+
+    def mark_navigation_tuning(self, value):
+        """Mark unstable motion without stopping or changing navigation."""
+        if not isinstance(value, dict):
+            raise ValidationError('request body must be a JSON object')
+        note = str(
+            value.get('note', 'Operator marked unstable movement')
+        ).strip()
+        if not note or len(note) > 120:
+            raise ValidationError('marker note must contain 1 to 120 characters')
+        status = self.telemetry.get('navigation_tuning', stale_after=3.0)
+        if (
+            status is None
+            or status['stale']
+            or status['value'].get('state') != 'recording'
+        ):
+            raise ConflictError('no active navigation tuning trial is recording')
+        payload = {
+            'schema_version': 1,
+            'kind': 'navigation-tuning-marker',
+            'note': note,
+            'requested_at': utc_now(),
+            'control_action': 'none',
+        }
+        message = String()
+        message.data = json.dumps(
+            payload,
+            separators=(',', ':'),
+            allow_nan=False,
+        )
+        self._navigation_tuning_marker_publisher.publish(message)
+        self.events.publish('navigation.tuning_marker', payload)
+        return {'state': 'requested', **payload}
 
     def get_autonomy_settings(self):
         with self._lock:
