@@ -267,6 +267,20 @@ class FakeGateway:
             'state': 'prepared',
         }
 
+    def set_initial_pose(self, body):
+        if body.get('map') != 'test1':
+            raise ValidationError('initial pose belongs to the wrong map')
+        return {
+            'map': body['map'],
+            'pose': {
+                'x': float(body['x']),
+                'y': float(body['y']),
+                'yaw': float(body['yaw']),
+            },
+            'state': 'matching',
+            'movement_action': 'stop-only',
+        }
+
 
 def request(server, method, path, body=None, authorized=False):
     encoded = b'' if body is None else json.dumps(body).encode()
@@ -371,6 +385,17 @@ class WebHTTPTest(unittest.TestCase):
         self.assertEqual(status, 200)
 
     def test_autonomous_speed_route_and_manual_route_is_not_exposed(self):
+        status, _, localization = request(
+            self.server,
+            'POST',
+            '/api/v1/localization/initial-pose',
+            {'map': 'test1', 'x': 0.25, 'y': -0.5, 'yaw': 1.5708},
+            authorized=True,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(localization['state'], 'matching')
+        self.assertEqual(localization['movement_action'], 'stop-only')
+
         status, _, settings = request(
             self.server,
             'POST',

@@ -2,7 +2,7 @@
 
 from action_msgs.msg import GoalStatus
 from datetime import datetime, timezone
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
 import json
 from nav2_msgs.action import ComputePathToPose, NavigateToPose
 from nav2_msgs.msg import CostmapFilterInfo
@@ -10,7 +10,7 @@ from nav_msgs.msg import OccupancyGrid, Odometry
 import math
 import os
 from pathlib import Path
-from rcl_interfaces.srv import SetParameters
+from rcl_interfaces.srv import SetParametersAtomically
 import threading
 import time
 import uuid
@@ -46,6 +46,8 @@ from .web_core import utc_now
 from .web_core import ValidationError
 from .web_http import GatewayHTTPServer
 from .object_detector import validate_detection_payload
+from .speed_control import AUTONOMY_ANGULAR_LIMITS
+from .speed_control import AUTONOMY_LINEAR_LIMITS
 from .speed_control import normalize_speed_level
 from .speed_control import SPEED_LEVELS
 from .speed_control import TURN_LEVELS
@@ -98,6 +100,10 @@ class DogzillaWebGateway(Node):
         self.manual_drive_enabled = self._boolean_environment(
             'DOGZILLA_WEB_MANUAL_DRIVE_ENABLED',
             False,
+        )
+        self.require_initial_pose = self._boolean_environment(
+            'DOGZILLA_WEB_REQUIRE_INITIAL_POSE',
+            True,
         )
         self.map_name = os.environ.get(
             'DOGZILLA_WEB_MAP_NAME',
@@ -174,17 +180,25 @@ class DogzillaWebGateway(Node):
         self._stop_until = 0.0
         self._linear_speed = 0.0
         self._angular_speed = 0.0
-        self._drive_speed_level = 1
-        self._drive_turn_level = 1
+        self._drive_speed_level = 4
+        self._drive_turn_level = 4
         self._autonomy_update_pending = False
         self._manual_command_until = 0.0
         self._map_switch_pending = False
         self._map_switch_target = None
         self._map_switch_received_map = False
         self._map_switch_started_ns = 0
-        self._map_switch_pose_samples = 0
-        self._map_switch_last_pose = None
         self._waiting_for_map_pose = False
+        self._localization_state = (
+            'awaiting-initial-pose'
+            if self.require_initial_pose
+            else 'matching'
+        )
+        self._localization_requested_pose = None
+        self._localization_started_ns = 0
+        self._localization_pose_samples = 0
+        self._localization_last_pose = None
+        self._localization_last_stamp_ns = 0
         self._keepout_map_signature = None
         self._vision_frame = None
         self._vision_frame_received = 0.0
@@ -310,9 +324,22 @@ class DogzillaWebGateway(Node):
             '/safety/estop',
             10,
         )
+        self._initial_pose_publisher = self.create_publisher(
+            PoseWithCovarianceStamped,
+            '/initialpose',
+            10,
+        )
         self._safe_base_parameters = self.create_client(
-            SetParameters,
-            '/dogzilla_safe_base/set_parameters',
+            SetParametersAtomically,
+            '/dogzilla_safe_base/set_parameters_atomically',
+        )
+        self._controller_parameters = self.create_client(
+            SetParametersAtomically,
+            '/controller_server/set_parameters_atomically',
+        )
+        self._velocity_smoother_parameters = self.create_client(
+            SetParametersAtomically,
+            '/velocity_smoother/set_parameters_atomically',
         )
         self._navigate = ActionClient(
             self,
@@ -329,7 +356,11 @@ class DogzillaWebGateway(Node):
         self._graph_timer = self.create_timer(1.0, self._refresh_graph)
         self.events.publish(
             'gateway.started',
-            {'map': self.map_name, 'minimum_battery': self.minimum_battery},
+            {
+                'map': self.map_name,
+                'minimum_battery': self.minimum_battery,
+                'initial_pose_required': self.require_initial_pose,
+            },
         )
 
     def _active_keepout_zones(self):
@@ -910,6 +941,83 @@ class DogzillaWebGateway(Node):
             ),
         )
 
+    @staticmethod
+    def _angle_distance(first, second):
+        return abs(math.atan2(
+            math.sin(first - second),
+            math.cos(first - second),
+        ))
+
+    def _reset_localization_progress(self, state):
+        self._localization_state = state
+        self._localization_started_ns = 0
+        self._localization_pose_samples = 0
+        self._localization_last_pose = None
+        self._localization_last_stamp_ns = 0
+
+    def _update_localization_progress(self, stamp_ns, pose):
+        """Require distinct, stable localization samples before autonomy."""
+        with self._lock:
+            state = self._localization_state
+            if state in {'awaiting-initial-pose', 'ready'}:
+                return
+            if stamp_ns <= self._localization_last_stamp_ns:
+                return
+            if (
+                self._localization_started_ns
+                and stamp_ns < self._localization_started_ns
+            ):
+                return
+            self._localization_last_stamp_ns = stamp_ns
+
+            requested = self._localization_requested_pose
+            if requested is not None:
+                plausible = (
+                    math.hypot(
+                        pose[0] - requested['x'],
+                        pose[1] - requested['y'],
+                    ) <= 1.0
+                    and self._angle_distance(
+                        pose[2], requested['yaw']
+                    ) <= 1.05
+                )
+                if not plausible:
+                    self._localization_pose_samples = 0
+                    self._localization_last_pose = pose
+                    return
+
+            previous = self._localization_last_pose
+            stable = previous is None or (
+                math.hypot(
+                    pose[0] - previous[0],
+                    pose[1] - previous[1],
+                ) <= 0.15
+                and self._angle_distance(pose[2], previous[2]) <= 0.20
+            )
+            self._localization_pose_samples = (
+                self._localization_pose_samples + 1 if stable else 1
+            )
+            self._localization_last_pose = pose
+            if self._localization_pose_samples < 20:
+                return
+
+            map_switch_was_pending = self._map_switch_pending
+            self._localization_state = 'ready'
+            self._map_switch_pending = False
+            self._map_switch_target = None
+            ready = {
+                'map': self.map_name,
+                'pose_samples': self._localization_pose_samples,
+                'method': (
+                    'initial-pose'
+                    if requested is not None
+                    else 'automatic-matching'
+                ),
+            }
+        self.events.publish('localization.ready', ready)
+        if map_switch_was_pending:
+            self.events.publish('map.switch_ready', ready)
+
     def _update_map_pose(self):
         try:
             transform = self._tf_buffer.lookup_transform(
@@ -929,48 +1037,21 @@ class DogzillaWebGateway(Node):
         translation = transform.transform.translation
         rotation = transform.transform.rotation
         yaw = self._quaternion_yaw(rotation)
+        stamp_ns = (
+            int(transform.header.stamp.sec) * 1_000_000_000
+            + int(transform.header.stamp.nanosec)
+        )
+        pose = (float(translation.x), float(translation.y), yaw)
         with self._lock:
             linear_speed = self._linear_speed
             angular_speed = self._angular_speed
             if self._map_switch_pending:
-                stamp_ns = (
-                    int(transform.header.stamp.sec) * 1_000_000_000
-                    + int(transform.header.stamp.nanosec)
-                )
                 if (
                     not self._map_switch_received_map
                     or stamp_ns < self._map_switch_started_ns
                 ):
                     return
-                pose = (float(translation.x), float(translation.y), yaw)
-                previous = self._map_switch_last_pose
-                if previous is None:
-                    stable = True
-                else:
-                    yaw_delta = abs(
-                        math.atan2(
-                            math.sin(pose[2] - previous[2]),
-                            math.cos(pose[2] - previous[2]),
-                        )
-                    )
-                    stable = (
-                        math.hypot(
-                            pose[0] - previous[0],
-                            pose[1] - previous[1],
-                        ) <= 0.30
-                        and yaw_delta <= 0.35
-                    )
-                self._map_switch_pose_samples = (
-                    self._map_switch_pose_samples + 1 if stable else 1
-                )
-                self._map_switch_last_pose = pose
-                if self._map_switch_pose_samples >= 20:
-                    self._map_switch_pending = False
-                    self._map_switch_target = None
-                    self.events.publish(
-                        'map.switch_ready',
-                        {'map': self.map_name, 'pose_samples': 20},
-                    )
+        self._update_localization_progress(stamp_ns, pose)
         self.telemetry.update(
             'pose',
             {
@@ -1067,6 +1148,10 @@ class DogzillaWebGateway(Node):
                 return False, (
                     'waiting for the new map and stable localization'
                 )
+            if self._localization_state == 'awaiting-initial-pose':
+                return False, 'set and confirm the initial pose on the map'
+            if self._localization_state != 'ready':
+                return False, 'waiting for stable LiDAR scan matching'
             nav_available = bool(self._graph['nav_available'])
         if not nav_available:
             return False, 'Nav2 navigate_to_pose action is unavailable'
@@ -1099,6 +1184,18 @@ class DogzillaWebGateway(Node):
             active_task_id = self._active['task_id'] if self._active else None
             graph = dict(self._graph)
             estop_latched = self._estop_latched
+            localization = {
+                'required': self.require_initial_pose,
+                'state': self._localization_state,
+                'method': (
+                    'initial-pose'
+                    if self._localization_requested_pose is not None
+                    else 'automatic-matching'
+                ),
+                'requested_pose': self._localization_requested_pose,
+                'stable_samples': self._localization_pose_samples,
+                'required_samples': 20,
+            }
         active_task = (
             self.store.get(active_task_id)
             if active_task_id
@@ -1110,6 +1207,7 @@ class DogzillaWebGateway(Node):
                 'map': self.map_name,
                 'map_switch_pending': self._map_switch_pending,
                 'map_switch_target': self._map_switch_target,
+                'localization': localization,
             },
             'robot': graph,
             'telemetry': self.telemetry.snapshot(stale_after=10.0),
@@ -1132,6 +1230,78 @@ class DogzillaWebGateway(Node):
     def get_map(self):
         return self.occupancy_map.payload()
 
+    def set_initial_pose(self, value):
+        """Publish one validated map pose to start/restart localization."""
+        if not isinstance(value, dict):
+            raise ValidationError('request body must be a JSON object')
+        map_name = str(value.get('map', '')).strip()
+        if map_name != self.map_name:
+            raise ValidationError(
+                f"initial pose must belong to active map '{self.map_name}'"
+            )
+        try:
+            x = float(value.get('x'))
+            y = float(value.get('y'))
+            yaw = float(value.get('yaw'))
+        except (TypeError, ValueError) as exc:
+            raise ValidationError(
+                'initial pose x, y, and yaw must be numbers'
+            ) from exc
+        if not all(math.isfinite(item) for item in (x, y, yaw)):
+            raise ValidationError('initial pose values must be finite')
+        yaw = math.atan2(math.sin(yaw), math.cos(yaw))
+        pose = {'x': round(x, 4), 'y': round(y, 4), 'yaw': round(yaw, 4)}
+        self.occupancy_map.validate_waypoints([{
+            'label': 'Initial pose',
+            **pose,
+        }])
+        if self._initial_pose_publisher.get_subscription_count() < 1:
+            raise ConflictError(
+                'localization manager is not ready to receive the pose yet'
+            )
+
+        with self._lock:
+            if self._active is not None:
+                raise ConflictError(
+                    'cancel or finish the active task before resetting pose'
+                )
+            self._manual_command_until = 0.0
+            self._localization_requested_pose = pose
+            self._reset_localization_progress('matching')
+            self._localization_started_ns = (
+                self.get_clock().now().nanoseconds
+            )
+            if self._map_switch_pending:
+                self._map_switch_started_ns = self._localization_started_ns
+
+        self.telemetry.discard('pose')
+        try:
+            self._tf_buffer.clear()
+        except AttributeError:
+            pass
+        self._publish_stop()
+
+        message = PoseWithCovarianceStamped()
+        message.header.frame_id = 'map'
+        message.header.stamp = self.get_clock().now().to_msg()
+        message.pose.pose.position.x = pose['x']
+        message.pose.pose.position.y = pose['y']
+        message.pose.pose.orientation.z = math.sin(pose['yaw'] / 2.0)
+        message.pose.pose.orientation.w = math.cos(pose['yaw'] / 2.0)
+        message.pose.covariance[0] = 0.0625
+        message.pose.covariance[7] = 0.0625
+        message.pose.covariance[35] = 0.0685
+        self._initial_pose_publisher.publish(message)
+
+        result = {
+            'map': self.map_name,
+            'pose': pose,
+            'state': 'matching',
+            'movement_action': 'stop-only',
+        }
+        self.events.publish('localization.initial_pose_requested', result)
+        return result
+
     def prepare_map_switch(self, value):
         """Freeze motion and task dispatch before localization is stopped."""
         if not isinstance(value, dict):
@@ -1151,8 +1321,6 @@ class DogzillaWebGateway(Node):
             self._map_switch_target = map_name
             self._map_switch_received_map = False
             self._map_switch_started_ns = 0
-            self._map_switch_pose_samples = 0
-            self._map_switch_last_pose = None
             self._manual_command_until = 0.0
         self.telemetry.discard('pose')
         self._publish_stop()
@@ -1198,14 +1366,18 @@ class DogzillaWebGateway(Node):
             self.occupancy_map = replacement
             self._keepout_map_signature = None
             self._manual_command_until = 0.0
-            self._drive_speed_level = 1
-            self._drive_turn_level = 1
+            self._drive_speed_level = 4
+            self._drive_turn_level = 4
             self._map_switch_pending = True
             self._map_switch_target = map_name
             self._map_switch_received_map = False
             self._map_switch_started_ns = self.get_clock().now().nanoseconds
-            self._map_switch_pose_samples = 0
-            self._map_switch_last_pose = None
+            self._localization_requested_pose = None
+            self._reset_localization_progress(
+                'awaiting-initial-pose'
+                if self.require_initial_pose
+                else 'matching'
+            )
             self._person_tracker.reset()
             self._recent_alerts.clear()
             self._restore_alert_deduplication()
@@ -1326,10 +1498,72 @@ class DogzillaWebGateway(Node):
         return {
             'speed_level': speed_level,
             'turn_level': turn_level,
-            'max_linear_mps': SPEED_LEVELS[speed_level].max_linear,
-            'max_angular_rps': TURN_LEVELS[turn_level].max_angular,
+            'max_linear_mps': AUTONOMY_LINEAR_LIMITS[speed_level],
+            'max_angular_rps': AUTONOMY_ANGULAR_LIMITS[turn_level],
             'purpose': 'autonomous-navigation',
             'integer_range': [1, 9],
+        }
+
+    def _set_parameters_checked(self, client, parameters, description):
+        if not client.wait_for_service(timeout_sec=1.0):
+            raise ConflictError(f'{description} is unavailable')
+        request = SetParametersAtomically.Request()
+        request.parameters = [
+            parameter.to_parameter_msg() for parameter in parameters
+        ]
+        response = self._wait_for_future(
+            client.call_async(request),
+            2.0,
+            description,
+        )
+        if not response.result.successful:
+            reason = (
+                response.result.reason
+                or 'node rejected the requested parameters'
+            )
+            raise ConflictError(f'{description} failed: {reason}')
+
+    @staticmethod
+    def _autonomy_parameter_updates(speed_level, turn_level):
+        linear = AUTONOMY_LINEAR_LIMITS[speed_level]
+        angular = AUTONOMY_ANGULAR_LIMITS[turn_level]
+        return {
+            'controller': [
+                Parameter(
+                    'FollowPath.desired_linear_vel',
+                    Parameter.Type.DOUBLE,
+                    linear,
+                ),
+                Parameter(
+                    'FollowPath.rotate_to_heading_angular_vel',
+                    Parameter.Type.DOUBLE,
+                    angular,
+                ),
+            ],
+            'smoother': [
+                Parameter(
+                    'max_velocity',
+                    Parameter.Type.DOUBLE_ARRAY,
+                    [linear, 0.0, angular],
+                ),
+                Parameter(
+                    'min_velocity',
+                    Parameter.Type.DOUBLE_ARRAY,
+                    [0.0, 0.0, -angular],
+                ),
+            ],
+            'safe_base': [
+                Parameter(
+                    'speed_level',
+                    Parameter.Type.INTEGER,
+                    speed_level,
+                ),
+                Parameter(
+                    'turn_level',
+                    Parameter.Type.INTEGER,
+                    turn_level,
+                ),
+            ],
         }
 
     def set_autonomy_settings(self, value):
@@ -1343,55 +1577,64 @@ class DogzillaWebGateway(Node):
         with self._lock:
             if self._active is not None:
                 raise ConflictError(
-                    'cannot change manual drive speed during an active task'
+                    'cannot change autonomous speed during an active task'
                 )
             if self._estop_latched:
                 raise ConflictError('emergency stop is latched')
             if self._map_switch_pending:
                 raise ConflictError('map switching is still in progress')
             self._autonomy_update_pending = True
+            previous_speed_level = self._drive_speed_level
+            previous_turn_level = self._drive_turn_level
         self._publish_stop()
+        updates = self._autonomy_parameter_updates(
+            speed_level,
+            turn_level,
+        )
+        previous = self._autonomy_parameter_updates(
+            previous_speed_level,
+            previous_turn_level,
+        )
+        nodes = (
+            (
+                'controller',
+                self._controller_parameters,
+                'Nav2 path-controller speed update',
+            ),
+            (
+                'smoother',
+                self._velocity_smoother_parameters,
+                'Nav2 velocity-smoother update',
+            ),
+            (
+                'safe_base',
+                self._safe_base_parameters,
+                'DOGZILLA safe-base speed update',
+            ),
+        )
+        applied = []
         try:
-            if not self._safe_base_parameters.wait_for_service(
-                timeout_sec=1.0,
-            ):
-                raise ConflictError(
-                    'DOGZILLA safe-base controller is unavailable'
+            for name, client, description in nodes:
+                self._set_parameters_checked(
+                    client,
+                    updates[name],
+                    description,
                 )
-            request = SetParameters.Request()
-            request.parameters = [
-                Parameter(
-                    'speed_level',
-                    Parameter.Type.INTEGER,
-                    speed_level,
-                ).to_parameter_msg(),
-                Parameter(
-                    'turn_level',
-                    Parameter.Type.INTEGER,
-                    turn_level,
-                ).to_parameter_msg(),
-            ]
-            response = self._wait_for_future(
-                self._safe_base_parameters.call_async(request),
-                2.0,
-                'DOGZILLA autonomous-speed update',
-            )
-            if len(response.results) != 2 or not all(
-                result.successful for result in response.results
-            ):
-                reason = next(
-                    (
-                        result.reason for result in response.results
-                        if not result.successful and result.reason
-                    ),
-                    'controller rejected the requested levels',
-                )
-                raise ConflictError(
-                    f'DOGZILLA autonomous-speed update failed: {reason}'
-                )
+                applied.append((name, client, description))
             with self._lock:
                 self._drive_speed_level = speed_level
                 self._drive_turn_level = turn_level
+        except ConflictError:
+            for name, client, description in reversed(applied):
+                try:
+                    self._set_parameters_checked(
+                        client,
+                        previous[name],
+                        f'{description} rollback',
+                    )
+                except ConflictError as exc:
+                    self.get_logger().error(str(exc))
+            raise
         finally:
             with self._lock:
                 self._autonomy_update_pending = False

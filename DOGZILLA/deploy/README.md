@@ -487,11 +487,13 @@ directly from the 10 Hz LiDAR because DOGZILLA has no wheel odometry. The
 deployment converts Cartographer's `odom -> base_link` transform into `/odom`
 for downstream ROS tools. Unknown cells in the unfinished map remain blocked.
 
-From SSH, append `--headless`. From a Pi monitor terminal, automatic display
-detection opens RViz; use its **2D Pose Estimate** tool to place DOGZILLA on the
-map. The localization manager safely restarts only the live trajectory against
-the frozen PBStream. Without an initial pose, Cartographer attempts global
-scan matching, which can take longer in repetitive rooms.
+Localization waits for an initial map pose by default. From SSH, append
+`--headless`. From a Pi monitor terminal, automatic display detection opens
+RViz; use its **2D Pose Estimate** tool to place DOGZILLA on the map. The
+localization manager starts only the live trajectory against the frozen
+PBStream after receiving that pose. Add `--match` only for an explicit
+automatic-global-matching trial; it can take longer or choose the wrong
+location in repetitive rooms.
 
 After calibrated IMU validation, optional fused localization is:
 
@@ -507,9 +509,12 @@ Start the same localization plus conservative holonomic Nav2:
 ./deploy/dogzilla-map navigate test1
 ```
 
-Nav2 uses a Smac 2D global planner, DWB holonomic local controller, 0.32 m
-conservative robot radius, live LiDAR obstacle layers, velocity smoothing, and
-maximum commands of 0.10 m/s and 0.30 rad/s. Twist Mux gives keyboard teleop
+Nav2 uses a Smac 2D global planner, a regulated pure-pursuit path controller,
+the measured padded footprint, live LiDAR obstacle layers, and velocity
+smoothing. The controller rotates to the path heading before translating,
+follows a forward lookahead point, slows around curvature and obstacles, and
+never selects reverse motion. Autonomous level 4 is the default at up to
+0.20 m/s and 0.40 rad/s. Twist Mux gives keyboard teleop
 priority over autonomous commands, and every final command still passes through
 the serial manager's clamp, low-battery inhibit, and 0.6-second watchdog.
 
@@ -534,14 +539,30 @@ normal browser or SSH mode. `mission start room1 --headless` is an equivalent,
 more explicit spelling. If neither `--headless` nor `--rviz` is supplied,
 Mission Mode defaults to headless operation.
 
+By default, the dashboard requires **Set robot start** before the live
+Cartographer trajectory begins. Select the approximate position, choose the
+facing direction, and confirm. Mission dispatch remains locked until twenty
+distinct, stable localization samples arrive. To opt into automatic global
+LiDAR matching instead, start with:
+
+```bash
+./deploy/dogzilla-map mission room1 --headless --match
+```
+
+`--match` explicitly bypasses the initial-pose requirement; it does not prove
+that the resulting location is correct. Mission dispatch still waits for a
+stable map-frame pose.
+
 The coordinator refuses to replace an active mapping, drive, navigation,
 vision, perception, or web container. On a free system it starts navigation,
 the camera-based patrol perception service, and the web gateway; waits for all
-three health checks; and verifies the required ROS topics, Nav2 actions and
-nodes, and `map -> base_link` transform. Confirmed camera hazards create a web
+three health checks; and verifies the required ROS topics, Nav2 actions, and
+nodes. Confirmed camera hazards create a web
 notification, map-scoped record, and photo, but do not cancel Mission Mode or
 latch emergency stop. It never queues a goal automatically. If any startup
-check fails or startup is interrupted, it safely rolls back the services.
+check fails or startup is interrupted, it prints the missing ROS resources,
+container states, and a short relevant log tail before safely rolling the
+services back.
 
 Inspect a managed session without moving the robot:
 
@@ -563,11 +584,13 @@ or queue a mission. Use the dashboard only on a trusted private network.
 
 The dashboard exposes separate autonomous walking and turning sliders. Both
 accept whole-number levels from 1 to 9 and can be changed only while no task is
-active. Changing either level updates the existing safe-base serial owner,
-which clamps the Nav2 velocity stream; the web gateway never opens the
-controller serial port itself. Manual-drive logic remains disabled and stored
-in the ROS gateway source for possible future use; it is not exposed by the
-dashboard or HTTP API.
+active. Level 4 is the default brisk indoor profile. Changing either level
+updates the path controller, velocity smoother, and existing safe-base serial
+owner as one guarded operation; a partial failure attempts to restore the
+previous profile. The web gateway never opens the controller serial port
+itself. Manual-drive logic remains disabled and stored in the ROS gateway
+source for possible future use; it is not exposed by the dashboard or HTTP
+API.
 
 Keepout polygons are stored under the active map name. A zone created on
 `room1` is not loaded, edited, or deleted while `room2` is active, even when
@@ -583,8 +606,9 @@ The camera, perception, and web gateway stay online. Motion is stopped and
 only localization/navigation is restarted because Cartographer loads a
 `.pbstream` at process startup. The gateway clears the previous TF/map state,
 loads only `room2` keepout zones, and blocks new tasks until the new occupancy
-map and 20 stable localization samples arrive. A failed switch automatically
-attempts to restore the previous map.
+map, a new confirmed initial pose, and 20 stable localization samples arrive.
+Sessions started with `--match` reuse automatic matching after a map switch.
+A failed switch automatically attempts to restore the previous map.
 
 Follow both navigation and web logs:
 
@@ -618,8 +642,9 @@ robot supervised and the software emergency stop visible during testing.
 
 Mission Mode automatically records one bounded tuning trial for each Nav2
 goal. The recorder synchronizes only the signals needed to explain controller
-behavior: DWB raw command, velocity-smoothed command, final command, measured
-scan odometry, map/odom pose, global and local path error, LiDAR sector
+behavior: path-controller raw command, velocity-smoothed command, final
+command, measured scan odometry, map/odom pose, global and local path error,
+LiDAR sector
 clearance and validity, input age, diagnostics, goal outcome, and relevant
 runtime parameter changes. It deliberately excludes camera images, joint
 traffic, full costmaps, and arbitrary ROS topics.
@@ -639,6 +664,15 @@ logs/sessions/SESSION/navigation-tuning/
 The exact Nav2 configuration SHA-256 and the relevant controller, planner,
 costmap, smoother, and safe-base parameter changes are stored with the trial,
 so later tuning is tied to the settings that actually produced the motion.
+
+Navigation diagnostics also report suspected linear or turn-only stalls. The
+detector requires sustained commands, fresh scan odometry, at least 80% command
+agreement across its evidence window, and very little measured progress. The
+existing persistence and recovery delays apply after that evidence test. A
+stall warning can mean physical obstruction, gait slip, low-level motion
+inhibition, or poor scan matching; it is not proof that the robot touched an
+object. It only produces web telemetry and tuning evidence and never stops,
+cancels, reverses, or changes the mission.
 
 ### Serial telemetry
 
@@ -812,7 +846,8 @@ The system now implements mapping, pure localization, scan-derived odometry,
 and Nav2 planning/control. `test1` is explicitly unfinished, so planning is
 restricted to its known free cells. Before unattended operation, record
 repeatable rosbag trials, measure localization recovery in similar-looking
-rooms, physically measure the footprint in the widest stance, and tune DWB and
-inflation values from controlled runs. The first Nav2 tests must remain
+rooms, physically measure the footprint in the widest stance, and tune the
+regulated path controller and inflation values from controlled runs. The first
+Nav2 tests must remain
 supervised; software cannot replace a physical emergency stop or protect
 against sudden battery disconnection.

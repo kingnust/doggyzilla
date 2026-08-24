@@ -8,6 +8,7 @@ from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
@@ -24,6 +25,7 @@ def generate_launch_description():
     map_yaml = LaunchConfiguration('map_yaml')
     configuration_basename = LaunchConfiguration('configuration_basename')
     correct_imu = LaunchConfiguration('correct_imu')
+    start_immediately = LaunchConfiguration('start_immediately')
     rviz = LaunchConfiguration('rviz')
 
     return LaunchDescription([
@@ -35,6 +37,7 @@ def generate_launch_description():
             default_value='dogzilla_localization.lua',
         ),
         DeclareLaunchArgument('correct_imu', default_value='false'),
+        DeclareLaunchArgument('start_immediately', default_value='false'),
         DeclareLaunchArgument(
             'calibration_file',
             default_value='/calibration/imu.json',
@@ -79,7 +82,10 @@ def generate_launch_description():
                 'configuration_directory': configuration_directory,
                 'configuration_basename': configuration_basename,
                 'map_frame': 'map',
-                'start_immediately': True,
+                'start_immediately': ParameterValue(
+                    start_immediately,
+                    value_type=bool,
+                ),
             }],
             output='screen',
         ),

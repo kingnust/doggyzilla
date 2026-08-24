@@ -57,6 +57,7 @@ class LocalizationManager(Node):
         self._pending_initial_pose = None
         self._busy = False
         self._waiting_logged = False
+        self._initial_pose_wait_logged = False
         self._timer = self.create_timer(0.50, self._tick)
 
     def _services_ready(self):
@@ -85,6 +86,11 @@ class LocalizationManager(Node):
         if self._active_trajectory_id is not None:
             return
         if not self._start_immediately and self._pending_initial_pose is None:
+            if not self._initial_pose_wait_logged:
+                self.get_logger().info(
+                    'Waiting for an initial map pose before scan matching'
+                )
+                self._initial_pose_wait_logged = True
             return
 
         self._busy = True
@@ -178,6 +184,7 @@ class LocalizationManager(Node):
             )
             return
         self._pending_initial_pose = message.pose.pose
+        self._initial_pose_wait_logged = False
         self.get_logger().info(
             'RViz initial pose received; localization will restart from it'
         )

@@ -33,22 +33,30 @@ for all commands.
 - `dogzilla_slam mapping.launch.py`: Cartographer and the occupancy grid, with
   an optional calibrated IMU correction stage.
 - `dogzilla_slam localization.launch.py`: frozen-PBStream Cartographer pure
-  localization, RViz initial-pose handling, fixed-map serving, and `/odom` from
-  the scan-matched `odom -> base_link` transform.
-- `dogzilla_slam nav2.launch.py`: conservative Nav2 planner, forward-and-turn
-  DWB controller, live LiDAR costmaps, fail-closed recovery, and velocity
-  smoothing. Its footprint uses the measured 260 x 145 mm walking envelope
+  localization that waits for `/initialpose` by default, RViz and web
+  initial-pose handling, fixed-map serving, and `/odom` from the scan-matched
+  transform tree. `start_immediately:=true` is the explicit automatic global
+  matching option used by the host `--match` flag.
+- `dogzilla_slam nav2.launch.py`: conservative Nav2 planner, heading-first
+  regulated pure-pursuit controller, live LiDAR costmaps, fail-closed
+  recovery, and velocity smoothing. Its footprint uses the measured
+  260 x 145 mm walking envelope
   with 30 mm padding; automatic spin and backup recovery remain disabled.
 - `dogzilla_slam full_navigation.launch.py`: hardware, localization, Twist Mux,
   and optional Nav2 in one process group.
 - `dogzilla_slam navigation_diagnostics`: warning-only observation of LiDAR,
-  scan-matched odometry, map TF, and commanded velocity. It uses persistence
-  and recovery hysteresis, publishes `/navigation/diagnostics`, and retains
-  two bounded JSONL files under the current `ROS_LOG_DIR`. It has no movement,
-  E-stop, parameter, or Nav2 action publisher.
+  scan-matched odometry, map TF, and commanded velocity. Its stall inference
+  requires a sustained fresh command, a full motion-evidence window, and
+  command-versus-odometry disagreement before the normal persistence delay.
+  Linear and turn-only stalls are reported as possible obstruction or motion
+  inhibition, never as confirmed contact. It publishes
+  `/navigation/diagnostics` and retains two bounded JSONL files under the
+  current `ROS_LOG_DIR`. It has no movement, E-stop, parameter, or Nav2 action
+  publisher.
 - `dogzilla_slam navigation_tuning_recorder`: starts one bounded trial for each
-  autonomous `NavigateToPose` goal. At 10 Hz it aligns DWB raw velocity,
-  smoothed and final velocity, measured scan odometry, map and odom poses,
+  autonomous `NavigateToPose` goal. At 10 Hz it aligns path-controller raw
+  velocity, smoothed and final velocity, measured scan odometry, map and odom
+  poses,
   global/local path error, four-sector LiDAR clearance, input age, diagnostics,
   goal outcome, and tuning parameter changes. Camera frames, full costmaps,
   joints, and unrelated ROS traffic are excluded. It publishes status only and

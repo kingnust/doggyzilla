@@ -125,6 +125,7 @@ services:
       ROS_LOG_DIR: ${DOGZILLA_ROS_LOG_DIR:-/logs/manual}
       DOGZILLA_USE_IMU: ${DOGZILLA_USE_IMU:-false}
       DOGZILLA_USE_NAV2: ${DOGZILLA_USE_NAV2:-false}
+      DOGZILLA_START_LOCALIZATION_IMMEDIATELY: ${DOGZILLA_START_LOCALIZATION_IMMEDIATELY:-false}
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - ./maps:/maps:ro
@@ -139,6 +140,7 @@ services:
       - rviz:=${DOGZILLA_RVIZ:-false}
       - use_imu:=${DOGZILLA_USE_IMU:-false}
       - use_nav2:=${DOGZILLA_USE_NAV2:-false}
+      - start_immediately:=${DOGZILLA_START_LOCALIZATION_IMMEDIATELY:-false}
       - configuration_basename:=${DOGZILLA_CONFIGURATION_BASENAME:-dogzilla_localization.lua}
       - map_yaml:=${DOGZILLA_MAP_YAML:-/maps/test1.yaml}
       - state_file:=${DOGZILLA_STATE_FILE:-/maps/test1.pbstream}
@@ -394,6 +396,7 @@ services:
       DOGZILLA_WEB_PASSWORD: ${DOGZILLA_WEB_PASSWORD:-yahboom}
       DOGZILLA_WEB_TOKEN: ${DOGZILLA_WEB_TOKEN:-}
       DOGZILLA_WEB_MANUAL_DRIVE_ENABLED: ${DOGZILLA_WEB_MANUAL_DRIVE_ENABLED:-false}
+      DOGZILLA_WEB_REQUIRE_INITIAL_POSE: ${DOGZILLA_WEB_REQUIRE_INITIAL_POSE:-true}
       DOGZILLA_WEB_MAP_NAME: ${DOGZILLA_WEB_MAP_NAME:-test1}
       DOGZILLA_WEB_MIN_BATTERY: ${DOGZILLA_WEB_MIN_BATTERY:-28}
       DOGZILLA_WEB_OCCUPIED_THRESHOLD: ${DOGZILLA_WEB_OCCUPIED_THRESHOLD:-50}

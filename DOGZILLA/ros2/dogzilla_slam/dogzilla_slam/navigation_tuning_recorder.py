@@ -766,6 +766,40 @@ class NavigationTuningRecorder(Node):
             and value.get('kind') == 'navigation-diagnostics'
             and value.get('warning_only') is True
         ):
+            metrics = value.get('metrics')
+            stall_source = (
+                metrics.get('stall_evidence')
+                if isinstance(metrics, dict)
+                else None
+            )
+            stall_evidence = None
+            if isinstance(stall_source, dict):
+                stall_evidence = {}
+                for name in (
+                    'ready',
+                    'linear_candidate',
+                    'turn_candidate',
+                ):
+                    if name in stall_source:
+                        stall_evidence[name] = bool(stall_source[name])
+                for name in (
+                    'window_seconds',
+                    'command_samples',
+                    'odometry_samples',
+                    'command_span_s',
+                    'odometry_span_s',
+                    'linear_command_fraction',
+                    'consistent_turn_fraction',
+                    'turn_only_fraction',
+                    'median_linear_command_mps',
+                    'median_turn_command_rps',
+                    'measured_displacement_m',
+                    'measured_yaw_change_rad',
+                    'median_measured_linear_mps',
+                    'median_measured_angular_rps',
+                ):
+                    if name in stall_source:
+                        stall_evidence[name] = finite_round(stall_source[name])
             self._latest['diagnostics'] = {
                 'received': self._now(),
                 'value': {
@@ -774,6 +808,7 @@ class NavigationTuningRecorder(Node):
                         str(item.get('code')) for item in value.get('warnings', [])
                         if isinstance(item, dict) and item.get('code')
                     ][:10],
+                    'stall_evidence': stall_evidence,
                 },
             }
 

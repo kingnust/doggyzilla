@@ -26,9 +26,9 @@ usage() {
         'Usage: dogzilla mission COMMAND [ARGUMENTS]' \
         '' \
         'Commands:' \
-        '  start [MAP] [--rviz|--headless] [--imu]' \
+        '  start [MAP] [--rviz|--headless] [--imu] [--match]' \
         '                        Start Nav2, hazard vision, and the dashboard.' \
-        '  MAP [--rviz|--headless] [--imu]' \
+        '  MAP [--rviz|--headless] [--imu] [--match]' \
         '                        Shortcut for "mission start MAP ...".' \
         '  switch-map MAP       Keep camera/web up; restart localization only.' \
         '  status                Show navigation, vision, and dashboard state.' \
@@ -123,6 +123,7 @@ write_state() {
     local session="${3:-pending}"
     local display_mode="${4:-headless}"
     local use_imu="${5:-false}"
+    local matching="${6:-initial-pose}"
     local temporary="${STATE_FILE}.tmp"
     mkdir -p "${REPO_ROOT}/logs"
     umask 077
@@ -132,6 +133,7 @@ write_state() {
         printf 'session=%s\n' "${session}"
         printf 'display=%s\n' "${display_mode}"
         printf 'use_imu=%s\n' "${use_imu}"
+        printf 'matching=%s\n' "${matching}"
         printf 'started_utc=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
     } > "${temporary}"
     mv -f "${temporary}" "${STATE_FILE}"
@@ -172,31 +174,73 @@ wait_for_healthy() {
 
 verify_ros_readiness() {
     "${DOCKER_COMMAND}" exec "${NAVIGATION_CONTAINER}" bash -lc '
-        set -e
         source /opt/ros/humble/setup.bash
         source /root/yahboomcar_ws/install/setup.bash
         export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-12}"
-        topics="$(ros2 topic list)"
+        status=0
+        if ! topics="$(ros2 topic list)"; then
+            printf "Cannot read the ROS topic graph.\n" >&2
+            exit 1
+        fi
         for topic in /scan /map /odom /battery_state /joint_states; do
-            grep -qx "${topic}" <<< "${topics}"
+            if ! grep -qx "${topic}" <<< "${topics}"; then
+                printf "Missing required ROS topic: %s\n" "${topic}" >&2
+                status=1
+            fi
         done
         for topic in \
             /vision/status \
             /vision/detections \
             /vision/danger_confirmed \
             /vision/annotated/compressed; do
-            grep -qx "${topic}" <<< "${topics}"
+            if ! grep -qx "${topic}" <<< "${topics}"; then
+                printf "Missing required vision topic: %s\n" "${topic}" >&2
+                status=1
+            fi
         done
-        actions="$(ros2 action list)"
+        if ! actions="$(ros2 action list)"; then
+            printf "Cannot read the ROS action graph.\n" >&2
+            exit 1
+        fi
         for action in /navigate_to_pose /compute_path_to_pose; do
-            grep -qx "${action}" <<< "${actions}"
+            if ! grep -qx "${action}" <<< "${actions}"; then
+                printf "Missing required Nav2 action: %s\n" "${action}" >&2
+                status=1
+            fi
         done
-        nodes="$(ros2 node list)"
-        grep -qx /planner_server <<< "${nodes}"
-        grep -qx /bt_navigator <<< "${nodes}"
-        timeout 6 bash -c \
-            "ros2 run tf2_ros tf2_echo map base_link 2>&1 | grep -m1 -q Translation:"
+        if ! nodes="$(ros2 node list)"; then
+            printf "Cannot read the ROS node graph.\n" >&2
+            exit 1
+        fi
+        for node in /planner_server /bt_navigator; do
+            if ! grep -qx "${node}" <<< "${nodes}"; then
+                printf "Missing required Nav2 node: %s\n" "${node}" >&2
+                status=1
+            fi
+        done
+        exit "${status}"
     '
+}
+
+show_failure_diagnostics() {
+    local container_name
+    local health
+    local status
+    printf '%s\n' 'Mission Mode failure diagnostics:' >&2
+    for container_name in \
+        "${NAVIGATION_CONTAINER}" \
+        "${PERCEPTION_CONTAINER}" \
+        "${WEB_CONTAINER}"; do
+        status="$(container_status "${container_name}" || true)"
+        health="$(container_health "${container_name}" || true)"
+        printf '  %s: state=%s health=%s\n' \
+            "${container_name}" "${status:-missing}" "${health:-unknown}" >&2
+    done
+    printf '%s\n' 'Recent navigation/perception/web logs:' >&2
+    "${DOCKER_COMMAND}" compose \
+        --project-directory "${REPO_ROOT}" \
+        --file "${COMPOSE_FILE}" \
+        logs --no-color --tail 60 navigation perception web >&2 || true
 }
 
 verify_object_model() {
@@ -260,6 +304,7 @@ rollback_on_failure() {
     local status=$?
     trap - EXIT INT TERM
     if [[ "${MISSION_STARTUP_COMPLETE:-false}" != true ]]; then
+        show_failure_diagnostics
         printf 'Mission Mode startup failed; stopping web and navigation.\n' >&2
         stop_components || true
     fi
@@ -279,6 +324,8 @@ start_mission() {
     local map_name='test1'
     local session
     local use_imu=false
+    local matching='initial-pose'
+    local require_initial_pose=true
     local argument
     local -a navigation_arguments
 
@@ -314,10 +361,16 @@ start_mission() {
             --rviz) display_mode='rviz' ;;
             --headless) display_mode='headless' ;;
             --imu) use_imu=true ;;
+            --match)
+                matching='automatic'
+                require_initial_pose=false
+                ;;
         esac
     done
 
-    write_state "${map_name}" starting pending "${display_mode}" "${use_imu}"
+    write_state \
+        "${map_name}" starting pending "${display_mode}" "${use_imu}" \
+        "${matching}"
     MISSION_STARTUP_COMPLETE=false
     trap rollback_on_failure EXIT
     trap 'exit 130' INT
@@ -332,7 +385,8 @@ start_mission() {
     fi
     export DOGZILLA_ROS_LOG_DIR="/logs/sessions/${session}"
     start_perception
-    "${WEB_COMMAND}" start "${map_name}"
+    DOGZILLA_WEB_REQUIRE_INITIAL_POSE="${require_initial_pose}" \
+        "${WEB_COMMAND}" start "${map_name}"
 
     wait_for_healthy "${NAVIGATION_CONTAINER}" 'Navigation'
     wait_for_healthy "${PERCEPTION_CONTAINER}" 'Floor-hazard perception'
@@ -342,7 +396,9 @@ start_mission() {
         return 1
     fi
 
-    write_state "${map_name}" ready "${session}" "${display_mode}" "${use_imu}"
+    write_state \
+        "${map_name}" ready "${session}" "${display_mode}" "${use_imu}" \
+        "${matching}"
     MISSION_STARTUP_COMPLETE=true
     trap - EXIT INT TERM
     printf '%s\n' \
@@ -352,15 +408,28 @@ start_mission() {
         'Floor-hazard perception is detection-only and camera based.' \
         'No movement has been queued automatically.' \
         'Use "dogzilla mission password" for browser login.'
+    if [[ "${matching}" == automatic ]]; then
+        printf '%s\n' \
+            'Localization mode: automatic global LiDAR matching (--match).' \
+            'Wait for a stable map pose before dispatching a mission.'
+    else
+        printf '%s\n' \
+            'Localization is waiting for the initial pose.' \
+            'Open the dashboard, choose Set robot start, and confirm it.'
+    fi
 }
 
 start_navigation_for_switch() {
     local map_name="$1"
     local display_mode="$2"
     local use_imu="$3"
+    local matching="${4:-initial-pose}"
     local -a arguments=(navigate "${map_name}" "--${display_mode}")
     if [[ "${use_imu}" == true ]]; then
         arguments+=(--imu)
+    fi
+    if [[ "${matching}" == automatic ]]; then
+        arguments+=(--match)
     fi
     DOGZILLA_MISSION_START=1 DOGZILLA_MISSION_SWITCH=1 \
         "${MAP_COMMAND}" "${arguments[@]}"
@@ -377,16 +446,20 @@ rollback_map_switch() {
     local old_map="$1"
     local display_mode="$2"
     local use_imu="$3"
+    local matching="${4:-initial-pose}"
     printf 'Map switch failed; restoring map %s.\n' "${old_map}" >&2
     stop_navigation_only || true
     "${WEB_COMMAND}" prepare-map "${old_map}" || return 1
     "${WEB_COMMAND}" switch-map "${old_map}" || return 1
     start_navigation_for_switch \
-        "${old_map}" "${display_mode}" "${use_imu}" || return 1
+        "${old_map}" "${display_mode}" "${use_imu}" "${matching}" || return 1
     wait_for_healthy "${NAVIGATION_CONTAINER}" 'Restored navigation' \
         || return 1
     verify_ros_readiness || return 1
-    "${WEB_COMMAND}" wait-map "${old_map}" "${STARTUP_TIMEOUT}" || return 1
+    if [[ "${matching}" == automatic ]]; then
+        "${WEB_COMMAND}" wait-map "${old_map}" "${STARTUP_TIMEOUT}" \
+            || return 1
+    fi
     return 0
 }
 
@@ -395,6 +468,7 @@ switch_mission_map() {
     local old_map
     local display_mode
     local use_imu
+    local matching
     local session
     validate_timeout
     validate_map_name "${map_name}"
@@ -412,6 +486,8 @@ switch_mission_map() {
     display_mode="${display_mode:-headless}"
     use_imu="$(state_value use_imu || true)"
     use_imu="${use_imu:-false}"
+    matching="$(state_value matching || true)"
+    matching="${matching:-initial-pose}"
     if [[ "${display_mode}" != headless && "${display_mode}" != rviz ]]; then
         printf 'Mission state contains an invalid display mode.\n' >&2
         exit 1
@@ -420,34 +496,40 @@ switch_mission_map() {
         printf 'Mission state contains an invalid IMU setting.\n' >&2
         exit 1
     fi
+    if [[ "${matching}" != initial-pose && "${matching}" != automatic ]]; then
+        printf 'Mission state contains an invalid matching mode.\n' >&2
+        exit 1
+    fi
 
     write_state \
         "${old_map}" switching "$(state_value session)" \
-        "${display_mode}" "${use_imu}"
+        "${display_mode}" "${use_imu}" "${matching}"
     if ! "${WEB_COMMAND}" prepare-map "${map_name}"; then
         write_state \
             "${old_map}" ready "$(state_value session)" \
-            "${display_mode}" "${use_imu}"
+            "${display_mode}" "${use_imu}" "${matching}"
         return 1
     fi
     if ! stop_navigation_only \
         || ! "${WEB_COMMAND}" switch-map "${map_name}" \
         || ! start_navigation_for_switch \
-            "${map_name}" "${display_mode}" "${use_imu}" \
+            "${map_name}" "${display_mode}" "${use_imu}" "${matching}" \
         || ! wait_for_healthy "${NAVIGATION_CONTAINER}" 'Navigation' \
         || ! verify_ros_readiness \
-        || ! "${WEB_COMMAND}" wait-map \
-            "${map_name}" "${STARTUP_TIMEOUT}"; then
+        || { [[ "${matching}" == automatic ]] \
+            && ! "${WEB_COMMAND}" wait-map \
+                "${map_name}" "${STARTUP_TIMEOUT}"; }; then
+        show_failure_diagnostics
         if rollback_map_switch \
-            "${old_map}" "${display_mode}" "${use_imu}"; then
+            "${old_map}" "${display_mode}" "${use_imu}" "${matching}"; then
             session="$(sed -n '1p' "${REPO_ROOT}/logs/current-session")"
             write_state \
                 "${old_map}" ready "${session}" \
-                "${display_mode}" "${use_imu}"
+                "${display_mode}" "${use_imu}" "${matching}"
         else
             write_state \
                 "${old_map}" failed rollback-failed \
-                "${display_mode}" "${use_imu}"
+                "${display_mode}" "${use_imu}" "${matching}"
             printf 'Automatic rollback failed; Mission Mode needs inspection.\n' >&2
         fi
         return 1
@@ -455,9 +537,12 @@ switch_mission_map() {
     session="$(sed -n '1p' "${REPO_ROOT}/logs/current-session")"
     write_state \
         "${map_name}" ready "${session}" \
-        "${display_mode}" "${use_imu}"
+        "${display_mode}" "${use_imu}" "${matching}"
     printf 'Mission Mode switched to map %s.\n' "${map_name}"
     printf 'Camera, perception, and web gateway stayed online.\n'
+    if [[ "${matching}" == initial-pose ]]; then
+        printf 'Set and confirm the robot start pose on the new web map.\n'
+    fi
 }
 
 show_mission_status() {
@@ -467,6 +552,8 @@ show_mission_status() {
         printf 'Mission Mode state: %s\n' "$(state_value state)"
         printf 'Map: %s\n' "$(state_value map)"
         printf 'Log session: %s\n' "$(state_value session)"
+        printf 'Localization start: %s\n' \
+            "$(state_value matching || printf 'initial-pose')"
     fi
     "${MAP_COMMAND}" status
     "${WEB_COMMAND}" status

@@ -24,6 +24,9 @@ class WebGatewayNodeTest(unittest.TestCase):
             def publish(self, message):
                 self.messages.append(message)
 
+            def get_subscription_count(self):
+                return 1
+
         with tempfile.TemporaryDirectory() as directory, patch.dict(
             os.environ,
             {
@@ -170,6 +173,55 @@ class WebGatewayNodeTest(unittest.TestCase):
                 message.info.origin.orientation.w = 1.0
                 message.data = [0] * 16
                 node._on_map(message)
+
+                self.assertEqual(
+                    node.get_state()['configuration']['localization'][
+                        'state'
+                    ],
+                    'awaiting-initial-pose',
+                )
+                initial_poses = Recorder()
+                node._initial_pose_publisher = initial_poses
+                localization = node.set_initial_pose({
+                    'map': 'test1',
+                    'x': 2.0,
+                    'y': 2.0,
+                    'yaw': 1.5708,
+                })
+                self.assertEqual(localization['state'], 'matching')
+                self.assertEqual(localization['movement_action'], 'stop-only')
+                self.assertEqual(len(initial_poses.messages), 1)
+                initial_message = initial_poses.messages[0]
+                self.assertEqual(initial_message.header.frame_id, 'map')
+                self.assertAlmostEqual(
+                    initial_message.pose.pose.position.x,
+                    2.0,
+                )
+                self.assertGreater(initial_message.pose.covariance[0], 0.0)
+                started_ns = node._localization_started_ns
+                for sample in range(1, 21):
+                    node._update_localization_progress(
+                        started_ns + sample,
+                        (2.0, 2.0, 1.5708),
+                    )
+                localization_state = node.get_state()[
+                    'configuration'
+                ]['localization']
+                self.assertEqual(localization_state['state'], 'ready')
+                self.assertEqual(localization_state['stable_samples'], 20)
+                autonomy_updates = node._autonomy_parameter_updates(4, 4)
+                self.assertEqual(
+                    autonomy_updates['controller'][0].value,
+                    0.20,
+                )
+                self.assertEqual(
+                    autonomy_updates['controller'][1].value,
+                    0.40,
+                )
+                self.assertEqual(
+                    autonomy_updates['smoother'][0].value,
+                    [0.20, 0.0, 0.40],
+                )
 
                 zone = node.save_keepout_zone({
                     'map': 'test1',

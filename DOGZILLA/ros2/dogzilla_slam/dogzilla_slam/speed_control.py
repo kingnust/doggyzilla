@@ -82,6 +82,25 @@ TURN_LEVELS = {
     for level, step in enumerate(_TURN_STEPS, start=1)
 }
 
+# Autonomous navigation stays below the teleop/controller envelope. Level 4
+# is the default brisk indoor pace; higher levels remain explicit operator
+# choices and never exceed the Nav2 smoother ceiling.
+AUTONOMY_LINEAR_LIMITS = {
+    level: value
+    for level, value in enumerate(
+        (0.08, 0.12, 0.16, 0.20, 0.22, 0.24, 0.26, 0.28, 0.30),
+        start=1,
+    )
+}
+
+AUTONOMY_ANGULAR_LIMITS = {
+    level: value
+    for level, value in enumerate(
+        (0.22, 0.28, 0.34, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65),
+        start=1,
+    )
+}
+
 
 def normalize_speed_level(value):
     """Return one integer speed level from 1 to 9."""

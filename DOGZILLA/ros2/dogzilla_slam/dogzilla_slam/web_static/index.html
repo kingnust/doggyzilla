@@ -157,6 +157,26 @@
 
           <div class="map-editor-grid">
             <div>
+              <div id="localization-setup" class="localization-setup">
+                <div>
+                  <strong id="localization-title">Initial pose required</strong>
+                  <p id="localization-message">Select the robot's position and facing direction before LiDAR matching starts.</p>
+                </div>
+                <label>Facing
+                  <select id="initial-pose-yaw">
+                    <option value="0">East · 0°</option>
+                    <option value="0.7854">North-east · 45°</option>
+                    <option value="1.5708">North · 90°</option>
+                    <option value="2.3562">North-west · 135°</option>
+                    <option value="3.1416">West · 180°</option>
+                    <option value="-2.3562">South-west · 225°</option>
+                    <option value="-1.5708">South · 270°</option>
+                    <option value="-0.7854">South-east · 315°</option>
+                  </select>
+                </label>
+                <button class="target-button" type="button" data-map-target="initial-pose">Set robot start</button>
+                <button id="confirm-initial-pose" class="primary compact" type="button" disabled>Confirm pose</button>
+              </div>
               <div class="map-toolbar" role="group" aria-label="Waypoint selection">
                 <button class="target-button active" type="button" data-map-target="pickup"><span class="waypoint-dot pickup"></span>Select pickup</button>
                 <button class="target-button" type="button" data-map-target="dropoff"><span class="waypoint-dot dropoff"></span>Select drop-off</button>
@@ -180,6 +200,7 @@
                   <span><i class="legend-occupied"></i>Obstacle</span>
                   <span><i class="legend-unknown"></i>Unknown</span>
                   <span><i class="legend-robot"></i>Robot</span>
+                  <span><i class="legend-start"></i>Selected start</span>
                   <span><i class="legend-patrol"></i>Patrol</span>
                   <span><i class="legend-keepout"></i>Keepout</span>
                 </div>

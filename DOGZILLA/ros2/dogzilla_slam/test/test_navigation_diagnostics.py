@@ -62,6 +62,136 @@ def test_turn_reversals_warn_only_after_repeated_pattern():
     assert result['warnings'][0]['code'] == 'angular_oscillation'
 
 
+def test_linear_stall_requires_sustained_fresh_command_and_no_progress():
+    tracker = NavigationWarningTracker(
+        started_at=0.0,
+        startup_grace_seconds=0.1,
+        warning_persistence_seconds=0.5,
+        recovery_seconds=1.0,
+        stall_window_seconds=1.0,
+        stall_command_max_age_seconds=0.25,
+    )
+    result = None
+    for index in range(17):
+        now = 0.2 + index * 0.1
+        tracker.observe_scan(now, 0.01)
+        tracker.observe_tf(now, 0.01)
+        tracker.observe_command(now, 0.06, 0.0)
+        tracker.observe_odometry(
+            now,
+            0.0,
+            0.0,
+            0.0,
+            0.01,
+            0.0,
+            0.0,
+        )
+        result = tracker.evaluate(now)
+
+    assert result['state'] == 'warning'
+    assert [item['code'] for item in result['warnings']] == [
+        'linear_stall_suspected'
+    ]
+    evidence = result['metrics']['stall_evidence']
+    assert evidence['ready'] is True
+    assert evidence['linear_candidate'] is True
+    assert evidence['measured_displacement_m'] == 0.0
+    assert result['metrics']['command']['linear_mps'] == 0.06
+
+
+def test_stall_warning_recovers_only_after_stable_measured_progress():
+    tracker = NavigationWarningTracker(
+        started_at=0.0,
+        startup_grace_seconds=0.1,
+        warning_persistence_seconds=0.4,
+        recovery_seconds=0.8,
+        stall_window_seconds=0.8,
+        stall_command_max_age_seconds=0.25,
+    )
+    for index in range(14):
+        now = 0.2 + index * 0.1
+        tracker.observe_scan(now, 0.01)
+        tracker.observe_tf(now, 0.01)
+        tracker.observe_command(now, 0.06, 0.0)
+        tracker.observe_odometry(
+            now, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0
+        )
+        warning = tracker.evaluate(now)
+    assert warning['state'] == 'warning'
+
+    result = warning
+    for index in range(16):
+        now = 1.6 + index * 0.1
+        distance = (index + 1) * 0.008
+        tracker.observe_scan(now, 0.01)
+        tracker.observe_tf(now, 0.01)
+        tracker.observe_command(now, 0.06, 0.0)
+        tracker.observe_odometry(
+            now, distance, 0.0, 0.0, 0.01, 0.06, 0.0
+        )
+        result = tracker.evaluate(now)
+
+    assert result['state'] == 'healthy'
+    assert result['warnings'] == []
+    assert result['metrics']['stall_evidence']['linear_candidate'] is False
+
+
+def test_turn_stall_requires_consistent_turn_only_command():
+    tracker = NavigationWarningTracker(
+        started_at=0.0,
+        startup_grace_seconds=0.1,
+        warning_persistence_seconds=0.4,
+        recovery_seconds=1.0,
+        stall_window_seconds=0.8,
+        stall_command_max_age_seconds=0.25,
+    )
+    result = None
+    for index in range(14):
+        now = 0.2 + index * 0.1
+        tracker.observe_scan(now, 0.01)
+        tracker.observe_tf(now, 0.01)
+        tracker.observe_command(now, 0.0, 0.15)
+        tracker.observe_odometry(
+            now, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0
+        )
+        result = tracker.evaluate(now)
+
+    assert result['state'] == 'warning'
+    assert [item['code'] for item in result['warnings']] == [
+        'turn_stall_suspected'
+    ]
+    assert result['metrics']['stall_evidence']['turn_candidate'] is True
+
+
+def test_short_pause_and_stale_command_do_not_create_stall_warning():
+    tracker = NavigationWarningTracker(
+        started_at=0.0,
+        startup_grace_seconds=0.1,
+        warning_persistence_seconds=0.4,
+        recovery_seconds=1.0,
+        stall_window_seconds=1.0,
+        stall_command_max_age_seconds=0.25,
+    )
+    for index in range(7):
+        now = 0.2 + index * 0.1
+        tracker.observe_scan(now, 0.01)
+        tracker.observe_tf(now, 0.01)
+        tracker.observe_command(now, 0.06, 0.0)
+        tracker.observe_odometry(
+            now, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0
+        )
+        result = tracker.evaluate(now)
+    assert result['state'] == 'healthy'
+
+    now = 1.2
+    tracker.observe_scan(now, 0.01)
+    tracker.observe_tf(now, 0.01)
+    tracker.observe_odometry(now, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0)
+    result = tracker.evaluate(now)
+    assert result['state'] == 'healthy'
+    assert result['metrics']['stall_evidence']['ready'] is False
+
+
 def test_bounded_jsonl_recorder_rotates_and_keeps_valid_records(tmp_path):
     recorder = BoundedJsonlRecorder(
         tmp_path / 'navigation.jsonl',

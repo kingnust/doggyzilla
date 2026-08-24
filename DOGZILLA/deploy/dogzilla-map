@@ -90,11 +90,11 @@ usage() {
         '  shadow-db-check [SESSION]' \
         '                        Check a stopped RTAB database; default is latest.' \
         '  drive                 Start controller-only mode; LiDAR stays off.' \
-        '  localize [MAP] [--rviz|--headless] [--imu]' \
+        '  localize [MAP] [--rviz|--headless] [--imu] [--match]' \
         '                        Localize on MAP (default: test1), without Nav2.' \
-        '  navigate [MAP] [--rviz|--headless] [--imu]' \
+        '  navigate [MAP] [--rviz|--headless] [--imu] [--match]' \
         '                        Localize and start conservative Nav2 planning.' \
-        '  mission [start] [MAP] [--rviz|--headless] [--imu]' \
+        '  mission [start] [MAP] [--rviz|--headless] [--imu] [--match]' \
         '                        Start Nav2, hazard vision, and the web dashboard.' \
         '  mission status|logs|token|stop' \
         '                        Inspect or stop the managed mission session.' \
@@ -1922,6 +1922,8 @@ start_drive() {
 configure_navigation_options() {
     local mode="$1"
     local map_name='test1'
+    local option
+    local -a start_options=()
     shift
 
     if (($# > 0)) && [[ "$1" != --* ]]; then
@@ -1943,7 +1945,15 @@ configure_navigation_options() {
         fi
     done
 
-    configure_start_options "$@"
+    DOGZILLA_START_LOCALIZATION_IMMEDIATELY=false
+    for option in "$@"; do
+        if [[ "${option}" == --match ]]; then
+            DOGZILLA_START_LOCALIZATION_IMMEDIATELY=true
+        else
+            start_options+=("${option}")
+        fi
+    done
+    configure_start_options "${start_options[@]}"
     if [[ "${DOGZILLA_USE_IMU}" == 'true' ]]; then
         require_valid_imu_calibration
         DOGZILLA_CONFIGURATION_BASENAME='dogzilla_localization_imu.lua'
@@ -1963,6 +1973,7 @@ configure_navigation_options() {
         DOGZILLA_CONFIGURATION_BASENAME \
         DOGZILLA_MAP_NAME \
         DOGZILLA_MAP_YAML \
+        DOGZILLA_START_LOCALIZATION_IMMEDIATELY \
         DOGZILLA_STATE_FILE \
         DOGZILLA_USE_NAV2
 }
@@ -2012,16 +2023,23 @@ start_navigation() {
     if [[ "${mode}" == 'navigate' ]]; then
         printf 'DOGZILLA localization + Nav2 started on map %s.\n' \
             "${DOGZILLA_MAP_NAME}"
-        printf 'Autonomous limits: 0.10 m/s linear, 0.30 rad/s angular.\n'
+        printf 'Autonomous default: level 4, up to 0.20 m/s and 0.40 rad/s.\n'
     else
         printf 'DOGZILLA pure localization started on map %s.\n' \
             "${DOGZILLA_MAP_NAME}"
         printf 'Nav2 path planning is not running in this mode.\n'
     fi
     printf 'Unknown/unmapped map cells remain non-traversable.\n'
+    if [[ "${DOGZILLA_START_LOCALIZATION_IMMEDIATELY}" == true ]]; then
+        printf 'Initial localization: automatic global LiDAR matching (--match).\n'
+    else
+        printf 'Initial localization: waiting for an operator map pose.\n'
+    fi
     printf 'ROS log session: logs/sessions/%s (logs/latest).\n' \
         "${DOGZILLA_LOG_SESSION}"
-    printf 'Use status, then RViz 2D Pose Estimate before sending a goal.\n'
+    if [[ "${DOGZILLA_START_LOCALIZATION_IMMEDIATELY}" != true ]]; then
+        printf 'Set the initial pose in the mission web map or RViz before a goal.\n'
+    fi
 }
 
 run_imu_calibration() {

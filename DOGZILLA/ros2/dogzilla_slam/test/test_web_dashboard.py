@@ -65,6 +65,11 @@ class WebDashboardTest(unittest.TestCase):
             'map-canvas',
             'map-stage',
             'map-message',
+            'localization-setup',
+            'localization-title',
+            'localization-message',
+            'initial-pose-yaw',
+            'confirm-initial-pose',
             'route-preview',
             'location-name',
             'save-location',
@@ -118,6 +123,12 @@ class WebDashboardTest(unittest.TestCase):
         self.assertNotIn('draggable=', html)
         self.assertIn('<select id="pickup-yaw"', html)
         self.assertIn('<select id="dropoff-yaw"', html)
+        self.assertIn('<select id="initial-pose-yaw"', html)
+        self.assertIn('data-map-target="initial-pose"', html)
+        self.assertIn(
+            "'/api/v1/localization/initial-pose'",
+            javascript,
+        )
         self.assertIn('North · 90°', html)
         self.assertIn('Draw patrol area', html)
         self.assertIn("'/api/v1/patrol-areas/preview'", javascript)

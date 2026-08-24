@@ -92,6 +92,15 @@ class NavigationWarningTracker:
         oscillation_window_seconds=4.0,
         oscillation_count=5,
         oscillation_minimum_rps=0.08,
+        stall_window_seconds=2.0,
+        stall_command_max_age_seconds=0.35,
+        stall_evidence_fraction=0.8,
+        stall_linear_command_mps=0.035,
+        stall_linear_measured_mps=0.012,
+        stall_displacement_m=0.015,
+        stall_turn_command_rps=0.10,
+        stall_turn_measured_rps=0.035,
+        stall_yaw_change_rad=0.06,
     ):
         self.started_at = (
             time.monotonic() if started_at is None else float(started_at)
@@ -113,6 +122,19 @@ class NavigationWarningTracker:
         self.oscillation_window_seconds = float(oscillation_window_seconds)
         self.oscillation_count = int(oscillation_count)
         self.oscillation_minimum_rps = float(oscillation_minimum_rps)
+        self.stall_window_seconds = float(stall_window_seconds)
+        self.stall_command_max_age_seconds = float(
+            stall_command_max_age_seconds
+        )
+        self.stall_evidence_fraction = float(stall_evidence_fraction)
+        self.stall_thresholds = {
+            'linear_command_mps': float(stall_linear_command_mps),
+            'linear_measured_mps': float(stall_linear_measured_mps),
+            'displacement_m': float(stall_displacement_m),
+            'turn_command_rps': float(stall_turn_command_rps),
+            'turn_measured_rps': float(stall_turn_measured_rps),
+            'yaw_change_rad': float(stall_yaw_change_rad),
+        }
         if min(
             self.startup_grace_seconds,
             self.warning_persistence_seconds,
@@ -122,6 +144,14 @@ class NavigationWarningTracker:
             raise ValueError('diagnostic timing values must be positive')
         if self.jump_count < 2 or self.oscillation_count < 3:
             raise ValueError('diagnostic event counts are too small')
+        if min(
+            self.stall_window_seconds,
+            self.stall_command_max_age_seconds,
+            *self.stall_thresholds.values(),
+        ) <= 0.0:
+            raise ValueError('stall evidence thresholds must be positive')
+        if not 0.5 <= self.stall_evidence_fraction <= 1.0:
+            raise ValueError('stall_evidence_fraction must be between 0.5 and 1')
 
         self._last_received = {'scan': None, 'odom': None, 'tf': None}
         self._stamp_age_at_receive = {
@@ -135,6 +165,14 @@ class NavigationWarningTracker:
         self._previous_angular_command = None
         self._command = {'linear_mps': 0.0, 'angular_rps': 0.0}
         self._command_received = None
+        self._command_history = deque()
+        self._motion_history = deque()
+        self._stall_evidence = {
+            'ready': False,
+            'window_seconds': self.stall_window_seconds,
+            'linear_candidate': False,
+            'turn_candidate': False,
+        }
         self._pending = {}
         self._active = {}
         self._clear_since = {}
@@ -155,7 +193,16 @@ class NavigationWarningTracker:
     def observe_tf(self, now, stamp_age=None):
         self._observe_source('tf', now, stamp_age)
 
-    def observe_odometry(self, now, x, y, yaw, stamp_age=None):
+    def observe_odometry(
+        self,
+        now,
+        x,
+        y,
+        yaw,
+        stamp_age=None,
+        linear_mps=None,
+        angular_rps=None,
+    ):
         now = float(now)
         pose = (now, float(x), float(y), float(yaw))
         if self._previous_pose is not None:
@@ -175,6 +222,14 @@ class NavigationWarningTracker:
                 ):
                     self._pose_jumps.append(now)
         self._previous_pose = pose
+        self._motion_history.append((
+            now,
+            pose[1],
+            pose[2],
+            pose[3],
+            None if linear_mps is None else abs(float(linear_mps)),
+            None if angular_rps is None else abs(float(angular_rps)),
+        ))
         self._observe_source('odom', now, stamp_age)
 
     def observe_command(self, now, linear_mps, angular_rps):
@@ -195,6 +250,11 @@ class NavigationWarningTracker:
             'angular_rps': round(angular, 4),
         }
         self._command_received = now
+        self._command_history.append((
+            now,
+            abs(float(linear_mps)),
+            angular,
+        ))
 
     def _source_age(self, name, now):
         received = self._last_received[name]
@@ -210,6 +270,160 @@ class NavigationWarningTracker:
     @staticmethod
     def _warning(code, message):
         return {'code': code, 'severity': 'warning', 'message': message}
+
+    @staticmethod
+    def _median(values):
+        ordered = sorted(float(value) for value in values)
+        if not ordered:
+            return None
+        middle = len(ordered) // 2
+        if len(ordered) % 2:
+            return ordered[middle]
+        return (ordered[middle - 1] + ordered[middle]) / 2.0
+
+    def _trim_stall_history(self, now):
+        keep_after = now - self.stall_window_seconds - 0.5
+        for history in (self._command_history, self._motion_history):
+            while history and history[0][0] < keep_after:
+                history.popleft()
+
+    def _stall_candidates(self, now):
+        """Infer sustained command-without-motion, never physical contact."""
+        self._trim_stall_history(now)
+        cutoff = now - self.stall_window_seconds
+        commands = [item for item in self._command_history if item[0] >= cutoff]
+        motions = [item for item in self._motion_history if item[0] >= cutoff]
+        evidence = {
+            'ready': False,
+            'window_seconds': self.stall_window_seconds,
+            'linear_candidate': False,
+            'turn_candidate': False,
+            'command_samples': len(commands),
+            'odometry_samples': len(motions),
+        }
+        candidates = {}
+        if (
+            self._command_received is None
+            or now - self._command_received
+            > self.stall_command_max_age_seconds
+            or self._source_age('odom', now) is None
+            or self._source_age('odom', now) > self.timeouts['odom']
+            or len(commands) < 4
+            or len(motions) < 4
+        ):
+            self._stall_evidence = evidence
+            return candidates
+
+        command_span = commands[-1][0] - commands[0][0]
+        motion_span = motions[-1][0] - motions[0][0]
+        required_span = self.stall_window_seconds * 0.75
+        if command_span < required_span or motion_span < required_span:
+            self._stall_evidence = evidence
+            return candidates
+
+        linear_threshold = self.stall_thresholds['linear_command_mps']
+        turn_threshold = self.stall_thresholds['turn_command_rps']
+        linear_fraction = sum(
+            command[1] >= linear_threshold for command in commands
+        ) / len(commands)
+        positive_turn_fraction = sum(
+            command[2] >= turn_threshold for command in commands
+        ) / len(commands)
+        negative_turn_fraction = sum(
+            command[2] <= -turn_threshold for command in commands
+        ) / len(commands)
+        turn_fraction = max(positive_turn_fraction, negative_turn_fraction)
+        turn_only_fraction = sum(
+            command[1] < linear_threshold for command in commands
+        ) / len(commands)
+
+        first_motion = motions[0]
+        last_motion = motions[-1]
+        displacement = math.hypot(
+            last_motion[1] - first_motion[1],
+            last_motion[2] - first_motion[2],
+        )
+        yaw_change = abs(normalize_angle(last_motion[3] - first_motion[3]))
+        measured_linear = self._median([
+            motion[4] for motion in motions if motion[4] is not None
+        ])
+        measured_angular = self._median([
+            motion[5] for motion in motions if motion[5] is not None
+        ])
+        median_linear_command = self._median([
+            command[1] for command in commands
+        ])
+        median_turn_command = self._median([
+            abs(command[2]) for command in commands
+        ])
+
+        linear_candidate = (
+            linear_fraction >= self.stall_evidence_fraction
+            and displacement <= self.stall_thresholds['displacement_m']
+            and (
+                measured_linear is None
+                or measured_linear
+                <= self.stall_thresholds['linear_measured_mps']
+            )
+        )
+        turn_candidate = (
+            turn_fraction >= self.stall_evidence_fraction
+            and turn_only_fraction >= self.stall_evidence_fraction
+            and yaw_change <= self.stall_thresholds['yaw_change_rad']
+            and (
+                measured_angular is None
+                or measured_angular
+                <= self.stall_thresholds['turn_measured_rps']
+            )
+        )
+        evidence.update({
+            'ready': True,
+            'command_span_s': round(command_span, 3),
+            'odometry_span_s': round(motion_span, 3),
+            'linear_command_fraction': round(linear_fraction, 3),
+            'consistent_turn_fraction': round(turn_fraction, 3),
+            'turn_only_fraction': round(turn_only_fraction, 3),
+            'median_linear_command_mps': (
+                None
+                if median_linear_command is None
+                else round(median_linear_command, 4)
+            ),
+            'median_turn_command_rps': (
+                None
+                if median_turn_command is None
+                else round(median_turn_command, 4)
+            ),
+            'measured_displacement_m': round(displacement, 4),
+            'measured_yaw_change_rad': round(yaw_change, 4),
+            'median_measured_linear_mps': (
+                None
+                if measured_linear is None
+                else round(measured_linear, 4)
+            ),
+            'median_measured_angular_rps': (
+                None
+                if measured_angular is None
+                else round(measured_angular, 4)
+            ),
+            'linear_candidate': linear_candidate,
+            'turn_candidate': turn_candidate,
+        })
+        self._stall_evidence = evidence
+        if linear_candidate:
+            candidates['linear_stall_suspected'] = self._warning(
+                'linear_stall_suspected',
+                'movement was commanded but scan odometry showed only '
+                f'{displacement:.3f}m progress; possible obstruction or '
+                'motion inhibition',
+            )
+        if turn_candidate:
+            candidates['turn_stall_suspected'] = self._warning(
+                'turn_stall_suspected',
+                'turning was commanded but scan odometry showed only '
+                f'{yaw_change:.3f}rad rotation; possible obstruction or '
+                'motion inhibition',
+            )
+        return candidates
 
     def _candidates(self, now):
         values = {}
@@ -258,6 +472,7 @@ class NavigationWarningTracker:
                 'angular_oscillation',
                 f'{len(self._angular_flips)} rapid turn reversals were commanded',
             )
+        values.update(self._stall_candidates(now))
         return values
 
     def evaluate(self, now):
@@ -340,6 +555,7 @@ class NavigationWarningTracker:
                 'angular_flip_count': len(self._angular_flips),
                 'command_age_s': self._round_age(command_age),
                 'command': dict(self._command),
+                'stall_evidence': dict(self._stall_evidence),
             },
         }
 
@@ -361,6 +577,15 @@ class NavigationDiagnostics(Node):
         self.declare_parameter('scan_timeout_seconds', 0.6)
         self.declare_parameter('odom_timeout_seconds', 0.6)
         self.declare_parameter('tf_timeout_seconds', 0.8)
+        self.declare_parameter('stall_window_seconds', 2.0)
+        self.declare_parameter('stall_command_max_age_seconds', 0.35)
+        self.declare_parameter('stall_evidence_fraction', 0.8)
+        self.declare_parameter('stall_linear_command_mps', 0.035)
+        self.declare_parameter('stall_linear_measured_mps', 0.012)
+        self.declare_parameter('stall_displacement_m', 0.015)
+        self.declare_parameter('stall_turn_command_rps', 0.10)
+        self.declare_parameter('stall_turn_measured_rps', 0.035)
+        self.declare_parameter('stall_yaw_change_rad', 0.06)
         self.declare_parameter('log_path', '')
         self.declare_parameter('maximum_log_bytes', 4 * 1024 * 1024)
 
@@ -380,6 +605,33 @@ class NavigationDiagnostics(Node):
                 'odom_timeout_seconds'
             ).value,
             tf_timeout_seconds=self.get_parameter('tf_timeout_seconds').value,
+            stall_window_seconds=self.get_parameter(
+                'stall_window_seconds'
+            ).value,
+            stall_command_max_age_seconds=self.get_parameter(
+                'stall_command_max_age_seconds'
+            ).value,
+            stall_evidence_fraction=self.get_parameter(
+                'stall_evidence_fraction'
+            ).value,
+            stall_linear_command_mps=self.get_parameter(
+                'stall_linear_command_mps'
+            ).value,
+            stall_linear_measured_mps=self.get_parameter(
+                'stall_linear_measured_mps'
+            ).value,
+            stall_displacement_m=self.get_parameter(
+                'stall_displacement_m'
+            ).value,
+            stall_turn_command_rps=self.get_parameter(
+                'stall_turn_command_rps'
+            ).value,
+            stall_turn_measured_rps=self.get_parameter(
+                'stall_turn_measured_rps'
+            ).value,
+            stall_yaw_change_rad=self.get_parameter(
+                'stall_yaw_change_rad'
+            ).value,
         )
         self._map_frame = str(self.get_parameter('map_frame').value)
         self._base_frame = str(self.get_parameter('base_frame').value)
@@ -462,6 +714,11 @@ class NavigationDiagnostics(Node):
             pose.position.y,
             quaternion_yaw(pose.orientation),
             self._stamp_age(message.header.stamp),
+            math.hypot(
+                message.twist.twist.linear.x,
+                message.twist.twist.linear.y,
+            ),
+            message.twist.twist.angular.z,
         )
 
     def _on_command(self, message):

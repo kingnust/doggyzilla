@@ -38,22 +38,30 @@ def test_measured_footprint_and_padding_replace_oversized_radius():
         assert parameters['always_send_full_costmap'] is False
 
 
-def test_dwb_is_forward_only_and_bounded_to_48_candidates():
+def test_path_follower_aligns_heading_then_tracks_forward_only():
     controller = _configuration()['controller_server']['ros__parameters']
     follow_path = controller['FollowPath']
 
-    assert controller['controller_frequency'] == 7.0
-    assert follow_path['min_vel_x'] == 0.0
-    assert follow_path['max_vel_x'] == 0.08
-    assert follow_path['min_vel_y'] == 0.0
-    assert follow_path['max_vel_y'] == 0.0
-    assert follow_path['max_vel_theta'] == 0.20
-    assert (
-        follow_path['vx_samples']
-        * follow_path['vy_samples']
-        * follow_path['vtheta_samples']
-    ) == 48
-    assert follow_path['sim_time'] <= 1.2
+    assert controller['controller_frequency'] == 10.0
+    assert follow_path['plugin'] == (
+        'nav2_regulated_pure_pursuit_controller::'
+        'RegulatedPurePursuitController'
+    )
+    assert follow_path['desired_linear_vel'] == 0.20
+    assert follow_path['use_rotate_to_heading'] is True
+    assert follow_path['rotate_to_heading_min_angle'] <= 0.45
+    assert follow_path['allow_reversing'] is False
+    assert follow_path['use_collision_detection'] is True
+    assert follow_path['use_regulated_linear_velocity_scaling'] is True
+    assert follow_path['regulated_linear_scaling_min_speed'] <= 0.07
+
+    smoother = _configuration()['velocity_smoother']['ros__parameters']
+    assert smoother['max_velocity'] == [0.20, 0.0, 0.40]
+    assert smoother['smoothing_frequency'] == 15.0
+
+    package = (PACKAGE_ROOT / 'package.xml').read_text(encoding='utf-8')
+    assert '<exec_depend>nav2_regulated_pure_pursuit_controller</exec_depend>' \
+        in package
 
 
 def test_recovery_tree_cannot_command_spin_or_backup():
@@ -111,6 +119,21 @@ def test_localization_limits_background_work_on_the_pi():
         'POSE_GRAPH.optimization_problem.ceres_solver_options.num_threads = 4'
         in localization
     )
+
+
+def test_localization_waits_for_initial_pose_unless_match_is_explicit():
+    localization_launch = (
+        PACKAGE_ROOT / 'launch' / 'localization.launch.py'
+    ).read_text(encoding='utf-8')
+    full_navigation_launch = (
+        PACKAGE_ROOT / 'launch' / 'full_navigation.launch.py'
+    ).read_text(encoding='utf-8')
+
+    assert "DeclareLaunchArgument('start_immediately', default_value='false')" \
+        in localization_launch
+    assert "'start_immediately': ParameterValue(" in localization_launch
+    assert "DeclareLaunchArgument('start_immediately', default_value='false')" \
+        in full_navigation_launch
 
 
 def test_web_odometry_uses_sensor_qos_and_reports_named_nav_status():

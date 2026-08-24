@@ -39,6 +39,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument('use_imu', default_value='false'),
         DeclareLaunchArgument('use_nav2', default_value='false'),
+        DeclareLaunchArgument('start_immediately', default_value='false'),
         DeclareLaunchArgument('rviz', default_value='false'),
         DeclareLaunchArgument(
             'calibration_file',
@@ -47,8 +48,8 @@ def generate_launch_description():
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(hardware_launch),
             launch_arguments={
-                'speed_level': '1',
-                'turn_level': '1',
+                'speed_level': '4',
+                'turn_level': '4',
                 'use_imu': use_imu,
                 'posture_control_enabled': 'false',
             }.items(),
@@ -70,6 +71,9 @@ def generate_launch_description():
                     'configuration_basename'
                 ),
                 'correct_imu': use_imu,
+                'start_immediately': LaunchConfiguration(
+                    'start_immediately'
+                ),
                 'calibration_file': LaunchConfiguration('calibration_file'),
                 'rviz': LaunchConfiguration('rviz'),
             }.items(),

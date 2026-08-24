@@ -68,7 +68,9 @@ class MissionCommandTest(unittest.TestCase):
             r"""
             #!/usr/bin/env bash
             set -eu
-            printf 'web:%s:log=%s\n' "$*" "${DOGZILLA_ROS_LOG_DIR:-unset}" \
+            printf 'web:%s:log=%s:initial=%s\n' \
+                "$*" "${DOGZILLA_ROS_LOG_DIR:-unset}" \
+                "${DOGZILLA_WEB_REQUIRE_INITIAL_POSE:-unset}" \
                 >> "${TEST_CALL_LOG}"
             case "${1:-}" in
                 start)
@@ -108,7 +110,9 @@ class MissionCommandTest(unittest.TestCase):
                         dogzilla_navigation) marker="${TEST_ROOT}/navigation.running" ;;
                         dogzilla_visual_shadow) marker="${TEST_ROOT}/shadow.running" ;;
                         dogzilla_vision) marker="${TEST_ROOT}/vision.running" ;;
-                        dogzilla_vision_control) marker="${TEST_ROOT}/vision-control.running" ;;
+                        dogzilla_vision_control)
+                            marker="${TEST_ROOT}/vision-control.running"
+                            ;;
                         dogzilla_perception) marker="${TEST_ROOT}/perception.running" ;;
                         dogzilla_web) marker="${TEST_ROOT}/web.running" ;;
                     esac
@@ -170,7 +174,11 @@ class MissionCommandTest(unittest.TestCase):
         path.chmod(0o755)
         return path
 
-    def _run(self, *arguments: str, **environment: str) -> subprocess.CompletedProcess[str]:
+    def _run(
+        self,
+        *arguments: str,
+        **environment: str,
+    ) -> subprocess.CompletedProcess[str]:
         run_environment = self.environment.copy()
         run_environment.update(environment)
         return subprocess.run(
@@ -197,12 +205,30 @@ class MissionCommandTest(unittest.TestCase):
             calls.index("web:start room1"),
         )
         self.assertIn("web:start room1:log=/logs/sessions/session-123", calls)
+        self.assertIn(":initial=true", calls)
         self.assertIn("docker:exec dogzilla_navigation", calls)
         state = (self.root / "logs" / "mission-current").read_text(encoding="utf-8")
         self.assertIn("state=ready\n", state)
         self.assertIn("map=room1\n", state)
         self.assertIn("session=session-123\n", state)
+        self.assertIn("matching=initial-pose\n", state)
         self.assertIn("No movement has been queued automatically.", result.stdout)
+        self.assertIn("waiting for the initial pose", result.stdout)
+
+    def test_match_flag_explicitly_enables_automatic_matching(self) -> None:
+        result = self._run("start", "room1", "--headless", "--match")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "map:navigate room1 --headless --match",
+            self._calls(),
+        )
+        self.assertIn(":initial=false", self._calls())
+        state = (self.root / "logs" / "mission-current").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("matching=automatic\n", state)
+        self.assertIn("automatic global LiDAR matching", result.stdout)
 
     def test_map_name_is_a_start_shortcut_and_defaults_to_headless(self) -> None:
         result = self._run("room1")
@@ -210,7 +236,9 @@ class MissionCommandTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("map:navigate room1 --headless", self._calls())
 
-    def test_switch_map_keeps_web_and_perception_while_restarting_navigation(self) -> None:
+    def test_switch_map_keeps_web_and_perception_while_restarting_navigation(
+        self,
+    ) -> None:
         started = self._run("start", "room1", "--headless")
         self.assertEqual(started.returncode, 0, started.stderr)
         self.call_log.write_text('', encoding='utf-8')
@@ -230,7 +258,7 @@ class MissionCommandTest(unittest.TestCase):
             calls.index("web:switch-map room2"),
         )
         self.assertIn("map:navigate room2 --headless", calls)
-        self.assertIn("web:wait-map room2 2", calls)
+        self.assertNotIn("web:wait-map room2 2", calls)
         self.assertNotIn("web:stop", calls)
         self.assertTrue((self.root / "perception.running").exists())
         state = (self.root / "logs" / "mission-current").read_text(
@@ -239,6 +267,19 @@ class MissionCommandTest(unittest.TestCase):
         self.assertIn("state=ready\n", state)
         self.assertIn("map=room2\n", state)
         self.assertIn("display=headless\n", state)
+        self.assertIn("Set and confirm the robot start pose", switched.stdout)
+
+    def test_match_mode_is_preserved_across_map_switch(self) -> None:
+        started = self._run("start", "room1", "--headless", "--match")
+        self.assertEqual(started.returncode, 0, started.stderr)
+        self.call_log.write_text('', encoding='utf-8')
+
+        switched = self._run("switch-map", "room2")
+
+        self.assertEqual(switched.returncode, 0, switched.stderr)
+        calls = self._calls()
+        self.assertIn("map:navigate room2 --headless --match", calls)
+        self.assertIn("web:wait-map room2 2", calls)
 
     def test_active_mapping_is_never_replaced(self) -> None:
         (self.root / "mapping.running").touch()
@@ -308,6 +349,8 @@ class MissionCommandTest(unittest.TestCase):
         self.assertFalse((self.root / "navigation.running").exists())
         self.assertFalse((self.root / "logs" / "mission-current").exists())
         self.assertIn("startup failed", result.stderr)
+        self.assertIn("Mission Mode failure diagnostics", result.stderr)
+        self.assertIn("Recent navigation/perception/web logs", result.stderr)
 
     def test_failed_ros_readiness_rolls_back_both_services(self) -> None:
         result = self._run("start", "room1", TEST_ROS_READY="0")

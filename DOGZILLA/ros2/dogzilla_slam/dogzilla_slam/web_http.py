@@ -326,6 +326,11 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                     HTTPStatus.OK,
                     self.server.service.prepare_map_switch(body),
                 )
+            elif path == '/api/v1/localization/initial-pose':
+                self._json(
+                    HTTPStatus.OK,
+                    self.server.service.set_initial_pose(body),
+                )
             elif path == '/api/v1/autonomy/speed':
                 self._json(
                     HTTPStatus.OK,

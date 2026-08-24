@@ -1,5 +1,7 @@
 import pytest
 
+from dogzilla_slam.speed_control import AUTONOMY_ANGULAR_LIMITS
+from dogzilla_slam.speed_control import AUTONOMY_LINEAR_LIMITS
 from dogzilla_slam.speed_control import normalize_speed_level
 from dogzilla_slam.speed_control import SPEED_LEVELS
 from dogzilla_slam.speed_control import TURN_LEVELS
@@ -84,6 +86,18 @@ def test_turn_levels_are_distinct_and_firmware_valid():
     assert len(set(angular)) == 9
     assert TURN_LEVELS[5].max_angular == pytest.approx(1.125)
     assert TURN_LEVELS[9].max_angular == pytest.approx(1.75)
+
+
+def test_autonomy_level_four_is_brisk_and_all_levels_are_distinct():
+    linear = [AUTONOMY_LINEAR_LIMITS[level] for level in range(1, 10)]
+    angular = [AUTONOMY_ANGULAR_LIMITS[level] for level in range(1, 10)]
+
+    assert AUTONOMY_LINEAR_LIMITS[4] == pytest.approx(0.20)
+    assert AUTONOMY_ANGULAR_LIMITS[4] == pytest.approx(0.40)
+    assert linear == sorted(linear)
+    assert angular == sorted(angular)
+    assert len(set(linear)) == 9
+    assert len(set(angular)) == 9
 
 
 @pytest.mark.parametrize(

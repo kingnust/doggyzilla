@@ -16,6 +16,8 @@
   let mapView = null;
   let mapZoom = 1;
   let robotPose = null;
+  let initialPoseDraft = null;
+  let initialPosePromptedMap = '';
   let activeTarget = 'pickup';
   let plannedPath = [];
   let previewTimer = null;
@@ -577,6 +579,9 @@
       drawPolyline(context, patrolWaypoints, '#c78cff', true);
     }
     if (robotPose) drawPose(context, robotPose, '#5ef0a6', 'DOGZILLA', 8);
+    if (initialPoseDraft) {
+      drawPose(context, initialPoseDraft, '#ffbd59', 'SELECTED START', 7);
+    }
     if (waypoints.pickup) {
       const valid = validateMapPoint(waypoints.pickup, 'Pickup').valid;
       drawPose(context, waypoints.pickup, valid ? '#69baff' : '#ff5d68', 'PICKUP');
@@ -660,13 +665,15 @@
       button.classList.toggle('active', button.dataset.mapTarget === target);
     });
     document.querySelectorAll('.apply-location').forEach((button) => {
-      const drawing = ['patrol', 'keepout'].includes(target);
+      const drawing = ['patrol', 'keepout', 'initial-pose'].includes(target);
       button.disabled = drawing;
       button.textContent = drawing
         ? 'Choose pickup or drop-off'
         : `Use as ${target === 'pickup' ? 'pickup' : 'drop-off'}`;
     });
-    elements['use-robot-pose'].disabled = ['patrol', 'keepout'].includes(target) || !robotPose;
+    elements['use-robot-pose'].disabled = (
+      ['patrol', 'keepout', 'initial-pose'].includes(target) || !robotPose
+    );
   }
 
   function routePayload() {
@@ -837,6 +844,7 @@
     renderVision(telemetry);
     const safety = state.safety || {};
     const robot = state.robot || {};
+    const localization = state.configuration?.localization || {};
     const nextMap = state.configuration?.map || telemetry.map?.value?.name || currentMap;
     const mapChanged = nextMap !== currentMap;
     currentMap = nextMap;
@@ -852,6 +860,8 @@
       patrolAreas = [];
       selectedPatrolAreaId = '';
       plannedPath = [];
+      initialPoseDraft = null;
+      initialPosePromptedMap = '';
       waypoints.pickup = null;
       waypoints.dropoff = null;
       setTimeout(() => {
@@ -869,6 +879,53 @@
     elements['gate-reason'].textContent = safety.task_ready
       ? 'Navigation checks passed. Ready to dispatch.'
       : safety.task_gate_reason || 'Robot is not ready for autonomous tasks.';
+
+    const localizationState = localization.state || 'awaiting-initial-pose';
+    const localizationMethod = localization.method || 'initial-pose';
+    const stableSamples = Number(localization.stable_samples || 0);
+    const requiredSamples = Number(localization.required_samples || 20);
+    elements['localization-setup'].classList.toggle(
+      'ready',
+      localizationState === 'ready',
+    );
+    if (localizationState === 'ready') {
+      elements['localization-title'].textContent = 'Localization ready';
+      elements['localization-message'].textContent = localizationMethod === 'initial-pose'
+        ? 'The confirmed start pose and LiDAR matching are stable.'
+        : 'Automatic global LiDAR matching is stable.';
+    } else if (localizationState === 'matching') {
+      elements['localization-title'].textContent = localizationMethod === 'initial-pose'
+        ? 'Matching from selected pose'
+        : 'Automatic LiDAR matching';
+      elements['localization-message'].textContent = (
+        `Waiting for stable scan alignment · ${stableSamples}/${requiredSamples} samples.`
+      );
+    } else {
+      elements['localization-title'].textContent = 'Initial pose required';
+      elements['localization-message'].textContent = (
+        'Choose Set robot start, click its map position, select its facing direction, then confirm.'
+      );
+      if (initialPosePromptedMap !== currentMap) {
+        initialPosePromptedMap = currentMap;
+        setActiveTarget('initial-pose');
+      }
+    }
+    const requestedPose = localization.requested_pose;
+    if (!initialPoseDraft && Number.isFinite(requestedPose?.x)
+      && Number.isFinite(requestedPose?.y)
+      && Number.isFinite(requestedPose?.yaw)) {
+      initialPoseDraft = {
+        x: requestedPose.x,
+        y: requestedPose.y,
+        yaw: requestedPose.yaw,
+      };
+      const requestedYaw = Number(requestedPose.yaw).toFixed(4);
+      const yawOption = [...elements['initial-pose-yaw'].options].find(
+        (option) => Number(option.value).toFixed(4) === requestedYaw,
+      );
+      if (yawOption) elements['initial-pose-yaw'].value = yawOption.value;
+    }
+    elements['confirm-initial-pose'].disabled = !initialPoseDraft;
 
     const battery = telemetry.battery;
     const percentage = battery?.value?.percentage;
@@ -1005,7 +1062,9 @@
     elements['reset-estop'].classList.toggle('hidden', !latched);
     elements['submit-mission'].disabled = latched;
     elements['patrol-queue'].disabled = latched || !selectedPatrolAreaId;
-    elements['use-robot-pose'].disabled = ['patrol', 'keepout'].includes(activeTarget) || !robotPose;
+    elements['use-robot-pose'].disabled = (
+      ['patrol', 'keepout', 'initial-pose'].includes(activeTarget) || !robotPose
+    );
     drawMap();
   }
 
@@ -1069,7 +1128,7 @@
     const apply = document.createElement('button');
     apply.type = 'button';
     apply.className = 'apply-location';
-    const drawing = ['patrol', 'keepout'].includes(activeTarget);
+    const drawing = ['patrol', 'keepout', 'initial-pose'].includes(activeTarget);
     apply.disabled = drawing;
     apply.textContent = drawing
       ? 'Choose pickup or drop-off'
@@ -1266,6 +1325,8 @@
         showToast('Navigation tuning trial saved.');
       } else if (event.type === 'navigation.tuning_error') {
         showToast(`Navigation recorder error: ${event.data?.detail || 'unknown error'}`);
+      } else if (event.type === 'localization.ready') {
+        showToast('Localization is stable. Autonomous missions are unlocked.');
       }
     } catch (_) {
       return false;
@@ -1334,6 +1395,26 @@
   elements['map-canvas'].addEventListener('click', (event) => {
     const point = eventToWorld(event);
     if (!point) return;
+    if (activeTarget === 'initial-pose') {
+      const validation = validateMapPoint(point, 'Initial pose');
+      if (!validation.valid) {
+        elements['localization-message'].textContent = validation.reason;
+        return;
+      }
+      initialPoseDraft = {
+        x: Number(point.x.toFixed(3)),
+        y: Number(point.y.toFixed(3)),
+        yaw: Number(elements['initial-pose-yaw'].value),
+      };
+      elements['confirm-initial-pose'].disabled = false;
+      elements['localization-title'].textContent = 'Start pose selected';
+      elements['localization-message'].textContent = (
+        'Check the marker and arrow, then confirm to begin LiDAR matching.'
+      );
+      drawMap();
+      event.preventDefault();
+      return;
+    }
     if (activeTarget === 'keepout') {
       if (keepoutPolygon.length >= 24) {
         setKeepoutStatus('A keepout zone can contain at most twenty-four points.');
@@ -1408,8 +1489,35 @@
   if (window.ResizeObserver) new ResizeObserver(drawMap).observe(elements['map-stage']);
 
   elements['use-robot-pose'].addEventListener('click', () => {
-    if (!robotPose || ['patrol', 'keepout'].includes(activeTarget)) return;
+    if (!robotPose || ['patrol', 'keepout', 'initial-pose'].includes(activeTarget)) return;
     setWaypoint(activeTarget, robotPose, robotPose.yaw);
+  });
+
+  elements['initial-pose-yaw'].addEventListener('change', () => {
+    if (!initialPoseDraft) return;
+    initialPoseDraft.yaw = Number(elements['initial-pose-yaw'].value);
+    drawMap();
+  });
+
+  elements['confirm-initial-pose'].addEventListener('click', async () => {
+    if (!initialPoseDraft) return;
+    elements['confirm-initial-pose'].disabled = true;
+    elements['localization-title'].textContent = 'Starting localization';
+    elements['localization-message'].textContent = (
+      'Publishing the selected map pose and waiting for stable LiDAR matching.'
+    );
+    try {
+      await post('/api/v1/localization/initial-pose', {
+        map: currentMap,
+        ...initialPoseDraft,
+      });
+      showToast('Initial pose accepted. LiDAR matching has started.');
+      await refreshAll();
+    } catch (error) {
+      elements['confirm-initial-pose'].disabled = false;
+      elements['localization-title'].textContent = 'Initial pose rejected';
+      elements['localization-message'].textContent = error.message;
+    }
   });
 
   elements['clear-waypoints'].addEventListener('click', () => {
@@ -1590,7 +1698,7 @@
 
   elements['save-location'].addEventListener('click', async () => {
     const name = elements['location-name'].value.trim();
-    const waypointValue = ['patrol', 'keepout'].includes(activeTarget)
+    const waypointValue = ['patrol', 'keepout', 'initial-pose'].includes(activeTarget)
       ? null
       : waypoints[activeTarget];
     if (!name) { showToast('Enter a location name first.'); return; }
