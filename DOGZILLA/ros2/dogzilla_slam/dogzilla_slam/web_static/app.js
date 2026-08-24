@@ -209,6 +209,58 @@
     return Math.atan2(Math.sin(angle), Math.cos(angle));
   }
 
+  function headingValue(target) {
+    const select = elements[`${target}-yaw`];
+    if (select.value !== 'custom') {
+      const radians = Number(select.value);
+      return Number.isFinite(radians) ? normalizeAngle(radians) : null;
+    }
+    const rawDegrees = elements[`${target}-yaw-custom`].value.trim();
+    if (!rawDegrees) return null;
+    const degrees = Number(rawDegrees);
+    if (!Number.isFinite(degrees) || degrees < -360 || degrees > 360) {
+      return null;
+    }
+    return normalizeAngle(degrees * Math.PI / 180);
+  }
+
+  function syncCustomHeadingVisibility(target) {
+    const custom = elements[`${target}-yaw-custom`];
+    custom.classList.toggle(
+      'hidden',
+      elements[`${target}-yaw`].value !== 'custom',
+    );
+  }
+
+  function setHeadingControl(target, yaw) {
+    const select = elements[`${target}-yaw`];
+    const normalizedYaw = normalizeAngle(Number(yaw) || 0);
+    const compassOptions = [...select.options].filter(
+      (option) => option.value !== 'custom',
+    );
+    const closest = compassOptions.reduce((result, option) => {
+      const difference = Math.abs(
+        normalizeAngle(Number(option.value) - normalizedYaw),
+      );
+      return difference < result.difference ? { option, difference } : result;
+    }, { option: compassOptions[0], difference: Infinity });
+    if (closest.difference < 0.001) {
+      select.value = closest.option.value;
+    } else {
+      select.value = 'custom';
+      elements[`${target}-yaw-custom`].value = (
+        normalizedYaw * 180 / Math.PI
+      ).toFixed(1);
+    }
+    syncCustomHeadingVisibility(target);
+    return normalizedYaw;
+  }
+
+  function headingDegrees(yaw) {
+    const degrees = normalizeAngle(Number(yaw) || 0) * 180 / Math.PI;
+    return Math.round((degrees + 360) % 360);
+  }
+
   function decodeMapRuns(snapshot) {
     if (snapshot.encoding !== 'rle-value-count' || !Array.isArray(snapshot.runs)) {
       throw new Error('Gateway returned an unsupported occupancy-map encoding.');
@@ -491,22 +543,54 @@
     }
   }
 
-  function drawPose(context, point, color, label, radius = 7) {
+  function drawPose(context, point, color, label, radius = 4) {
     const screen = worldToScreen(point);
     if (!screen) return;
-    const headingWorld = {
-      x: point.x + Math.cos(point.yaw || 0) * 0.38,
-      y: point.y + Math.sin(point.yaw || 0) * 0.38,
+    const yaw = Number.isFinite(point.yaw) ? point.yaw : 0;
+    const directionWorld = {
+      x: point.x + Math.cos(yaw),
+      y: point.y + Math.sin(yaw),
     };
-    const heading = worldToScreen(headingWorld);
+    const direction = worldToScreen(directionWorld);
+    if (!direction) return;
+    const deltaX = direction.x - screen.x;
+    const deltaY = direction.y - screen.y;
+    const magnitude = Math.hypot(deltaX, deltaY);
+    if (magnitude < 0.001) return;
+    const unitX = deltaX / magnitude;
+    const unitY = deltaY / magnitude;
+    const arrowLength = 25;
+    const arrowHeadLength = 8;
+    const arrowHeadWidth = 5;
+    const tip = {
+      x: screen.x + unitX * arrowLength,
+      y: screen.y + unitY * arrowLength,
+    };
+    const arrowBase = {
+      x: tip.x - unitX * arrowHeadLength,
+      y: tip.y - unitY * arrowHeadLength,
+    };
     context.save();
     context.strokeStyle = color;
     context.fillStyle = color;
-    context.lineWidth = 3;
+    context.lineWidth = 2.5;
+    context.lineCap = 'round';
     context.beginPath();
     context.moveTo(screen.x, screen.y);
-    context.lineTo(heading.x, heading.y);
+    context.lineTo(tip.x, tip.y);
     context.stroke();
+    context.beginPath();
+    context.moveTo(tip.x, tip.y);
+    context.lineTo(
+      arrowBase.x - unitY * arrowHeadWidth,
+      arrowBase.y + unitX * arrowHeadWidth,
+    );
+    context.lineTo(
+      arrowBase.x + unitY * arrowHeadWidth,
+      arrowBase.y - unitX * arrowHeadWidth,
+    );
+    context.closePath();
+    context.fill();
     context.beginPath();
     context.arc(screen.x, screen.y, radius, 0, Math.PI * 2);
     context.fill();
@@ -514,7 +598,11 @@
     context.fillStyle = '#effff7';
     context.shadowColor = '#07110e';
     context.shadowBlur = 4;
-    context.fillText(label, screen.x + 10, screen.y - 9);
+    context.fillText(
+      `${label} · ${headingDegrees(yaw)}°`,
+      screen.x + 8,
+      screen.y - 7,
+    );
     context.restore();
   }
 
@@ -578,9 +666,9 @@
     if (patrolWaypoints.length > 1) {
       drawPolyline(context, patrolWaypoints, '#c78cff', true);
     }
-    if (robotPose) drawPose(context, robotPose, '#5ef0a6', 'DOGZILLA', 8);
+    if (robotPose) drawPose(context, robotPose, '#5ef0a6', 'DOGZILLA', 5);
     if (initialPoseDraft) {
-      drawPose(context, initialPoseDraft, '#ffbd59', 'SELECTED START', 7);
+      drawPose(context, initialPoseDraft, '#ffbd59', 'SELECTED START', 4);
     }
     if (waypoints.pickup) {
       const valid = validateMapPoint(waypoints.pickup, 'Pickup').valid;
@@ -617,25 +705,21 @@
   function syncWaypointFromInputs(target, requestPreview = true) {
     const x = inputValue(`${target}-x`);
     const y = inputValue(`${target}-y`);
-    const yaw = inputValue(`${target}-yaw`);
+    const yaw = headingValue(target);
     waypoints[target] = x === null || y === null || yaw === null
       ? null
       : { x, y, yaw: normalizeAngle(yaw) };
     plannedPath = [];
     syncAllWaypointValidation();
+    if (x !== null && y !== null && yaw === null) {
+      setMapMessage('Custom heading must be between -360° and 360°.');
+    }
     drawMap();
     if (requestPreview) scheduleRoutePreview();
   }
 
   function setWaypoint(target, point, yaw = 0, requestPreview = true) {
-    const heading = elements[`${target}-yaw`];
-    const options = [...heading.options];
-    const selected = options.reduce((closest, option) => {
-      const difference = Math.abs(normalizeAngle(Number(option.value) - yaw));
-      return difference < closest.difference ? { option, difference } : closest;
-    }, { option: options[0], difference: Infinity }).option;
-    heading.value = selected.value;
-    const selectedYaw = Number(selected.value);
+    const selectedYaw = setHeadingControl(target, yaw);
     const normalizedPoint = {
       x: Number(point.x.toFixed(3)),
       y: Number(point.y.toFixed(3)),
@@ -917,13 +1001,8 @@
       initialPoseDraft = {
         x: requestedPose.x,
         y: requestedPose.y,
-        yaw: requestedPose.yaw,
+        yaw: setHeadingControl('initial-pose', requestedPose.yaw),
       };
-      const requestedYaw = Number(requestedPose.yaw).toFixed(4);
-      const yawOption = [...elements['initial-pose-yaw'].options].find(
-        (option) => Number(option.value).toFixed(4) === requestedYaw,
-      );
-      if (yawOption) elements['initial-pose-yaw'].value = yawOption.value;
     }
     elements['confirm-initial-pose'].disabled = !initialPoseDraft;
 
@@ -1286,11 +1365,12 @@
   }
 
   function waypoint(form, prefix, label) {
+    const selected = waypoints[prefix];
     return {
       label,
-      x: Number(form.get(`${prefix}-x`)),
-      y: Number(form.get(`${prefix}-y`)),
-      yaw: Number(form.get(`${prefix}-yaw`)),
+      x: selected.x,
+      y: selected.y,
+      yaw: selected.yaw,
       dwell_seconds: Number(form.get(`${prefix}-dwell`)),
     };
   }
@@ -1386,10 +1466,20 @@
     drawMap();
   });
 
+  ['initial-pose', 'pickup', 'dropoff'].forEach(syncCustomHeadingVisibility);
+
   ['pickup', 'dropoff'].forEach((target) => {
-    ['x', 'y', 'yaw'].forEach((field) => {
+    ['x', 'y'].forEach((field) => {
       elements[`${target}-${field}`].addEventListener('input', () => syncWaypointFromInputs(target));
     });
+    elements[`${target}-yaw`].addEventListener('change', () => {
+      syncCustomHeadingVisibility(target);
+      syncWaypointFromInputs(target);
+    });
+    elements[`${target}-yaw-custom`].addEventListener(
+      'input',
+      () => syncWaypointFromInputs(target),
+    );
   });
 
   elements['map-canvas'].addEventListener('click', (event) => {
@@ -1401,10 +1491,17 @@
         elements['localization-message'].textContent = validation.reason;
         return;
       }
+      const yaw = headingValue('initial-pose');
+      if (yaw === null) {
+        elements['localization-message'].textContent = (
+          'Custom heading must be between -360° and 360°.'
+        );
+        return;
+      }
       initialPoseDraft = {
         x: Number(point.x.toFixed(3)),
         y: Number(point.y.toFixed(3)),
-        yaw: Number(elements['initial-pose-yaw'].value),
+        yaw,
       };
       elements['confirm-initial-pose'].disabled = false;
       elements['localization-title'].textContent = 'Start pose selected';
@@ -1479,7 +1576,11 @@
       setMapMessage(validation.reason);
       return;
     }
-    const yaw = inputValue(`${activeTarget}-yaw`) || 0;
+    const yaw = headingValue(activeTarget);
+    if (yaw === null) {
+      setMapMessage('Custom heading must be between -360° and 360°.');
+      return;
+    }
     const completedTarget = activeTarget;
     setWaypoint(activeTarget, point, yaw);
     if (completedTarget === 'pickup' && !waypoints.dropoff) setActiveTarget('dropoff');
@@ -1494,8 +1595,39 @@
   });
 
   elements['initial-pose-yaw'].addEventListener('change', () => {
+    syncCustomHeadingVisibility('initial-pose');
     if (!initialPoseDraft) return;
-    initialPoseDraft.yaw = Number(elements['initial-pose-yaw'].value);
+    const yaw = headingValue('initial-pose');
+    if (yaw === null) {
+      elements['confirm-initial-pose'].disabled = true;
+      elements['localization-message'].textContent = (
+        'Custom heading must be between -360° and 360°.'
+      );
+      return;
+    }
+    initialPoseDraft.yaw = yaw;
+    elements['confirm-initial-pose'].disabled = false;
+    elements['localization-message'].textContent = (
+      'Check the marker and arrow, then confirm to begin LiDAR matching.'
+    );
+    drawMap();
+  });
+
+  elements['initial-pose-yaw-custom'].addEventListener('input', () => {
+    if (!initialPoseDraft) return;
+    const yaw = headingValue('initial-pose');
+    if (yaw === null) {
+      elements['confirm-initial-pose'].disabled = true;
+      elements['localization-message'].textContent = (
+        'Custom heading must be between -360° and 360°.'
+      );
+      return;
+    }
+    initialPoseDraft.yaw = yaw;
+    elements['confirm-initial-pose'].disabled = false;
+    elements['localization-message'].textContent = (
+      'Check the marker and arrow, then confirm to begin LiDAR matching.'
+    );
     drawMap();
   });
 

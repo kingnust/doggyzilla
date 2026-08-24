@@ -134,6 +134,7 @@ main { padding-top: 2rem; }
 .localization-setup p { margin: .25rem 0 0; color: var(--muted); font-size: .7rem; }
 .localization-setup label { color: var(--muted); font-size: .68rem; }
 .localization-setup select { display: block; min-width: 9.5rem; margin-top: .25rem; padding: .45rem; }
+.localization-setup .custom-heading { width: 9.5rem; margin-top: .35rem; padding: .45rem; }
 .map-toolbar { display: flex; flex-wrap: wrap; gap: .55rem; margin-bottom: .75rem; }
 .toolbar-spacer { flex: 1 1 1rem; }
 .map-zoom-level { display: inline-grid; min-width: 3.5rem; place-items: center; color: var(--muted); font: 700 .7rem "SFMono-Regular", Consolas, monospace; }
@@ -182,6 +183,7 @@ input[readonly] { color: #b8c9c1; background: #09120f; cursor: default; }
 .waypoint-dot.keepout { background: #ff725e; box-shadow: 0 0 .6rem #ff725e; }
 .field-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: .65rem; }
 .field-grid label { display: grid; gap: .35rem; }.field-grid input, .field-grid select { width: 100%; }
+.field-grid .custom-heading { margin-top: 0; }
 
 button { padding: .68rem 1rem; border: 0; border-radius: .65rem; color: var(--text); font-weight: 800; transition: transform .16s ease, opacity .16s ease, background .16s ease; }
 button:hover { transform: translateY(-1px); } button:active { transform: translateY(0); } button:disabled { cursor: not-allowed; opacity: .45; transform: none; }

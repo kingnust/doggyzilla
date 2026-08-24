@@ -69,6 +69,9 @@ class WebDashboardTest(unittest.TestCase):
             'localization-title',
             'localization-message',
             'initial-pose-yaw',
+            'initial-pose-yaw-custom',
+            'pickup-yaw-custom',
+            'dropoff-yaw-custom',
             'confirm-initial-pose',
             'route-preview',
             'location-name',
@@ -114,7 +117,7 @@ class WebDashboardTest(unittest.TestCase):
             with self.subTest(element_id=element_id):
                 self.assertIn(f'id="{element_id}"', html)
 
-    def test_map_editor_uses_clicks_and_fixed_heading_choices(self):
+    def test_map_editor_uses_clicks_and_custom_heading_choices(self):
         html = (STATIC_DIRECTORY / 'index.html').read_text()
         javascript = (STATIC_DIRECTORY / 'app.js').read_text()
 
@@ -124,12 +127,25 @@ class WebDashboardTest(unittest.TestCase):
         self.assertIn('<select id="pickup-yaw"', html)
         self.assertIn('<select id="dropoff-yaw"', html)
         self.assertIn('<select id="initial-pose-yaw"', html)
+        self.assertIn('id="pickup-yaw-custom"', html)
+        self.assertIn('id="dropoff-yaw-custom"', html)
+        self.assertIn('id="initial-pose-yaw-custom"', html)
+        self.assertEqual(html.count('<option value="custom">Custom…</option>'), 3)
         self.assertIn('data-map-target="initial-pose"', html)
         self.assertIn(
             "'/api/v1/localization/initial-pose'",
             javascript,
         )
         self.assertIn('North · 90°', html)
+        self.assertIn('function headingValue(target)', javascript)
+        self.assertIn("select.value = 'custom'", javascript)
+        self.assertIn('const arrowLength = 25', javascript)
+        self.assertIn('context.closePath()', javascript)
+        self.assertIn(
+            'function drawPose(context, point, color, label, radius = 4)',
+            javascript,
+        )
+        self.assertIn('`${label} · ${headingDegrees(yaw)}°`', javascript)
         self.assertIn('Draw patrol area', html)
         self.assertIn("'/api/v1/patrol-areas/preview'", javascript)
         self.assertIn('Draw keepout', html)

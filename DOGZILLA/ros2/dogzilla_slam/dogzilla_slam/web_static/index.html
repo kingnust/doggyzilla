@@ -172,7 +172,20 @@
                     <option value="-2.3562">South-west · 225°</option>
                     <option value="-1.5708">South · 270°</option>
                     <option value="-0.7854">South-east · 315°</option>
+                    <option value="custom">Custom…</option>
                   </select>
+                  <input
+                    id="initial-pose-yaw-custom"
+                    class="custom-heading hidden"
+                    type="number"
+                    min="-360"
+                    max="360"
+                    step="1"
+                    value="0"
+                    inputmode="decimal"
+                    aria-label="Custom robot start heading in degrees"
+                    placeholder="Degrees"
+                  >
                 </label>
                 <button class="target-button" type="button" data-map-target="initial-pose">Set robot start</button>
                 <button id="confirm-initial-pose" class="primary compact" type="button" disabled>Confirm pose</button>
@@ -320,7 +333,20 @@
                       <option value="-2.3562">South-west · 225°</option>
                       <option value="-1.5708">South · 270°</option>
                       <option value="-0.7854">South-east · 315°</option>
+                      <option value="custom">Custom…</option>
                     </select>
+                    <input
+                      id="pickup-yaw-custom"
+                      class="custom-heading hidden"
+                      type="number"
+                      min="-360"
+                      max="360"
+                      step="1"
+                      value="0"
+                      inputmode="decimal"
+                      aria-label="Custom pickup heading in degrees"
+                      placeholder="Degrees"
+                    >
                   </label>
                   <label>Wait (s) <input name="pickup-dwell" type="number" min="0" max="300" step="1" value="5" required></label>
                 </div>
@@ -341,7 +367,20 @@
                       <option value="-2.3562">South-west · 225°</option>
                       <option value="-1.5708">South · 270°</option>
                       <option value="-0.7854">South-east · 315°</option>
+                      <option value="custom">Custom…</option>
                     </select>
+                    <input
+                      id="dropoff-yaw-custom"
+                      class="custom-heading hidden"
+                      type="number"
+                      min="-360"
+                      max="360"
+                      step="1"
+                      value="0"
+                      inputmode="decimal"
+                      aria-label="Custom drop-off heading in degrees"
+                      placeholder="Degrees"
+                    >
                   </label>
                   <label>Wait (s) <input name="dropoff-dwell" type="number" min="0" max="300" step="1" value="0" required></label>
                 </div>
