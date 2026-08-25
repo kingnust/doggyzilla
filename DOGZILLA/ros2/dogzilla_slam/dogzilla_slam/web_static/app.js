@@ -15,6 +15,10 @@
   let mapImage = null;
   let mapView = null;
   let mapZoom = 1;
+  let mapPan = { x: 0, y: 0 };
+  let mapPanMode = false;
+  let mapPanDrag = null;
+  let suppressMapClickUntil = 0;
   let robotPose = null;
   let initialPoseDraft = null;
   let initialPosePromptedMap = '';
@@ -353,6 +357,17 @@
     return localToWorld(local);
   }
 
+  function setMapPanMode(enabled) {
+    mapPanMode = Boolean(enabled) && mapZoom > 1;
+    elements['map-pan'].classList.toggle('active', mapPanMode);
+    elements['map-pan'].setAttribute('aria-pressed', String(mapPanMode));
+    elements['map-canvas'].classList.toggle('pan-mode', mapPanMode);
+    if (!mapPanMode) {
+      mapPanDrag = null;
+      elements['map-canvas'].classList.remove('panning');
+    }
+  }
+
   function pointInPolygon(point, polygon) {
     let inside = false;
     for (let index = 0; index < polygon.length; index += 1) {
@@ -629,10 +644,22 @@
       (bounds.height - padding * 2) / mapSnapshot.height,
     ));
     const scale = fitScale * mapZoom;
+    const scaledWidth = mapSnapshot.width * scale;
+    const scaledHeight = mapSnapshot.height * scale;
+    const maximumPanX = Math.max(
+      0,
+      (scaledWidth - (bounds.width - padding * 2)) / 2,
+    );
+    const maximumPanY = Math.max(
+      0,
+      (scaledHeight - (bounds.height - padding * 2)) / 2,
+    );
+    mapPan.x = Math.max(-maximumPanX, Math.min(maximumPanX, mapPan.x));
+    mapPan.y = Math.max(-maximumPanY, Math.min(maximumPanY, mapPan.y));
     mapView = {
       scale,
-      offsetX: (bounds.width - mapSnapshot.width * scale) / 2,
-      offsetY: (bounds.height - mapSnapshot.height * scale) / 2,
+      offsetX: (bounds.width - scaledWidth) / 2 + mapPan.x,
+      offsetY: (bounds.height - scaledHeight) / 2 + mapPan.y,
     };
     context.imageSmoothingEnabled = false;
     context.drawImage(
@@ -654,6 +681,8 @@
     elements['map-zoom-level'].textContent = `${Math.round(mapZoom * 100)}%`;
     elements['map-zoom-out'].disabled = mapZoom <= 1;
     elements['map-zoom-in'].disabled = mapZoom >= 4;
+    elements['map-pan'].disabled = mapZoom <= 1;
+    if (mapZoom <= 1 && mapPanMode) setMapPanMode(false);
     drawKeepoutZones(context);
 
     if (plannedPath.length > 1) {
@@ -683,10 +712,23 @@
   async function refreshMap(force = false) {
     const snapshot = await api('/api/v1/map');
     if (!force && mapSnapshot && snapshot.revision === mapSnapshot.revision) return;
+    const geometryChanged = !mapSnapshot
+      || snapshot.name !== mapSnapshot.name
+      || snapshot.width !== mapSnapshot.width
+      || snapshot.height !== mapSnapshot.height
+      || snapshot.resolution !== mapSnapshot.resolution
+      || snapshot.origin.x !== mapSnapshot.origin.x
+      || snapshot.origin.y !== mapSnapshot.origin.y
+      || snapshot.origin.yaw !== mapSnapshot.origin.yaw;
     const cells = decodeMapRuns(snapshot);
     mapSnapshot = snapshot;
     mapCells = cells;
     mapImage = createMapImage(snapshot, cells);
+    if (geometryChanged) {
+      mapPan = { x: 0, y: 0 };
+      mapZoom = 1;
+      setMapPanMode(false);
+    }
     plannedPath = [];
     elements['map-loading'].classList.add('hidden');
     elements['map-editor-chip'].textContent = `map: ${snapshot.name}`;
@@ -946,6 +988,9 @@
       plannedPath = [];
       initialPoseDraft = null;
       initialPosePromptedMap = '';
+      mapPan = { x: 0, y: 0 };
+      mapZoom = 1;
+      setMapPanMode(false);
       waypoints.pickup = null;
       waypoints.dropoff = null;
       setTimeout(() => {
@@ -1032,6 +1077,10 @@
       };
     }
     elements['confirm-initial-pose'].disabled = !initialPoseDraft;
+    elements['stop-initial-pose-matching'].disabled = ![
+      'matching',
+      'reposition-required',
+    ].includes(localizationState);
 
     const battery = telemetry.battery;
     const percentage = battery?.value?.percentage;
@@ -1136,7 +1185,13 @@
       const count = points * repeats;
       const step = Math.min(count, Number(active.current_step || 0));
       elements['active-task'].textContent = active.name;
-      elements['active-task-detail'].textContent = `${active.state} · point ${Math.min(step + 1, count)} of ${count}`;
+      if (active.kind === 'delivery' && active.state === 'waiting') {
+        elements['active-task-detail'].textContent = 'Pickup reached · load the item, then press Continue delivery';
+      } else if (active.kind === 'delivery' && active.state === 'paused') {
+        elements['active-task-detail'].textContent = `Paused · next point ${Math.min(step + 1, count)} of ${count}`;
+      } else {
+        elements['active-task-detail'].textContent = `${active.state} · point ${Math.min(step + 1, count)} of ${count}`;
+      }
       elements['task-progress'].style.width = `${Math.round((step / count) * 100)}%`;
     } else {
       elements['active-task'].textContent = 'None';
@@ -1188,7 +1243,33 @@
     const total = (task.payload?.waypoints?.length || 0) * Number(task.payload?.repeats || 1);
     meta.textContent = `${task.kind} · ${task.current_step}/${total} stops · ${new Date(task.created_at).toLocaleString()}`;
     item.append(name, state, meta);
-    if (['queued', 'running', 'cancelling'].includes(task.state)) {
+    if (task.kind === 'delivery' && task.state === 'running') {
+      const pause = document.createElement('button');
+      pause.className = 'delivery-task-action';
+      pause.type = 'button';
+      pause.textContent = 'Pause delivery';
+      pause.addEventListener('click', () => pauseDelivery(task.id));
+      item.append(pause);
+    } else if (task.kind === 'delivery' && task.state === 'pausing') {
+      const pausing = document.createElement('button');
+      pausing.className = 'delivery-task-action';
+      pausing.type = 'button';
+      pausing.textContent = 'Pausing delivery…';
+      pausing.disabled = true;
+      item.append(pausing);
+    } else if (
+      task.kind === 'delivery' && ['paused', 'waiting'].includes(task.state)
+    ) {
+      const resume = document.createElement('button');
+      resume.className = 'delivery-task-action';
+      resume.type = 'button';
+      resume.textContent = task.state === 'waiting'
+        ? 'Continue after pickup'
+        : 'Continue delivery';
+      resume.addEventListener('click', () => continueDelivery(task.id));
+      item.append(resume);
+    }
+    if (['queued', 'running', 'pausing', 'paused', 'waiting', 'cancelling'].includes(task.state)) {
       const cancel = document.createElement('button');
       cancel.className = 'cancel-task';
       cancel.type = 'button';
@@ -1374,6 +1455,22 @@
     } catch (error) { showToast(error.message); }
   }
 
+  async function pauseDelivery(taskId) {
+    try {
+      await post(`/api/v1/tasks/${encodeURIComponent(taskId)}/pause`);
+      showToast('Delivery pause requested.');
+      await refreshAll();
+    } catch (error) { showToast(error.message); }
+  }
+
+  async function continueDelivery(taskId) {
+    try {
+      await post(`/api/v1/tasks/${encodeURIComponent(taskId)}/continue`);
+      showToast('Delivery continued.');
+      await refreshAll();
+    } catch (error) { showToast(error.message); }
+  }
+
   async function updateAutonomousSpeed() {
     const speedLevel = Math.round(Number(elements['drive-speed'].value));
     const turnLevel = Math.round(Number(elements['drive-turn'].value));
@@ -1393,13 +1490,16 @@
 
   function waypoint(form, prefix, label) {
     const selected = waypoints[prefix];
-    return {
+    const value = {
       label,
       x: selected.x,
       y: selected.y,
       yaw: selected.yaw,
       dwell_seconds: Number(form.get(`${prefix}-dwell`)),
     };
+    const continueMode = form.get(`${prefix}-continue-mode`);
+    if (continueMode) value.continue_mode = continueMode;
+    return value;
   }
 
   function handleGatewayEvent(record) {
@@ -1490,7 +1590,12 @@
   });
   elements['map-zoom-fit'].addEventListener('click', () => {
     mapZoom = 1;
+    mapPan = { x: 0, y: 0 };
+    setMapPanMode(false);
     drawMap();
+  });
+  elements['map-pan'].addEventListener('click', () => {
+    setMapPanMode(!mapPanMode);
   });
 
   ['initial-pose', 'pickup', 'dropoff'].forEach(syncCustomHeadingVisibility);
@@ -1509,7 +1614,53 @@
     );
   });
 
+  elements['map-canvas'].addEventListener('pointerdown', (event) => {
+    const handDrag = mapPanMode && event.button === 0;
+    const middleDrag = event.button === 1;
+    if ((!handDrag && !middleDrag) || mapZoom <= 1) return;
+    mapPanDrag = {
+      pointerId: event.pointerId,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      panX: mapPan.x,
+      panY: mapPan.y,
+      moved: false,
+    };
+    elements['map-canvas'].setPointerCapture(event.pointerId);
+    elements['map-canvas'].classList.add('panning');
+    event.preventDefault();
+  });
+
+  elements['map-canvas'].addEventListener('pointermove', (event) => {
+    if (!mapPanDrag || event.pointerId !== mapPanDrag.pointerId) return;
+    const deltaX = event.clientX - mapPanDrag.clientX;
+    const deltaY = event.clientY - mapPanDrag.clientY;
+    mapPanDrag.moved = mapPanDrag.moved || Math.hypot(deltaX, deltaY) > 3;
+    mapPan.x = mapPanDrag.panX + deltaX;
+    mapPan.y = mapPanDrag.panY + deltaY;
+    drawMap();
+    event.preventDefault();
+  });
+
+  function finishMapPan(event) {
+    if (!mapPanDrag || event.pointerId !== mapPanDrag.pointerId) return;
+    if (mapPanDrag.moved) suppressMapClickUntil = performance.now() + 250;
+    if (elements['map-canvas'].hasPointerCapture(event.pointerId)) {
+      elements['map-canvas'].releasePointerCapture(event.pointerId);
+    }
+    mapPanDrag = null;
+    elements['map-canvas'].classList.remove('panning');
+    event.preventDefault();
+  }
+
+  elements['map-canvas'].addEventListener('pointerup', finishMapPan);
+  elements['map-canvas'].addEventListener('pointercancel', finishMapPan);
+
   elements['map-canvas'].addEventListener('click', (event) => {
+    if (mapPanMode || performance.now() < suppressMapClickUntil) {
+      event.preventDefault();
+      return;
+    }
     const point = eventToWorld(event);
     if (!point) return;
     if (activeTarget === 'initial-pose') {
@@ -1676,6 +1827,21 @@
       elements['confirm-initial-pose'].disabled = false;
       elements['localization-title'].textContent = 'Initial pose rejected';
       elements['localization-message'].textContent = error.message;
+    }
+  });
+
+  elements['stop-initial-pose-matching'].addEventListener('click', async () => {
+    elements['stop-initial-pose-matching'].disabled = true;
+    try {
+      await post('/api/v1/localization/stop');
+      initialPoseDraft = null;
+      setActiveTarget('initial-pose');
+      showToast('Initial-pose matching stopped. Select a new start area.');
+      await refreshAll();
+    } catch (error) {
+      elements['localization-title'].textContent = 'Could not stop matching';
+      elements['localization-message'].textContent = error.message;
+      elements['stop-initial-pose-matching'].disabled = false;
     }
   });
 

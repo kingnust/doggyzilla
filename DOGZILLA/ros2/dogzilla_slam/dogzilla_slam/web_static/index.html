@@ -147,7 +147,7 @@
             <div>
               <p class="eyebrow">Visual mission planning</p>
               <h2 id="map-editor-title">Map waypoint editor</h2>
-              <p class="subtle map-instructions">Choose a waypoint, patrol area, or keepout zone, then click the map. Coordinates remain in the map frame at every zoom level; this editor never uses drag-and-drop.</p>
+              <p class="subtle map-instructions">Choose a waypoint, patrol area, or keepout zone, then click the map. Use Hand to pan a zoomed map; panning never changes map coordinates or markers.</p>
             </div>
             <div class="map-status-cluster">
               <span id="map-editor-chip" class="map-chip">waiting for map</span>
@@ -189,6 +189,7 @@
                 </label>
                 <button class="target-button" type="button" data-map-target="initial-pose">Set robot start</button>
                 <button id="confirm-initial-pose" class="primary compact" type="button" disabled>Confirm pose</button>
+                <button id="stop-initial-pose-matching" class="ghost compact" type="button" disabled>Stop matching</button>
               </div>
               <div class="map-toolbar" role="group" aria-label="Waypoint selection">
                 <button class="target-button active" type="button" data-map-target="pickup"><span class="waypoint-dot pickup"></span>Select pickup</button>
@@ -202,6 +203,7 @@
                 <span id="map-zoom-level" class="map-zoom-level">100%</span>
                 <button id="map-zoom-in" class="ghost compact" type="button" aria-label="Zoom map in">+</button>
                 <button id="map-zoom-fit" class="ghost compact" type="button">Fit</button>
+                <button id="map-pan" class="ghost compact" type="button" aria-pressed="false">Hand</button>
               </div>
               <div id="map-stage" class="map-stage">
                 <canvas id="map-canvas" tabindex="0" aria-label="DOGZILLA occupancy map waypoint editor"></canvas>
@@ -348,7 +350,13 @@
                       placeholder="Degrees"
                     >
                   </label>
-                  <label>Wait (s) <input name="pickup-dwell" type="number" min="0" max="300" step="1" value="5" required></label>
+                  <label>Continue
+                    <select id="pickup-continue-mode" name="pickup-continue-mode" required>
+                      <option value="manual" selected>Manual button</option>
+                      <option value="automatic">After timed wait</option>
+                    </select>
+                  </label>
+                  <label>Timed wait (s) <input name="pickup-dwell" type="number" min="0" max="300" step="1" value="5" required></label>
                 </div>
               </div>
 
@@ -386,6 +394,7 @@
                 </div>
               </div>
 
+              <p class="subtle">At Pickup, choose either a manual Continue button or automatic continuation after the timed wait. A running delivery can also be paused and resumed from the mission queue.</p>
               <button id="submit-mission" class="primary" type="submit">Queue delivery</button>
               <p id="mission-message" class="form-message" role="status"></p>
             </form>

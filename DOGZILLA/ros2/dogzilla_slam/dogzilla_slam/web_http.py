@@ -307,6 +307,22 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                     HTTPStatus.OK,
                     self.server.service.cancel_task(task_id),
                 )
+            elif path.startswith('/api/v1/tasks/') and path.endswith('/pause'):
+                task_id = path.removeprefix('/api/v1/tasks/').removesuffix(
+                    '/pause'
+                )
+                self._json(
+                    HTTPStatus.OK,
+                    self.server.service.pause_delivery(task_id),
+                )
+            elif path.startswith('/api/v1/tasks/') and path.endswith('/continue'):
+                task_id = path.removeprefix('/api/v1/tasks/').removesuffix(
+                    '/continue'
+                )
+                self._json(
+                    HTTPStatus.OK,
+                    self.server.service.continue_delivery(task_id),
+                )
             elif path == '/api/v1/estop':
                 self._json(HTTPStatus.OK, self.server.service.emergency_stop())
             elif path == '/api/v1/estop/reset':
@@ -330,6 +346,11 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                 self._json(
                     HTTPStatus.OK,
                     self.server.service.set_initial_pose(body),
+                )
+            elif path == '/api/v1/localization/stop':
+                self._json(
+                    HTTPStatus.OK,
+                    self.server.service.stop_initial_pose_matching(),
                 )
             elif path == '/api/v1/autonomy/speed':
                 self._json(

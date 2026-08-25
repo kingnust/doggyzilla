@@ -216,7 +216,7 @@ class DogzillaWebGateway(Node):
         )
         self._localization_maximum_correction_m = self._float_environment(
             'DOGZILLA_WEB_LOCALIZATION_MAX_CORRECTION_M',
-            0.80,
+            1.0,
             0.10,
             3.0,
         )
@@ -235,7 +235,7 @@ class DogzillaWebGateway(Node):
         self._linear_speed = 0.0
         self._angular_speed = 0.0
         self._drive_speed_level = 4
-        self._drive_turn_level = 4
+        self._drive_turn_level = 1
         self._autonomy_update_pending = False
         self._manual_command_until = 0.0
         self._map_switch_pending = False
@@ -392,6 +392,11 @@ class DogzillaWebGateway(Node):
         self._initial_pose_publisher = self.create_publisher(
             PoseWithCovarianceStamped,
             '/initialpose',
+            10,
+        )
+        self._localization_cancel_publisher = self.create_publisher(
+            Bool,
+            '/localization/cancel',
             10,
         )
         self._safe_base_parameters = self.create_client(
@@ -684,10 +689,12 @@ class DogzillaWebGateway(Node):
     def _on_battery(self, message):
         percentage = None
         if math.isfinite(message.percentage):
-            percentage = round(float(message.percentage) * 100.0, 1)
+            candidate = round(float(message.percentage) * 100.0, 1)
+            if 0.0 < candidate <= 100.0:
+                percentage = candidate
         value = {
             'percentage': percentage,
-            'present': bool(message.present),
+            'present': bool(message.present) and percentage is not None,
         }
         self.telemetry.update('battery', value)
 
@@ -1448,12 +1455,34 @@ class DogzillaWebGateway(Node):
             self.events.publish('robot.mode', graph)
 
     def _battery_gate(self):
+        """Require fresh valid battery data before starting a new task."""
         battery = self.telemetry.get('battery', stale_after=12.0)
         if battery is None or battery['stale']:
             return False, 'fresh battery telemetry is unavailable'
         battery_value = battery['value']
         if not battery_value['present'] or battery_value['percentage'] is None:
             return False, 'battery telemetry is invalid'
+        if battery_value['percentage'] < self.minimum_battery:
+            return False, (
+                f"battery {battery_value['percentage']:.1f}% is below the "
+                f'{self.minimum_battery:.1f}% task minimum'
+            )
+        return True, 'ready'
+
+    def _active_battery_gate(self):
+        """Stop active motion only for a confirmed valid low-battery value."""
+        battery = self.telemetry.get('battery', stale_after=12.0)
+        if battery is None or battery['stale']:
+            return True, (
+                'battery telemetry is unavailable; active motion continues '
+                'with the last confirmed battery safety state'
+            )
+        battery_value = battery['value']
+        if not battery_value['present'] or battery_value['percentage'] is None:
+            return True, (
+                'battery telemetry is invalid; active motion continues with '
+                'the last confirmed battery safety state'
+            )
         if battery_value['percentage'] < self.minimum_battery:
             return False, (
                 f"battery {battery_value['percentage']:.1f}% is below the "
@@ -1645,6 +1674,47 @@ class DogzillaWebGateway(Node):
         self.events.publish('localization.initial_pose_requested', result)
         return result
 
+    def stop_initial_pose_matching(self):
+        """Stop one initial-pose matching attempt without moving the robot."""
+        if self._localization_cancel_publisher.get_subscription_count() < 1:
+            raise ConflictError(
+                'localization manager is not ready to stop matching'
+            )
+        with self._lock:
+            if self._active is not None:
+                raise ConflictError(
+                    'cancel or finish the active task before stopping '
+                    'localization'
+                )
+            if self._localization_state not in {
+                'matching',
+                'reposition-required',
+            }:
+                raise ConflictError(
+                    'initial-pose matching is not currently active'
+                )
+            self._localization_requested_pose = None
+            self._reset_localization_progress('awaiting-initial-pose')
+            self._manual_command_until = 0.0
+
+        self.telemetry.discard('pose', 'localization_quality')
+        try:
+            self._tf_buffer.clear()
+        except AttributeError:
+            pass
+        self._publish_stop()
+        command = Bool()
+        command.data = True
+        self._localization_cancel_publisher.publish(command)
+        result = {
+            'map': self.map_name,
+            'state': 'awaiting-initial-pose',
+            'movement_action': 'stop-only',
+            'trajectory_action': 'finish-requested',
+        }
+        self.events.publish('localization.matching_stopped', result)
+        return result
+
     def prepare_map_switch(self, value):
         """Freeze motion and task dispatch before localization is stopped."""
         if not isinstance(value, dict):
@@ -1710,7 +1780,7 @@ class DogzillaWebGateway(Node):
             self._keepout_map_signature = None
             self._manual_command_until = 0.0
             self._drive_speed_level = 4
-            self._drive_turn_level = 4
+            self._drive_turn_level = 1
             self._map_switch_pending = True
             self._map_switch_target = map_name
             self._map_switch_received_map = False
@@ -2313,7 +2383,11 @@ class DogzillaWebGateway(Node):
         with self._lock:
             self._cancel_requests.add(task_id)
             self._cancel_reasons[task_id] = 'Cancelled by operator'
-        if task['state'] == 'queued':
+        with self._lock:
+            active_task_id = (
+                self._active['task_id'] if self._active is not None else None
+            )
+        if task['state'] in {'queued', 'paused'} and active_task_id != task_id:
             task = self.store.update(
                 task_id,
                 state='cancelled',
@@ -2326,6 +2400,81 @@ class DogzillaWebGateway(Node):
             return task
         task = self.store.update(task_id, state='cancelling')
         self.events.publish('task.cancelling', task)
+        return task
+
+    def pause_delivery(self, task_id):
+        """Pause one delivery without discarding its current waypoint."""
+        task = self.store.get(task_id)
+        if task is None:
+            raise KeyError(task_id)
+        if task['kind'] != 'delivery':
+            raise ConflictError('only delivery tasks can be paused')
+        if task['state'] in {'completed', 'failed', 'cancelled'}:
+            raise ConflictError(f"delivery is already {task['state']}")
+
+        with self._lock:
+            active = self._active
+            is_active = active is not None and active['task_id'] == task_id
+            if is_active and active.get('checkpoint'):
+                raise ConflictError(
+                    'delivery is already waiting for operator confirmation'
+                )
+            if is_active and active.get('pause_requested'):
+                raise ConflictError('delivery pause is already in progress')
+            if is_active and active.get('paused'):
+                raise ConflictError('delivery is already paused')
+            if is_active:
+                active['pause_requested'] = True
+
+        if not is_active:
+            if task['state'] != 'queued':
+                raise ConflictError('delivery is not active or queued')
+            task = self.store.update(task_id, state='paused', error='')
+            self.events.publish('task.paused', task)
+            return task
+
+        task = self.store.update(task_id, state='pausing', error='')
+        self.events.publish('task.pausing', task)
+        self._request_active_pause()
+        return self.store.get(task_id)
+
+    def continue_delivery(self, task_id):
+        """Resume a paused delivery or release its pickup checkpoint."""
+        task = self.store.get(task_id)
+        if task is None:
+            raise KeyError(task_id)
+        if task['kind'] != 'delivery':
+            raise ConflictError('only delivery tasks can be continued')
+        if task['state'] in {'completed', 'failed', 'cancelled'}:
+            raise ConflictError(f"delivery is already {task['state']}")
+
+        with self._lock:
+            active = self._active
+            is_active = active is not None and active['task_id'] == task_id
+            if is_active and active.get('pause_requested'):
+                raise ConflictError(
+                    'wait for the delivery pause to finish before continuing'
+                )
+            can_continue = is_active and (
+                active.get('paused') or active.get('checkpoint')
+            )
+            if can_continue:
+                active['paused'] = False
+                active['checkpoint'] = None
+                active['cancel_sent'] = False
+
+        if not is_active:
+            if task['state'] != 'paused':
+                raise ConflictError('delivery is not paused')
+            task = self.store.update(task_id, state='queued', error='')
+            self.events.publish('task.resumed', task)
+            return task
+        if not can_continue:
+            raise ConflictError('delivery is not paused or waiting')
+
+        task = self.store.update(task_id, state='running', error='')
+        self.events.publish('task.resumed', task)
+        self._send_current_waypoint()
         return task
 
     def emergency_stop(self):
@@ -2389,7 +2538,7 @@ class DogzillaWebGateway(Node):
 
         if active is not None:
             task_id = active['task_id']
-            battery_ready, battery_reason = self._battery_gate()
+            battery_ready, battery_reason = self._active_battery_gate()
             patrol_vision_ready = True
             patrol_vision_reason = 'ready'
             if active['payload']['kind'] == 'patrol':
@@ -2450,6 +2599,9 @@ class DogzillaWebGateway(Node):
             'sending': False,
             'cancel_sent': False,
             'dwell_until': None,
+            'pause_requested': False,
+            'paused': False,
+            'checkpoint': None,
         }
         with self._lock:
             if self._active is not None or self._estop_latched:
@@ -2518,10 +2670,13 @@ class DogzillaWebGateway(Node):
                 self._active['task_id'] in self._cancel_requests
                 or self._estop_latched
             )
+            pause_requested = self._active.get('pause_requested', False)
         result_future = goal_handle.get_result_async()
         result_future.add_done_callback(self._on_goal_result)
         if cancel_requested:
             self._request_active_cancel()
+        elif pause_requested:
+            self._request_active_pause()
 
     def _on_goal_result(self, future):
         try:
@@ -2537,6 +2692,7 @@ class DogzillaWebGateway(Node):
             cancel_requested = (
                 task_id in self._cancel_requests or self._estop_latched
             )
+            pause_requested = self._active.get('pause_requested', False)
             cancel_reason = self._cancel_reasons.get(
                 task_id,
                 'Cancelled by operator',
@@ -2547,8 +2703,19 @@ class DogzillaWebGateway(Node):
             waypoint_count = len(self._active['payload']['waypoints'])
             repeats = int(self._active['payload'].get('repeats', 1))
             cycle = self._active['cycle']
+            task_kind = self._active['payload']['kind']
             self._active['goal_handle'] = None
             self._active['sending'] = False
+            self._active['cancel_sent'] = False
+        if pause_requested and status == GoalStatus.STATUS_CANCELED:
+            with self._lock:
+                if self._active is None:
+                    return
+                self._active['pause_requested'] = False
+                self._active['paused'] = True
+            task = self.store.update(task_id, state='paused', error='')
+            self.events.publish('task.paused', task)
+            return
         if cancel_requested or status == GoalStatus.STATUS_CANCELED:
             self._finish_active('cancelled', cancel_reason)
             return
@@ -2582,6 +2749,34 @@ class DogzillaWebGateway(Node):
         self.store.update(task_id, current_step=completed_steps)
         if next_step >= waypoint_count:
             self._finish_active('completed')
+        elif task_kind == 'delivery' and (
+            pause_requested
+            or waypoint.get('continue_mode', 'automatic') == 'manual'
+        ):
+            with self._lock:
+                if self._active is None:
+                    return
+                self._active['dwell_until'] = None
+                self._active['pause_requested'] = False
+                if pause_requested:
+                    self._active['paused'] = True
+                    next_state = 'paused'
+                    event_type = 'task.paused'
+                else:
+                    self._active['checkpoint'] = 'pickup-complete'
+                    next_state = 'waiting'
+                    event_type = 'task.waiting'
+            task = self.store.update(task_id, state=next_state, error='')
+            self.events.publish(
+                event_type,
+                {
+                    **task,
+                    'checkpoint': 'pickup-complete',
+                    'message': (
+                        'Pickup reached. Load the item, then continue delivery.'
+                    ),
+                },
+            )
         elif next_cycle > cycle:
             self.events.publish(
                 'task.patrol_cycle_completed',
@@ -2595,6 +2790,50 @@ class DogzillaWebGateway(Node):
                 self._send_current_waypoint()
         elif dwell <= 0:
             self._send_current_waypoint()
+
+    def _request_active_pause(self):
+        """Stop and cancel Nav2 while preserving the active delivery."""
+        with self._lock:
+            if self._active is None or not self._active.get('pause_requested'):
+                return
+            task_id = self._active['task_id']
+            goal_handle = self._active['goal_handle']
+            sending = self._active['sending']
+            should_cancel_goal = (
+                goal_handle is not None
+                and not self._active['cancel_sent']
+            )
+            if should_cancel_goal:
+                self._active['cancel_sent'] = True
+        self._stop_until = time.monotonic() + 1.0
+        self._publish_stop()
+        if should_cancel_goal:
+            try:
+                cancel_future = goal_handle.cancel_goal_async()
+            except Exception as exc:
+                self._cancel_failed(
+                    f'Delivery pause failed to cancel Nav2: {exc}'
+                )
+                return
+            cancel_future.add_done_callback(self._on_pause_response)
+        elif not sending:
+            with self._lock:
+                if self._active is None or self._active['task_id'] != task_id:
+                    return
+                self._active['pause_requested'] = False
+                self._active['paused'] = True
+            task = self.store.update(task_id, state='paused', error='')
+            self.events.publish('task.paused', task)
+
+    def _on_pause_response(self, future):
+        try:
+            response = future.result()
+            accepted = bool(response.goals_canceling)
+        except Exception as exc:
+            self._cancel_failed(f'Delivery pause request failed: {exc}')
+            return
+        if not accepted:
+            self._cancel_failed('Nav2 did not accept the delivery pause')
 
     def _request_active_cancel(self):
         with self._lock:

@@ -82,9 +82,9 @@ TURN_LEVELS = {
     for level, step in enumerate(_TURN_STEPS, start=1)
 }
 
-# Autonomous navigation stays below the teleop/controller envelope. Level 4
-# is the default brisk indoor pace; higher levels remain explicit operator
-# choices and never exceed the Nav2 smoother ceiling.
+# Autonomous navigation stays below the teleop/controller envelope. Walking
+# starts at level 4 while turning starts at level 1; higher levels remain
+# explicit operator choices and never exceed the Nav2 smoother ceiling.
 AUTONOMY_LINEAR_LIMITS = {
     level: value
     for level, value in enumerate(

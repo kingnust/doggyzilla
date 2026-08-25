@@ -6,9 +6,10 @@ import time
 import unittest
 from unittest.mock import patch
 
+from action_msgs.msg import GoalStatus
 from nav_msgs.msg import OccupancyGrid
 import rclpy
-from sensor_msgs.msg import CompressedImage
+from sensor_msgs.msg import BatteryState, CompressedImage
 from std_msgs.msg import String
 
 from dogzilla_slam.web_gateway import DogzillaWebGateway
@@ -43,6 +44,33 @@ class WebGatewayNodeTest(unittest.TestCase):
             node = DogzillaWebGateway()
             try:
                 self.assertFalse(node.manual_drive_enabled)
+                self.assertEqual(
+                    node.get_autonomy_settings()['speed_level'],
+                    4,
+                )
+                self.assertEqual(
+                    node.get_autonomy_settings()['turn_level'],
+                    1,
+                )
+                vision_commands = Recorder()
+                node._vision_command_publisher = vision_commands
+                node._active = {
+                    'task_id': 'delivery-vision-switch',
+                    'payload': {'kind': 'delivery'},
+                }
+                vision_request = node.set_vision_mode({
+                    'mode': 'raw',
+                    'color': 'red',
+                })
+                self.assertEqual(vision_request['mode'], 'raw')
+                self.assertEqual(len(vision_commands.messages), 1)
+                node._active = {
+                    'task_id': 'patrol-vision-lock',
+                    'payload': {'kind': 'patrol'},
+                }
+                with self.assertRaises(ConflictError):
+                    node.set_vision_mode({'mode': 'raw', 'color': 'red'})
+                node._active = None
                 with self.assertRaises(ConflictError):
                     node.set_manual_drive({'direction': 'forward'})
                 stopped = node.set_manual_drive({'direction': 'stop'})
@@ -133,6 +161,44 @@ class WebGatewayNodeTest(unittest.TestCase):
                     node.telemetry.get('navigation_tuning')['value']['state'],
                     'recording',
                 )
+
+                invalid_battery = BatteryState()
+                invalid_battery.percentage = float('nan')
+                invalid_battery.present = False
+                node._on_battery(invalid_battery)
+                self.assertFalse(node._battery_gate()[0])
+                self.assertTrue(node._active_battery_gate()[0])
+
+                invalid_battery.percentage = -1.0
+                invalid_battery.present = True
+                node._on_battery(invalid_battery)
+                self.assertFalse(node._battery_gate()[0])
+                self.assertTrue(node._active_battery_gate()[0])
+
+                confirmed_low_battery = BatteryState()
+                confirmed_low_battery.percentage = 0.20
+                confirmed_low_battery.present = True
+                node._on_battery(confirmed_low_battery)
+                self.assertFalse(node._active_battery_gate()[0])
+
+                node._on_battery(invalid_battery)
+
+                battery_estops = Recorder()
+                battery_stops = Recorder()
+                node._estop_publisher = battery_estops
+                node._priority_stop_publisher = battery_stops
+                node._direct_stop_publisher = battery_stops
+                node._active = {
+                    'task_id': 'invalid-battery-active-task',
+                    'payload': {'kind': 'route'},
+                    'dwell_until': time.monotonic() + 60.0,
+                }
+                node._tick()
+                self.assertFalse(node._estop_latched)
+                self.assertEqual(node._cancel_requests, set())
+                self.assertEqual(battery_estops.messages, [])
+                self.assertEqual(battery_stops.messages, [])
+                node._active = None
 
                 tuning_status.data = json.dumps({
                     'schema_version': 1,
@@ -353,7 +419,7 @@ class WebGatewayNodeTest(unittest.TestCase):
                 for sample in range(1, 11):
                     node._update_localization_progress(
                         correction_started_ns + sample,
-                        (3.0, 2.0, 0.0),
+                        (3.2, 2.0, 0.0),
                     )
                 correction_state = node.get_state()
                 correction = correction_state['configuration'][
@@ -365,7 +431,7 @@ class WebGatewayNodeTest(unittest.TestCase):
                 )
                 self.assertAlmostEqual(
                     correction['pose_correction']['distance_m'],
-                    1.0,
+                    1.2,
                 )
                 self.assertFalse(
                     correction['pose_correction']['within_limit']
@@ -377,6 +443,22 @@ class WebGatewayNodeTest(unittest.TestCase):
                 self.assertIn(
                     'set the initial pose again',
                     correction_state['safety']['task_gate_reason'],
+                )
+                localization_cancels = Recorder()
+                node._localization_cancel_publisher = localization_cancels
+                stopped = node.stop_initial_pose_matching()
+                self.assertEqual(stopped['state'], 'awaiting-initial-pose')
+                self.assertEqual(
+                    stopped['trajectory_action'],
+                    'finish-requested',
+                )
+                self.assertEqual(len(localization_cancels.messages), 1)
+                self.assertTrue(localization_cancels.messages[0].data)
+                self.assertEqual(
+                    node.get_state()['configuration']['localization'][
+                        'state'
+                    ],
+                    'awaiting-initial-pose',
                 )
 
                 with self.assertRaises(ConflictError):
@@ -593,6 +675,112 @@ class WebGatewayNodeTest(unittest.TestCase):
                     len(list(node.alert_directory.glob('alert-*.jpg'))),
                     25,
                 )
+
+                delivery = node.store.create({
+                    'kind': 'delivery',
+                    'name': 'Operator checkpoint test',
+                    'map': 'test1',
+                    'waypoints': [
+                        {
+                            'label': 'Pickup',
+                            'x': 2.0,
+                            'y': 2.0,
+                            'yaw': 0.0,
+                            'dwell_seconds': 0.0,
+                            'continue_mode': 'manual',
+                        },
+                        {
+                            'label': 'Drop-off',
+                            'x': 3.0,
+                            'y': 2.0,
+                            'yaw': 0.0,
+                            'dwell_seconds': 0.0,
+                        },
+                    ],
+                })
+                node.store.update(delivery['id'], state='running')
+                node._active = {
+                    'task_id': delivery['id'],
+                    'payload': delivery['payload'],
+                    'step': 0,
+                    'cycle': 0,
+                    'goal_handle': object(),
+                    'sending': False,
+                    'cancel_sent': False,
+                    'dwell_until': None,
+                    'pause_requested': False,
+                    'paused': False,
+                    'checkpoint': None,
+                }
+
+                class SuccessfulGoal:
+                    status = GoalStatus.STATUS_SUCCEEDED
+
+                class CompletedFuture:
+                    @staticmethod
+                    def result():
+                        return SuccessfulGoal()
+
+                node._on_goal_result(CompletedFuture())
+                waiting = node.store.get(delivery['id'])
+                self.assertEqual(waiting['state'], 'waiting')
+                self.assertEqual(waiting['current_step'], 1)
+                self.assertEqual(
+                    node._active['checkpoint'],
+                    'pickup-complete',
+                )
+
+                waypoint_sends = []
+                original_send = node._send_current_waypoint
+                node._send_current_waypoint = lambda: waypoint_sends.append(
+                    node._active['step']
+                )
+                continued = node.continue_delivery(delivery['id'])
+                self.assertEqual(continued['state'], 'running')
+                self.assertEqual(waypoint_sends, [1])
+
+                class AcceptedPause:
+                    goals_canceling = [object()]
+
+                class PauseFuture:
+                    @staticmethod
+                    def result():
+                        return AcceptedPause()
+
+                    def add_done_callback(self, callback):
+                        callback(self)
+
+                class ActiveGoal:
+                    def __init__(self):
+                        self.cancel_requests = 0
+
+                    def cancel_goal_async(self):
+                        self.cancel_requests += 1
+                        return PauseFuture()
+
+                active_goal = ActiveGoal()
+                node._active['goal_handle'] = active_goal
+                pausing = node.pause_delivery(delivery['id'])
+                self.assertEqual(pausing['state'], 'pausing')
+                self.assertEqual(active_goal.cancel_requests, 1)
+
+                class CancelledGoal:
+                    status = GoalStatus.STATUS_CANCELED
+
+                class CancelledFuture:
+                    @staticmethod
+                    def result():
+                        return CancelledGoal()
+
+                node._on_goal_result(CancelledFuture())
+                paused = node.store.get(delivery['id'])
+                self.assertEqual(paused['state'], 'paused')
+                self.assertTrue(node._active['paused'])
+                resumed = node.continue_delivery(delivery['id'])
+                self.assertEqual(resumed['state'], 'running')
+                self.assertEqual(waypoint_sends, [1, 1])
+                node._send_current_waypoint = original_send
+                node._active = None
             finally:
                 node.close()
                 node.destroy_node()

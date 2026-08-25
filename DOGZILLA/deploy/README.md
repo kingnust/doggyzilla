@@ -542,7 +542,7 @@ Mission Mode defaults to headless operation.
 By default, the dashboard requires **Set robot start** before the live
 Cartographer trajectory begins. Select the approximate position, choose the
 facing direction, and confirm. The selected pose is a bounded prior, not a
-claim that the location is exact: Cartographer may refine it by up to 0.80 m
+claim that the location is exact: Cartographer may refine it within a 1.0 m
 and 0.70 rad. The dashboard shows the resolved offset. A larger persistent
 correction is rejected with **Select the start area again**.
 
@@ -551,7 +551,14 @@ samples and ten consecutive fresh LiDAR scans agree with the static occupancy
 map. Validation checks mapped scan coverage, wall-endpoint agreement, blocked
 rays, and an overall quality floor. A failed scan resets the consecutive-scan
 count; pose stability alone cannot unlock a mission. These checks do not move
-the robot. To opt into automatic global LiDAR matching instead, start with:
+the robot. **Stop matching** ends only the current initial-pose localization
+trajectory, keeps mission dispatch locked, and returns the dashboard to
+**Set robot start** so a different estimate can be submitted.
+
+At zoom levels above 100%, select **Hand** and drag the map canvas to pan it.
+Panning changes only the viewport: the initial pose, headings, waypoints, and
+map-frame coordinates do not move. **Fit** recentres the map and leaves Hand
+mode. To opt into automatic global LiDAR matching instead, start with:
 
 ```bash
 ./deploy/dogzilla-map mission room1 --headless --match

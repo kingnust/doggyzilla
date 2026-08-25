@@ -7,6 +7,7 @@ from cartographer_ros_msgs.srv import StartTrajectory
 from geometry_msgs.msg import PoseWithCovarianceStamped
 import rclpy
 from rclpy.node import Node
+from std_msgs.msg import Bool
 
 
 class LocalizationManager(Node):
@@ -51,11 +52,19 @@ class LocalizationManager(Node):
             self._initial_pose_received,
             10,
         )
+        self._cancel_subscription = self.create_subscription(
+            Bool,
+            '/localization/cancel',
+            self._cancel_received,
+            10,
+        )
 
         self._active_trajectory_id = None
         self._frozen_trajectory_id = None
         self._pending_initial_pose = None
         self._busy = False
+        self._paused = False
+        self._pause_stamp_ns = 0
         self._waiting_logged = False
         self._initial_pose_wait_logged = False
         self._timer = self.create_timer(0.50, self._tick)
@@ -79,11 +88,16 @@ class LocalizationManager(Node):
 
         if (
             self._active_trajectory_id is not None
-            and self._pending_initial_pose is not None
+            and (
+                self._pending_initial_pose is not None
+                or self._paused
+            )
         ):
             self._finish_active_trajectory()
             return
         if self._active_trajectory_id is not None:
+            return
+        if self._paused:
             return
         if not self._start_immediately and self._pending_initial_pose is None:
             if not self._initial_pose_wait_logged:
@@ -99,6 +113,8 @@ class LocalizationManager(Node):
 
     def _trajectory_states_received(self, future):
         self._busy = False
+        if self._paused:
+            return
         response = future.result()
         if response is None or response.status.code != 0:
             message = response.status.message if response else 'no response'
@@ -124,6 +140,8 @@ class LocalizationManager(Node):
         self._start_localization_trajectory()
 
     def _start_localization_trajectory(self):
+        if self._paused:
+            return
         initial_pose = self._pending_initial_pose
         self._pending_initial_pose = None
 
@@ -183,11 +201,45 @@ class LocalizationManager(Node):
                 f'{message.header.frame_id}'
             )
             return
+        stamp_ns = (
+            int(message.header.stamp.sec) * 1_000_000_000
+            + int(message.header.stamp.nanosec)
+        )
+        if (
+            self._paused
+            and (
+                stamp_ns <= 0
+                or stamp_ns <= self._pause_stamp_ns
+            )
+        ):
+            self.get_logger().warn(
+                'Ignoring an unstamped or old initial pose received after '
+                'matching was stopped'
+            )
+            return
+        self._paused = False
         self._pending_initial_pose = message.pose.pose
         self._initial_pose_wait_logged = False
         self.get_logger().info(
             'RViz initial pose received; localization will restart from it'
         )
+
+    def _cancel_received(self, message):
+        """Pause matching and finish the live localization trajectory."""
+        if not bool(message.data):
+            return
+        self._paused = True
+        self._pause_stamp_ns = self.get_clock().now().nanoseconds
+        self._pending_initial_pose = None
+        self._initial_pose_wait_logged = False
+        if self._active_trajectory_id is None:
+            detail = 'Localization matching is paused'
+        else:
+            detail = (
+                'Localization matching is paused; the active trajectory '
+                'will be finished'
+            )
+        self.get_logger().info(detail)
 
 
 def main(args=None):

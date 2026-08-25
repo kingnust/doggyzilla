@@ -336,6 +336,7 @@ services:
     environment:
       ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-12}
       ROS_LOG_DIR: ${DOGZILLA_ROS_LOG_DIR:-/logs/mission}
+      DOGZILLA_MISSION_VISION_MODE: ${DOGZILLA_MISSION_VISION_MODE:-raw}
     volumes:
       - ./logs:/logs
       - ./calibration:/calibration:ro
@@ -348,7 +349,7 @@ services:
       - vision.launch.py
       - camera_enabled:=true
       - camera_info_url:=file:///calibration/camera.temporary.yaml
-      - mode:=patrol
+      - mode:=${DOGZILLA_MISSION_VISION_MODE:-raw}
       - color:=red
       - process_hz:=10.0
       - object_process_hz:=${DOGZILLA_OBJECT_RATE:-2.0}
@@ -370,11 +371,8 @@ services:
           grep -qx /dogzilla_vision <<< "$${nodes}" &&
           status="$$(timeout 6 ros2 topic echo /vision/status
           --no-daemon --spin-time 2 --once --field data)" &&
-          grep -q '"'"'"mode":"patrol"'"'"' <<< "$${status}" &&
-          grep -q '"'"'"ready":true'"'"' <<< "$${status}" &&
-          grep -q '"'"'"person_detection_ready":true'"'"' <<< "$${status}" &&
-          grep -q '"'"'"face_detection":{"ready":true'"'"' <<< "$${status}" &&
-          grep -q '"'"'"topic":"/vision/danger_confirmed"'"'"' <<< "$${status}"'
+          grep -q '"'"'"state":"ready"'"'"' <<< "$${status}" &&
+          grep -q '"'"'"action_output":"disabled"'"'"' <<< "$${status}"'
       interval: 10s
       timeout: 15s
       retries: 5
@@ -409,7 +407,7 @@ services:
       DOGZILLA_WEB_SCAN_MATCH_MIN_QUALITY: ${DOGZILLA_WEB_SCAN_MATCH_MIN_QUALITY:-0.40}
       DOGZILLA_WEB_SCAN_MATCH_MAX_CONTRADICTIONS: ${DOGZILLA_WEB_SCAN_MATCH_MAX_CONTRADICTIONS:-0.25}
       DOGZILLA_WEB_SCAN_MATCH_TOLERANCE: ${DOGZILLA_WEB_SCAN_MATCH_TOLERANCE:-0.20}
-      DOGZILLA_WEB_LOCALIZATION_MAX_CORRECTION_M: ${DOGZILLA_WEB_LOCALIZATION_MAX_CORRECTION_M:-0.80}
+      DOGZILLA_WEB_LOCALIZATION_MAX_CORRECTION_M: ${DOGZILLA_WEB_LOCALIZATION_MAX_CORRECTION_M:-1.0}
       DOGZILLA_WEB_LOCALIZATION_MAX_CORRECTION_RAD: ${DOGZILLA_WEB_LOCALIZATION_MAX_CORRECTION_RAD:-0.70}
       DOGZILLA_WEB_DATABASE: /data/tasks.sqlite3
       DOGZILLA_WEB_ALERT_DIRECTORY: /data/alerts

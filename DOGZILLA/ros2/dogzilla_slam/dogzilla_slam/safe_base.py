@@ -163,6 +163,7 @@ class SafeBase(Node):
         self._movement_inhibited = False
         self._estop_latched = False
         self._battery_percent = None
+        self._battery_telemetry_valid = False
         self._battery_failures = 0
         self._joint_failures = 0
         self._joint_rate_hz_normal = float(
@@ -677,6 +678,7 @@ class SafeBase(Node):
             'armed': True,
             'state': str(state),
             'battery_percent': self._battery_percent,
+            'battery_telemetry_valid': self._battery_telemetry_valid,
             'low_battery_percent': self._low_battery_percent,
             'movement_inhibited': self._movement_inhibited,
             'estop_latched': self._estop_latched,
@@ -730,10 +732,12 @@ class SafeBase(Node):
         if self._vision_action_deadline is not None:
             return
         if (
-            self._battery_percent is None
-            or self._movement_inhibited
+            self._movement_inhibited
             or self._estop_latched
-            or self._battery_percent <= self._low_battery_percent
+            or (
+                self._battery_percent is not None
+                and self._battery_percent <= self._low_battery_percent
+            )
         ):
             self._vision_policy.reset()
             self.stop()
@@ -781,6 +785,16 @@ class SafeBase(Node):
             return
 
         self._vision_line_active = False
+        if self._battery_percent is None:
+            self._vision_policy.reset()
+            self._publish_vision_status(
+                'blocked',
+                detail=(
+                    'firmware action ignored because battery telemetry is '
+                    'invalid; no stop command was issued'
+                ),
+            )
+            return
         try:
             execute_firmware_action(
                 self._dog,
@@ -826,6 +840,7 @@ class SafeBase(Node):
 
         if not 1 <= battery <= 100:
             self._battery_failures += 1
+            self._battery_telemetry_valid = False
             message.percentage = math.nan
             message.present = False
             if self._battery_failures == 1 or self._battery_failures % 12 == 0:
@@ -835,18 +850,28 @@ class SafeBase(Node):
                 )
             if self._battery_publisher is not None:
                 self._battery_publisher.publish(message)
-            self._battery_percent = None
             if self._vision_control_enabled:
-                self.stop()
-                self._vision_line_active = False
-                self._vision_policy.reset()
+                if self._estop_latched:
+                    state = 'emergency-stop'
+                elif self._movement_inhibited:
+                    state = 'blocked'
+                elif self._vision_action_deadline is not None:
+                    state = 'executing'
+                elif self._vision_line_active:
+                    state = 'line-following'
+                else:
+                    state = 'ready'
                 self._publish_vision_status(
-                    'blocked',
-                    detail='battery telemetry is invalid',
+                    state,
+                    detail=(
+                        'battery telemetry is invalid; retaining the last '
+                        'confirmed battery safety state'
+                    ),
                 )
             return
 
         self._battery_failures = 0
+        self._battery_telemetry_valid = True
         self._battery_percent = battery
         message.percentage = battery / 100.0
         message.present = True

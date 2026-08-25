@@ -49,7 +49,7 @@ def generate_launch_description():
             PythonLaunchDescriptionSource(hardware_launch),
             launch_arguments={
                 'speed_level': '4',
-                'turn_level': '4',
+                'turn_level': '1',
                 'use_imu': use_imu,
                 'posture_control_enabled': 'false',
             }.items(),

@@ -48,10 +48,19 @@ class VisionDeploymentTest(unittest.TestCase):
         self.assertNotIn('/dev/ttyAMA1', serialized)
         self.assertNotIn('privileged', service)
         self.assertIn('vision.launch.py', service['command'])
-        self.assertIn('mode:=patrol', service['command'])
+        self.assertIn(
+            'mode:=${DOGZILLA_MISSION_VISION_MODE:-raw}',
+            service['command'],
+        )
+        self.assertEqual(
+            service['environment']['DOGZILLA_MISSION_VISION_MODE'],
+            '${DOGZILLA_MISSION_VISION_MODE:-raw}',
+        )
         healthcheck = service['healthcheck']['test'][-1]
-        self.assertIn('person_detection_ready', healthcheck)
-        self.assertIn('face_detection', healthcheck)
+        self.assertIn('"state":"ready"', healthcheck)
+        self.assertIn('"action_output":"disabled"', healthcheck)
+        self.assertNotIn('"mode":"patrol"', healthcheck)
+        self.assertNotIn('person_detection_ready', healthcheck)
         self.assertIn('./models:/models:ro', service['volumes'])
         self.assertIn('./datasets:/datasets', service['volumes'])
         self.assertIn(
@@ -69,7 +78,8 @@ class VisionDeploymentTest(unittest.TestCase):
 
         mission = (REPOSITORY / 'deploy' / 'dogzilla-mission').read_text()
         self.assertIn('start_perception', mission)
-        self.assertIn("'Floor-hazard perception'", mission)
+        self.assertIn("'Mission vision'", mission)
+        self.assertIn('starts in raw mode', mission)
         stop_body = mission.split('stop_components() {', 1)[1].split('\n}', 1)[0]
         self.assertIn('stop --timeout 20 perception', stop_body)
         self.assertIn('/vision/danger_confirmed', mission)

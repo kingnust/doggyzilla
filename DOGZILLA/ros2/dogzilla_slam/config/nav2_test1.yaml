@@ -27,7 +27,7 @@ controller_server:
       min_lookahead_dist: 0.20
       max_lookahead_dist: 0.50
       lookahead_time: 1.5
-      rotate_to_heading_angular_vel: 0.40
+      rotate_to_heading_angular_vel: 0.22
       transform_tolerance: 0.40
       use_velocity_scaled_lookahead_dist: true
       min_approach_linear_velocity: 0.05
@@ -257,8 +257,8 @@ velocity_smoother:
     smoothing_frequency: 15.0
     scale_velocities: false
     feedback: OPEN_LOOP
-    max_velocity: [0.20, 0.0, 0.40]
-    min_velocity: [0.0, 0.0, -0.40]
+    max_velocity: [0.20, 0.0, 0.22]
+    min_velocity: [0.0, 0.0, -0.22]
     max_accel: [0.18, 0.0, 0.50]
     max_decel: [-0.22, 0.0, -0.55]
     odom_topic: /odom

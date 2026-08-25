@@ -256,6 +256,50 @@ def test_real_safe_base_callback_blocks_low_battery(base_factory):
     assert node._movement_inhibited is True
 
 
+def test_invalid_battery_read_does_not_stop_motion(base_factory):
+    controller = FakeController(battery=80)
+    node = base_factory(controller)
+    node._vision_line_active = True
+    controller.battery = 0
+    controller.calls.clear()
+
+    node._publish_battery()
+
+    assert 'stop' not in controller.calls
+    assert node._battery_percent == 80
+    assert node._battery_telemetry_valid is False
+    assert node._movement_inhibited is False
+
+
+def test_invalid_battery_read_preserves_confirmed_low_lockout(base_factory):
+    controller = FakeController(battery=25)
+    node = base_factory(controller)
+    assert node._movement_inhibited is True
+    controller.battery = 0
+    controller.calls.clear()
+
+    node._publish_battery()
+
+    assert node._battery_percent == 25
+    assert node._battery_telemetry_valid is False
+    assert node._movement_inhibited is True
+
+
+def test_invalid_battery_blocks_firmware_action_without_stopping(base_factory):
+    controller = FakeController(battery=80)
+    node = base_factory(controller)
+    node._battery_percent = None
+    node._battery_telemetry_valid = False
+    controller.calls.clear()
+    message = detection_message(firmware_proposal())
+
+    node._on_vision_detections(message)
+    node._on_vision_detections(message)
+
+    assert 'stop' not in controller.calls
+    assert ('action', 19) not in controller.calls
+
+
 def test_real_safe_base_line_follow_is_bounded_and_stops_on_loss(base_factory):
     controller = FakeController(battery=80)
     node = base_factory(controller)

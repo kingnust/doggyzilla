@@ -17,6 +17,9 @@ MAP_NAME_PATTERN = re.compile(r'^[A-Za-z0-9._-]{1,64}$')
 TASK_STATES = {
     'queued',
     'running',
+    'pausing',
+    'paused',
+    'waiting',
     'cancelling',
     'completed',
     'failed',
@@ -144,15 +147,27 @@ def build_delivery_payload(value):
         raise ValidationError('delivery requires pickup and dropoff waypoints')
     pickup = dict(value['pickup']) if isinstance(value['pickup'], dict) else value['pickup']
     dropoff = dict(value['dropoff']) if isinstance(value['dropoff'], dict) else value['dropoff']
+    if not isinstance(pickup, dict):
+        raise ValidationError('waypoints[0] must be an object')
     if isinstance(pickup, dict):
         pickup.setdefault('label', 'Pickup')
     if isinstance(dropoff, dict):
         dropoff.setdefault('label', 'Drop-off')
+    continue_mode = pickup.get('continue_mode', 'automatic')
+    if not isinstance(continue_mode, str):
+        raise ValidationError('pickup.continue_mode must be text')
+    continue_mode = continue_mode.strip().lower()
+    if continue_mode not in {'automatic', 'manual'}:
+        raise ValidationError(
+            'pickup.continue_mode must be automatic or manual'
+        )
+    pickup_waypoint = validate_waypoint(pickup, 0)
+    pickup_waypoint['continue_mode'] = continue_mode
     return {
         **common,
         'kind': 'delivery',
         'waypoints': [
-            validate_waypoint(pickup, 0),
+            pickup_waypoint,
             validate_waypoint(dropoff, 1),
         ],
     }
@@ -1273,7 +1288,9 @@ class TaskStore:
                 SET state = 'failed',
                     error = 'Web gateway restarted while task was active',
                     updated_at = ?
-                WHERE state IN ('running', 'cancelling')
+                WHERE state IN (
+                    'running', 'pausing', 'paused', 'waiting', 'cancelling'
+                )
                 ''',
                 (utc_now(),),
             )

@@ -2023,7 +2023,7 @@ start_navigation() {
     if [[ "${mode}" == 'navigate' ]]; then
         printf 'DOGZILLA localization + Nav2 started on map %s.\n' \
             "${DOGZILLA_MAP_NAME}"
-        printf 'Autonomous default: level 4, up to 0.20 m/s and 0.40 rad/s.\n'
+        printf 'Autonomous default: walking level 4, turning level 1 (0.22 rad/s).\n'
     else
         printf 'DOGZILLA pure localization started on map %s.\n' \
             "${DOGZILLA_MAP_NAME}"

@@ -48,6 +48,7 @@ def test_path_follower_aligns_heading_then_tracks_forward_only():
         'RegulatedPurePursuitController'
     )
     assert follow_path['desired_linear_vel'] == 0.20
+    assert follow_path['rotate_to_heading_angular_vel'] == 0.22
     assert follow_path['use_rotate_to_heading'] is True
     assert follow_path['rotate_to_heading_min_angle'] <= 0.45
     assert follow_path['allow_reversing'] is False
@@ -56,7 +57,8 @@ def test_path_follower_aligns_heading_then_tracks_forward_only():
     assert follow_path['regulated_linear_scaling_min_speed'] <= 0.07
 
     smoother = _configuration()['velocity_smoother']['ros__parameters']
-    assert smoother['max_velocity'] == [0.20, 0.0, 0.40]
+    assert smoother['max_velocity'] == [0.20, 0.0, 0.22]
+    assert smoother['min_velocity'] == [0.0, 0.0, -0.22]
     assert smoother['smoothing_frequency'] == 15.0
 
     package = (PACKAGE_ROOT / 'package.xml').read_text(encoding='utf-8')

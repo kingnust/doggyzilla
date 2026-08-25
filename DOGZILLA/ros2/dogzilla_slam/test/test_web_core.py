@@ -23,7 +23,13 @@ def delivery_request():
     return {
         'name': 'Lab delivery',
         'map': 'room1',
-        'pickup': {'x': 1, 'y': 2, 'yaw': 0.5, 'dwell_seconds': 4},
+        'pickup': {
+            'x': 1,
+            'y': 2,
+            'yaw': 0.5,
+            'dwell_seconds': 4,
+            'continue_mode': 'manual',
+        },
         'dropoff': {'x': -1, 'y': 3, 'yaw': -0.5},
     }
 
@@ -128,9 +134,24 @@ class WebCoreTest(unittest.TestCase):
                 'y': 2.0,
                 'yaw': 0.5,
                 'dwell_seconds': 4.0,
+                'continue_mode': 'manual',
             },
         )
         self.assertEqual(payload['waypoints'][1]['label'], 'Drop-off')
+
+        automatic = delivery_request()
+        automatic['pickup'].pop('continue_mode')
+        self.assertEqual(
+            build_delivery_payload(automatic)['waypoints'][0][
+                'continue_mode'
+            ],
+            'automatic',
+        )
+
+        invalid = delivery_request()
+        invalid['pickup']['continue_mode'] = 'sometimes'
+        with self.assertRaisesRegex(ValidationError, 'automatic or manual'):
+            build_delivery_payload(invalid)
 
     def test_unsafe_waypoint_values_are_rejected(self):
         unsafe_values = [

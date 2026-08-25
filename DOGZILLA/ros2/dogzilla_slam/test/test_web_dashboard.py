@@ -57,6 +57,7 @@ class WebDashboardTest(unittest.TestCase):
             'robot-mode',
             'active-task',
             'delivery-form',
+            'pickup-continue-mode',
             'task-list',
             'estop',
             'reset-estop',
@@ -73,6 +74,7 @@ class WebDashboardTest(unittest.TestCase):
             'pickup-yaw-custom',
             'dropoff-yaw-custom',
             'confirm-initial-pose',
+            'stop-initial-pose-matching',
             'route-preview',
             'location-name',
             'save-location',
@@ -97,6 +99,7 @@ class WebDashboardTest(unittest.TestCase):
             'map-zoom-in',
             'map-zoom-fit',
             'map-zoom-level',
+            'map-pan',
             'keepout-name',
             'keepout-zone-list',
             'keepout-save',
@@ -117,12 +120,25 @@ class WebDashboardTest(unittest.TestCase):
             with self.subTest(element_id=element_id):
                 self.assertIn(f'id="{element_id}"', html)
 
-    def test_map_editor_uses_clicks_and_custom_heading_choices(self):
+    def test_mission_panels_have_requested_visual_order(self):
+        css = (STATIC_DIRECTORY / 'styles.css').read_text()
+        self.assertIn('main > .map-editor-panel { order: 2; }', css)
+        self.assertIn('main > .workspace-grid { order: 3; }', css)
+        self.assertIn('main > .patrol-panel { order: 4; }', css)
+        self.assertIn('main > .keepout-panel { order: 5; }', css)
+
+    def test_mission_vision_selector_defaults_to_raw(self):
+        html = (STATIC_DIRECTORY / 'index.html').read_text()
+        raw = html.index('<option value="raw">Camera display</option>')
+        color = html.index('<option value="color">8.1 Color recognition</option>')
+        self.assertLess(raw, color)
+
+    def test_map_editor_uses_clicks_hand_pan_and_custom_headings(self):
         html = (STATIC_DIRECTORY / 'index.html').read_text()
         javascript = (STATIC_DIRECTORY / 'app.js').read_text()
 
         self.assertIn("addEventListener('click'", javascript)
-        self.assertNotIn("addEventListener('pointermove'", javascript)
+        self.assertIn("addEventListener('pointermove'", javascript)
         self.assertNotIn('draggable=', html)
         self.assertIn('<select id="pickup-yaw"', html)
         self.assertIn('<select id="dropoff-yaw"', html)
@@ -136,6 +152,8 @@ class WebDashboardTest(unittest.TestCase):
             "'/api/v1/localization/initial-pose'",
             javascript,
         )
+        self.assertIn("'/api/v1/localization/stop'", javascript)
+        self.assertIn('id="stop-initial-pose-matching"', html)
         self.assertIn('North · 90°', html)
         self.assertIn('function headingValue(target)', javascript)
         self.assertIn("select.value = 'custom'", javascript)
@@ -155,6 +173,15 @@ class WebDashboardTest(unittest.TestCase):
         self.assertIn('Draw keepout', html)
         self.assertIn("'/api/v1/keepout-zones'", javascript)
         self.assertIn('const scale = fitScale * mapZoom', javascript)
+        self.assertIn('mapView.offsetX', javascript)
+        self.assertIn('mapView.offsetY', javascript)
+        self.assertIn('setMapPanMode(!mapPanMode)', javascript)
+        self.assertIn('mapPanDrag.panX + deltaX', javascript)
+        self.assertIn('mapPanDrag.panY + deltaY', javascript)
+        self.assertIn(
+            'mapPanMode || performance.now() < suppressMapClickUntil',
+            javascript,
+        )
         self.assertIn('(screenX - mapView.offsetX) / mapView.scale', javascript)
         self.assertIn('(screenY - mapView.offsetY) / mapView.scale', javascript)
         self.assertIn(
@@ -181,25 +208,26 @@ class WebDashboardTest(unittest.TestCase):
             + cosine * local_y * resolution
 
         for zoom in (1.0, 1.5, 2.0, 3.0, 4.0):
-            with self.subTest(zoom=zoom):
-                fit_scale = min((900 - 36) / width, (700 - 36) / height)
-                scale = fit_scale * zoom
-                offset_x = (900 - width * scale) / 2
-                offset_y = (700 - height * scale) / 2
-                screen_x = offset_x + local_x * scale
-                screen_y = offset_y + (height - local_y) * scale
+            for pan_x, pan_y in ((0.0, 0.0), (73.5, -41.25)):
+                with self.subTest(zoom=zoom, pan=(pan_x, pan_y)):
+                    fit_scale = min((900 - 36) / width, (700 - 36) / height)
+                    scale = fit_scale * zoom
+                    offset_x = (900 - width * scale) / 2 + pan_x
+                    offset_y = (700 - height * scale) / 2 + pan_y
+                    screen_x = offset_x + local_x * scale
+                    screen_y = offset_y + (height - local_y) * scale
 
-                clicked_local_x = (screen_x - offset_x) / scale
-                clicked_local_y = height - (screen_y - offset_y) / scale
-                clicked_world_x = origin_x \
-                    + cosine * clicked_local_x * resolution \
-                    - sine * clicked_local_y * resolution
-                clicked_world_y = origin_y \
-                    + sine * clicked_local_x * resolution \
-                    + cosine * clicked_local_y * resolution
+                    clicked_local_x = (screen_x - offset_x) / scale
+                    clicked_local_y = height - (screen_y - offset_y) / scale
+                    clicked_world_x = origin_x \
+                        + cosine * clicked_local_x * resolution \
+                        - sine * clicked_local_y * resolution
+                    clicked_world_y = origin_y \
+                        + sine * clicked_local_x * resolution \
+                        + cosine * clicked_local_y * resolution
 
-                self.assertAlmostEqual(clicked_world_x, world_x, places=12)
-                self.assertAlmostEqual(clicked_world_y, world_y, places=12)
+                    self.assertAlmostEqual(clicked_world_x, world_x, places=12)
+                    self.assertAlmostEqual(clicked_world_y, world_y, places=12)
 
     def test_dashboard_exposes_general_and_confirmed_danger_modes(self):
         html = (STATIC_DIRECTORY / 'index.html').read_text()

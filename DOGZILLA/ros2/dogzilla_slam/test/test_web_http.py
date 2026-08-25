@@ -222,6 +222,16 @@ class FakeGateway:
         task['state'] = 'cancelled'
         return task
 
+    def pause_delivery(self, task_id):
+        task = self.tasks[task_id]
+        task['state'] = 'paused'
+        return task
+
+    def continue_delivery(self, task_id):
+        task = self.tasks[task_id]
+        task['state'] = 'running'
+        return task
+
     def emergency_stop(self):
         self.estop = True
         return {'estop_latched': True}
@@ -279,6 +289,14 @@ class FakeGateway:
             },
             'state': 'matching',
             'movement_action': 'stop-only',
+        }
+
+    def stop_initial_pose_matching(self):
+        return {
+            'map': 'test1',
+            'state': 'awaiting-initial-pose',
+            'movement_action': 'stop-only',
+            'trajectory_action': 'finish-requested',
         }
 
 
@@ -396,6 +414,17 @@ class WebHTTPTest(unittest.TestCase):
         self.assertEqual(localization['state'], 'matching')
         self.assertEqual(localization['movement_action'], 'stop-only')
 
+        status, _, stopped = request(
+            self.server,
+            'POST',
+            '/api/v1/localization/stop',
+            {},
+            authorized=True,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(stopped['state'], 'awaiting-initial-pose')
+        self.assertEqual(stopped['trajectory_action'], 'finish-requested')
+
         status, _, settings = request(
             self.server,
             'POST',
@@ -463,6 +492,26 @@ class WebHTTPTest(unittest.TestCase):
         )
         self.assertEqual(status, 201)
         self.assertEqual(task['state'], 'queued')
+
+        status, _, paused = request(
+            self.server,
+            'POST',
+            f"/api/v1/tasks/{task['id']}/pause",
+            {},
+            authorized=True,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(paused['state'], 'paused')
+
+        status, _, continued = request(
+            self.server,
+            'POST',
+            f"/api/v1/tasks/{task['id']}/continue",
+            {},
+            authorized=True,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(continued['state'], 'running')
 
         status, _, payload = request(
             self.server,

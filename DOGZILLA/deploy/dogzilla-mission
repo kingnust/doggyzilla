@@ -389,7 +389,7 @@ start_mission() {
         "${WEB_COMMAND}" start "${map_name}"
 
     wait_for_healthy "${NAVIGATION_CONTAINER}" 'Navigation'
-    wait_for_healthy "${PERCEPTION_CONTAINER}" 'Floor-hazard perception'
+    wait_for_healthy "${PERCEPTION_CONTAINER}" 'Mission vision'
     wait_for_healthy "${WEB_CONTAINER}" 'Web gateway'
     if ! verify_ros_readiness; then
         printf 'Mission Mode ROS readiness checks failed.\n' >&2
@@ -405,7 +405,7 @@ start_mission() {
         'Mission Mode is ready.' \
         "Map: ${map_name}" \
         "ROS logs: logs/sessions/${session}" \
-        'Floor-hazard perception is detection-only and camera based.' \
+        'Mission vision is detection-only and starts in raw mode.' \
         'No movement has been queued automatically.' \
         'Use "dogzilla mission password" for browser login.'
     if [[ "${matching}" == automatic ]]; then
