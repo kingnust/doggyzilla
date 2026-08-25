@@ -192,8 +192,8 @@
                 <button id="stop-initial-pose-matching" class="ghost compact" type="button" disabled>Stop matching</button>
               </div>
               <div class="map-toolbar" role="group" aria-label="Waypoint selection">
-                <button class="target-button active" type="button" data-map-target="pickup"><span class="waypoint-dot pickup"></span>Select pickup</button>
-                <button class="target-button" type="button" data-map-target="dropoff"><span class="waypoint-dot dropoff"></span>Select drop-off</button>
+                <button id="place-waypoint" class="target-button active" type="button" data-map-target="waypoint"><span class="waypoint-dot mission"></span>Place waypoint 1</button>
+                <button id="add-map-waypoint" class="ghost compact" type="button">Add waypoint</button>
                 <button class="target-button" type="button" data-map-target="patrol"><span class="waypoint-dot patrol"></span>Draw patrol area</button>
                 <button class="target-button" type="button" data-map-target="keepout"><span class="waypoint-dot keepout"></span>Draw keepout</button>
                 <button id="use-robot-pose" class="ghost compact" type="button">Use robot position</button>
@@ -219,7 +219,7 @@
                   <span><i class="legend-patrol"></i>Patrol</span>
                   <span><i class="legend-keepout"></i>Keepout</span>
                 </div>
-                <strong id="route-preview">Select both waypoints to preview the route.</strong>
+                <strong id="route-preview">Select every waypoint to preview the route.</strong>
               </div>
               <p id="map-message" class="form-message" role="status"></p>
             </div>
@@ -312,90 +312,68 @@
             <div class="panel-heading">
               <div>
                 <p class="eyebrow">New mission</p>
-                <h2>Delivery route</h2>
+                <h2>Waypoint mission</h2>
               </div>
               <span id="map-chip" class="map-chip">map: —</span>
             </div>
             <form id="delivery-form">
               <label for="mission-name">Mission name</label>
-              <input id="mission-name" name="name" maxlength="80" value="Delivery" required>
+              <input id="mission-name" name="name" maxlength="80" value="Waypoint mission" required>
 
-              <div class="waypoint-section">
-                <div class="waypoint-title"><span class="waypoint-dot pickup"></span>Pickup</div>
-                <div class="field-grid">
-                  <label>X <input id="pickup-x" name="pickup-x" type="number" value="" placeholder="Select on map" readonly required></label>
-                  <label>Y <input id="pickup-y" name="pickup-y" type="number" value="" placeholder="Select on map" readonly required></label>
-                  <label>Heading
-                    <select id="pickup-yaw" name="pickup-yaw" required>
-                      <option value="0">East · 0°</option>
-                      <option value="0.7854">North-east · 45°</option>
-                      <option value="1.5708">North · 90°</option>
-                      <option value="2.3562">North-west · 135°</option>
-                      <option value="3.1416">West · 180°</option>
-                      <option value="-2.3562">South-west · 225°</option>
-                      <option value="-1.5708">South · 270°</option>
-                      <option value="-0.7854">South-east · 315°</option>
-                      <option value="custom">Custom…</option>
-                    </select>
-                    <input
-                      id="pickup-yaw-custom"
-                      class="custom-heading hidden"
-                      type="number"
-                      min="-360"
-                      max="360"
-                      step="1"
-                      value="0"
-                      inputmode="decimal"
-                      aria-label="Custom pickup heading in degrees"
-                      placeholder="Degrees"
-                    >
-                  </label>
-                  <label>Continue
-                    <select id="pickup-continue-mode" name="pickup-continue-mode" required>
-                      <option value="manual" selected>Manual button</option>
-                      <option value="automatic">After timed wait</option>
-                    </select>
-                  </label>
-                  <label>Timed wait (s) <input name="pickup-dwell" type="number" min="0" max="300" step="1" value="5" required></label>
-                </div>
+              <div class="mission-waypoint-heading">
+                <p class="subtle">Add up to 10 ordered stops. Select a stop, then click its position on the map.</p>
+                <span id="mission-waypoint-count" class="map-chip">2 / 10</span>
               </div>
+              <div id="mission-waypoint-list" class="mission-waypoint-list"></div>
+              <button id="add-mission-waypoint" class="ghost waypoint-add" type="button">Add waypoint</button>
 
-              <div class="waypoint-section">
-                <div class="waypoint-title"><span class="waypoint-dot dropoff"></span>Drop-off</div>
-                <div class="field-grid">
-                  <label>X <input id="dropoff-x" name="dropoff-x" type="number" value="" placeholder="Select on map" readonly required></label>
-                  <label>Y <input id="dropoff-y" name="dropoff-y" type="number" value="" placeholder="Select on map" readonly required></label>
-                  <label>Heading
-                    <select id="dropoff-yaw" name="dropoff-yaw" required>
-                      <option value="0">East · 0°</option>
-                      <option value="0.7854">North-east · 45°</option>
-                      <option value="1.5708">North · 90°</option>
-                      <option value="2.3562">North-west · 135°</option>
-                      <option value="3.1416">West · 180°</option>
-                      <option value="-2.3562">South-west · 225°</option>
-                      <option value="-1.5708">South · 270°</option>
-                      <option value="-0.7854">South-east · 315°</option>
-                      <option value="custom">Custom…</option>
-                    </select>
-                    <input
-                      id="dropoff-yaw-custom"
-                      class="custom-heading hidden"
-                      type="number"
-                      min="-360"
-                      max="360"
-                      step="1"
-                      value="0"
-                      inputmode="decimal"
-                      aria-label="Custom drop-off heading in degrees"
-                      placeholder="Degrees"
-                    >
-                  </label>
-                  <label>Wait (s) <input name="dropoff-dwell" type="number" min="0" max="300" step="1" value="0" required></label>
-                </div>
-              </div>
+              <template id="mission-waypoint-template">
+                <section class="waypoint-section mission-waypoint">
+                  <div class="waypoint-title">
+                    <span class="waypoint-dot mission"></span>
+                    <strong data-role="title">Waypoint</strong>
+                    <span data-role="selected" class="waypoint-selected">Selected</span>
+                    <span class="toolbar-spacer"></span>
+                    <button data-action="select" class="ghost compact" type="button">Select on map</button>
+                  </div>
+                  <div class="field-grid waypoint-fields">
+                    <label>Name <input data-field="label" maxlength="80" required></label>
+                    <label>X <input data-field="x" type="number" placeholder="Select on map" readonly required></label>
+                    <label>Y <input data-field="y" type="number" placeholder="Select on map" readonly required></label>
+                    <label>Heading
+                      <select data-field="yaw" required>
+                        <option value="0">East · 0°</option>
+                        <option value="0.7854">North-east · 45°</option>
+                        <option value="1.5708">North · 90°</option>
+                        <option value="2.3562">North-west · 135°</option>
+                        <option value="3.1416">West · 180°</option>
+                        <option value="-2.3562">South-west · 225°</option>
+                        <option value="-1.5708">South · 270°</option>
+                        <option value="-0.7854">South-east · 315°</option>
+                        <option value="custom">Custom…</option>
+                      </select>
+                      <input data-field="yaw-custom" class="custom-heading hidden" type="number" min="-360" max="360" step="1" value="0" inputmode="decimal" aria-label="Custom waypoint heading in degrees" placeholder="Degrees">
+                    </label>
+                    <label>After arrival
+                      <select data-field="continue-mode" required>
+                        <option value="manual">Wait for Continue button</option>
+                        <option value="automatic">Continue after timed wait</option>
+                      </select>
+                    </label>
+                    <label>Timed wait (s) <input data-field="dwell" type="number" min="0" max="300" step="1" value="0" required></label>
+                  </div>
+                  <p data-role="final-note" class="subtle waypoint-final-note hidden">The final waypoint completes the mission.</p>
+                  <div class="waypoint-order-controls">
+                    <button data-action="up" class="ghost compact" type="button">Move up</button>
+                    <button data-action="down" class="ghost compact" type="button">Move down</button>
+                    <button data-action="remove" class="danger-link compact" type="button">Remove</button>
+                  </div>
+                </section>
+              </template>
 
-              <p class="subtle">At Pickup, choose either a manual Continue button or automatic continuation after the timed wait. A running delivery can also be paused and resumed from the mission queue.</p>
-              <button id="submit-mission" class="primary" type="submit">Queue delivery</button>
+              <p class="subtle">At each intermediate waypoint, choose automatic continuation after a timed wait or require the operator to press Continue. A running mission can also be paused safely between stops.</p>
+              <button id="submit-mission" class="primary" type="submit">Queue waypoint mission</button>
+              <button id="continue-active-mission" class="primary waypoint-continue hidden" type="button">Continue to next waypoint</button>
               <p id="mission-message" class="form-message" role="status"></p>
             </form>
           </article>

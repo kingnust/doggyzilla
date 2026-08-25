@@ -22,7 +22,9 @@
   let robotPose = null;
   let initialPoseDraft = null;
   let initialPosePromptedMap = '';
-  let activeTarget = 'pickup';
+  let activeTarget = 'waypoint';
+  let activeWaypointIndex = 0;
+  let activeMissionTaskId = '';
   let plannedPath = [];
   let previewTimer = null;
   let previewGeneration = 0;
@@ -37,7 +39,16 @@
   let keepoutPolygon = [];
   let keepoutZones = [];
   let selectedKeepoutZoneId = '';
-  const waypoints = { pickup: null, dropoff: null };
+  const waypoints = [
+    {
+      label: 'Waypoint 1', x: null, y: null, yaw: 0,
+      continue_mode: 'manual', dwell_seconds: 0,
+    },
+    {
+      label: 'Waypoint 2', x: null, y: null, yaw: 0,
+      continue_mode: 'automatic', dwell_seconds: 0,
+    },
+  ];
 
   async function api(path, options = {}) {
     const headers = new Headers(options.headers || {});
@@ -263,6 +274,218 @@
   function headingDegrees(yaw) {
     const degrees = normalizeAngle(Number(yaw) || 0) * 180 / Math.PI;
     return Math.round((degrees + 360) % 360);
+  }
+
+  function newMissionWaypoint(index) {
+    return {
+      label: `Waypoint ${index + 1}`,
+      x: null,
+      y: null,
+      yaw: 0,
+      continue_mode: 'manual',
+      dwell_seconds: 0,
+    };
+  }
+
+  function waypointHasPose(waypointValue) {
+    return Number.isFinite(waypointValue?.x)
+      && Number.isFinite(waypointValue?.y)
+      && Number.isFinite(waypointValue?.yaw);
+  }
+
+  function selectedWaypoint() {
+    return waypoints[activeWaypointIndex] || null;
+  }
+
+  function selectedWaypointLabel() {
+    const waypointValue = selectedWaypoint();
+    return waypointValue?.label?.trim() || `Waypoint ${activeWaypointIndex + 1}`;
+  }
+
+  function setWaypointHeadingControls(select, custom, yaw) {
+    const normalizedYaw = normalizeAngle(Number(yaw) || 0);
+    const compassOptions = [...select.options].filter(
+      (option) => option.value !== 'custom',
+    );
+    const closest = compassOptions.reduce((result, option) => {
+      const difference = Math.abs(
+        normalizeAngle(Number(option.value) - normalizedYaw),
+      );
+      return difference < result.difference ? { option, difference } : result;
+    }, { option: compassOptions[0], difference: Infinity });
+    if (closest.difference < 0.001) {
+      select.value = closest.option.value;
+    } else {
+      select.value = 'custom';
+      custom.value = (normalizedYaw * 180 / Math.PI).toFixed(1);
+    }
+    custom.classList.toggle('hidden', select.value !== 'custom');
+  }
+
+  function waypointHeadingValue(select, custom) {
+    if (select.value !== 'custom') {
+      const radians = Number(select.value);
+      return Number.isFinite(radians) ? normalizeAngle(radians) : null;
+    }
+    const degrees = Number(custom.value);
+    if (!Number.isFinite(degrees) || degrees < -360 || degrees > 360) {
+      return null;
+    }
+    return normalizeAngle(degrees * Math.PI / 180);
+  }
+
+  function renumberDefaultWaypointLabels() {
+    waypoints.forEach((waypointValue, index) => {
+      if (/^Waypoint \d+$/.test(waypointValue.label || '')) {
+        waypointValue.label = `Waypoint ${index + 1}`;
+      }
+    });
+  }
+
+  function renderMissionWaypoints() {
+    const list = elements['mission-waypoint-list'];
+    const template = elements['mission-waypoint-template'];
+    const cards = waypoints.map((waypointValue, index) => {
+      const card = template.content.firstElementChild.cloneNode(true);
+      const isSelected = index === activeWaypointIndex;
+      const isFinal = index === waypoints.length - 1;
+      card.dataset.waypointIndex = String(index);
+      card.classList.toggle('selected', isSelected);
+      card.querySelector('[data-role="title"]').textContent = `Waypoint ${index + 1}`;
+      card.querySelector('[data-role="selected"]').classList.toggle('hidden', !isSelected);
+
+      const label = card.querySelector('[data-field="label"]');
+      const x = card.querySelector('[data-field="x"]');
+      const y = card.querySelector('[data-field="y"]');
+      const yaw = card.querySelector('[data-field="yaw"]');
+      const customYaw = card.querySelector('[data-field="yaw-custom"]');
+      const continueMode = card.querySelector('[data-field="continue-mode"]');
+      const dwell = card.querySelector('[data-field="dwell"]');
+      label.value = waypointValue.label;
+      x.value = Number.isFinite(waypointValue.x) ? waypointValue.x.toFixed(3) : '';
+      y.value = Number.isFinite(waypointValue.y) ? waypointValue.y.toFixed(3) : '';
+      setWaypointHeadingControls(yaw, customYaw, waypointValue.yaw);
+      continueMode.value = waypointValue.continue_mode;
+      dwell.value = String(waypointValue.dwell_seconds);
+      continueMode.disabled = isFinal;
+      dwell.disabled = isFinal || waypointValue.continue_mode === 'manual';
+      card.querySelector('[data-role="final-note"]').classList.toggle('hidden', !isFinal);
+
+      card.querySelector('[data-action="up"]').disabled = index === 0;
+      card.querySelector('[data-action="down"]').disabled = isFinal;
+      card.querySelector('[data-action="remove"]').disabled = waypoints.length === 1;
+
+      label.addEventListener('input', () => {
+        waypointValue.label = label.value.slice(0, 80);
+        drawMap();
+      });
+      yaw.addEventListener('change', () => {
+        customYaw.classList.toggle('hidden', yaw.value !== 'custom');
+        const value = waypointHeadingValue(yaw, customYaw);
+        if (value !== null) waypointValue.yaw = value;
+        plannedPath = [];
+        drawMap();
+        scheduleRoutePreview();
+      });
+      customYaw.addEventListener('input', () => {
+        const value = waypointHeadingValue(yaw, customYaw);
+        if (value === null) {
+          setMapMessage('Custom heading must be between -360° and 360°.');
+          return;
+        }
+        waypointValue.yaw = value;
+        plannedPath = [];
+        drawMap();
+        scheduleRoutePreview();
+      });
+      continueMode.addEventListener('change', () => {
+        waypointValue.continue_mode = continueMode.value;
+        dwell.disabled = continueMode.value === 'manual';
+      });
+      dwell.addEventListener('input', () => {
+        const value = Number(dwell.value);
+        if (Number.isFinite(value)) waypointValue.dwell_seconds = value;
+      });
+      card.querySelector('[data-action="select"]').addEventListener('click', () => {
+        activeWaypointIndex = index;
+        setActiveTarget('waypoint');
+        renderMissionWaypoints();
+        setMapMessage(`Click the map to place ${selectedWaypointLabel()}.`);
+      });
+      card.querySelector('[data-action="up"]').addEventListener('click', () => {
+        moveMissionWaypoint(index, -1);
+      });
+      card.querySelector('[data-action="down"]').addEventListener('click', () => {
+        moveMissionWaypoint(index, 1);
+      });
+      card.querySelector('[data-action="remove"]').addEventListener('click', () => {
+        removeMissionWaypoint(index);
+      });
+      return card;
+    });
+    list.replaceChildren(...cards);
+    elements['mission-waypoint-count'].textContent = `${waypoints.length} / 10`;
+    elements['add-map-waypoint'].disabled = waypoints.length >= 10;
+    elements['add-mission-waypoint'].disabled = waypoints.length >= 10;
+    elements['place-waypoint'].innerHTML = (
+      '<span class="waypoint-dot mission"></span>'
+      + `Place waypoint ${activeWaypointIndex + 1}`
+    );
+  }
+
+  function addMissionWaypoint() {
+    if (waypoints.length >= 10) {
+      setMapMessage('A waypoint mission can contain at most 10 points.');
+      return;
+    }
+    waypoints.push(newMissionWaypoint(waypoints.length));
+    activeWaypointIndex = waypoints.length - 1;
+    setActiveTarget('waypoint');
+    plannedPath = [];
+    renderMissionWaypoints();
+    drawMap();
+    scheduleRoutePreview();
+    setMapMessage(`Click the map to place ${selectedWaypointLabel()}.`);
+  }
+
+  function moveMissionWaypoint(index, offset) {
+    const destination = index + offset;
+    if (destination < 0 || destination >= waypoints.length) return;
+    const [waypointValue] = waypoints.splice(index, 1);
+    waypoints.splice(destination, 0, waypointValue);
+    activeWaypointIndex = destination;
+    renumberDefaultWaypointLabels();
+    plannedPath = [];
+    renderMissionWaypoints();
+    drawMap();
+    scheduleRoutePreview();
+  }
+
+  function removeMissionWaypoint(index) {
+    if (waypoints.length <= 1) return;
+    waypoints.splice(index, 1);
+    activeWaypointIndex = Math.min(activeWaypointIndex, waypoints.length - 1);
+    renumberDefaultWaypointLabels();
+    plannedPath = [];
+    renderMissionWaypoints();
+    syncAllWaypointValidation();
+    drawMap();
+    scheduleRoutePreview();
+  }
+
+  function resetMissionWaypoints() {
+    waypoints.splice(
+      0,
+      waypoints.length,
+      newMissionWaypoint(0),
+      { ...newMissionWaypoint(1), continue_mode: 'automatic' },
+    );
+    activeWaypointIndex = 0;
+    plannedPath = [];
+    renderMissionWaypoints();
+    syncAllWaypointValidation();
+    drawMap();
+    scheduleRoutePreview();
   }
 
   function decodeMapRuns(snapshot) {
@@ -688,7 +911,10 @@
     if (plannedPath.length > 1) {
       drawPolyline(context, plannedPath, '#5ef0a6');
     } else {
-      const direct = [robotPose, waypoints.pickup, waypoints.dropoff].filter(Boolean);
+      const direct = [
+        robotPose,
+        ...waypoints.filter(waypointHasPose),
+      ].filter(Boolean);
       drawPolyline(context, direct, 'rgba(94, 240, 166, .55)', true);
     }
     drawPatrolPolygon(context);
@@ -699,14 +925,15 @@
     if (initialPoseDraft) {
       drawPose(context, initialPoseDraft, '#ffbd59', 'SELECTED START', 4);
     }
-    if (waypoints.pickup) {
-      const valid = validateMapPoint(waypoints.pickup, 'Pickup').valid;
-      drawPose(context, waypoints.pickup, valid ? '#69baff' : '#ff5d68', 'PICKUP');
-    }
-    if (waypoints.dropoff) {
-      const valid = validateMapPoint(waypoints.dropoff, 'Drop-off').valid;
-      drawPose(context, waypoints.dropoff, valid ? '#ffbd59' : '#ff5d68', 'DROP-OFF');
-    }
+    waypoints.forEach((waypointValue, index) => {
+      if (!waypointHasPose(waypointValue)) return;
+      const label = waypointValue.label?.trim() || `Waypoint ${index + 1}`;
+      const valid = validateMapPoint(waypointValue, label).valid;
+      const color = valid
+        ? (index === activeWaypointIndex ? '#ffbd59' : '#69baff')
+        : '#ff5d68';
+      drawPose(context, waypointValue, color, `${index + 1} · ${label}`);
+    });
   }
 
   async function refreshMap(force = false) {
@@ -737,48 +964,30 @@
     drawMap();
   }
 
-  function inputValue(id) {
-    const raw = elements[id].value.trim();
-    if (!raw) return null;
-    const value = Number(raw);
-    return Number.isFinite(value) ? value : null;
-  }
-
-  function syncWaypointFromInputs(target, requestPreview = true) {
-    const x = inputValue(`${target}-x`);
-    const y = inputValue(`${target}-y`);
-    const yaw = headingValue(target);
-    waypoints[target] = x === null || y === null || yaw === null
-      ? null
-      : { x, y, yaw: normalizeAngle(yaw) };
-    plannedPath = [];
-    syncAllWaypointValidation();
-    if (x !== null && y !== null && yaw === null) {
-      setMapMessage('Custom heading must be between -360° and 360°.');
-    }
-    drawMap();
-    if (requestPreview) scheduleRoutePreview();
-  }
-
-  function setWaypoint(target, point, yaw = 0, requestPreview = true) {
-    const selectedYaw = setHeadingControl(target, yaw);
+  function setMissionWaypoint(point, yaw = 0, requestPreview = true) {
+    const waypointValue = selectedWaypoint();
+    if (!waypointValue) return;
     const normalizedPoint = {
       x: Number(point.x.toFixed(3)),
       y: Number(point.y.toFixed(3)),
     };
-    waypoints[target] = { ...normalizedPoint, yaw: selectedYaw };
-    elements[`${target}-x`].value = normalizedPoint.x.toFixed(3);
-    elements[`${target}-y`].value = normalizedPoint.y.toFixed(3);
+    waypointValue.x = normalizedPoint.x;
+    waypointValue.y = normalizedPoint.y;
+    waypointValue.yaw = normalizeAngle(Number(yaw) || 0);
     plannedPath = [];
+    renderMissionWaypoints();
     syncAllWaypointValidation();
     drawMap();
     if (requestPreview) scheduleRoutePreview();
   }
 
   function syncAllWaypointValidation() {
-    const results = [];
-    if (waypoints.pickup) results.push(validateMapPoint(waypoints.pickup, 'Pickup'));
-    if (waypoints.dropoff) results.push(validateMapPoint(waypoints.dropoff, 'Drop-off'));
+    const results = waypoints
+      .filter(waypointHasPose)
+      .map((waypointValue, index) => validateMapPoint(
+        waypointValue,
+        waypointValue.label?.trim() || `Waypoint ${index + 1}`,
+      ));
     const invalid = results.find((result) => !result.valid);
     if (invalid) setMapMessage(invalid.reason);
     else if (results.length) setMapMessage('Selected waypoint cells pass the local map check.', true);
@@ -791,14 +1000,14 @@
       button.classList.toggle('active', button.dataset.mapTarget === target);
     });
     document.querySelectorAll('.apply-location').forEach((button) => {
-      const drawing = ['patrol', 'keepout', 'initial-pose'].includes(target);
+      const drawing = target !== 'waypoint';
       button.disabled = drawing;
       button.textContent = drawing
-        ? 'Choose pickup or drop-off'
-        : `Use as ${target === 'pickup' ? 'pickup' : 'drop-off'}`;
+        ? 'Choose a waypoint'
+        : `Use for ${selectedWaypointLabel()}`;
     });
     elements['use-robot-pose'].disabled = (
-      ['patrol', 'keepout', 'initial-pose'].includes(target) || !robotPose
+      target !== 'waypoint' || !robotPose
     );
   }
 
@@ -806,10 +1015,13 @@
     return {
       name: 'Map preview',
       map: currentMap,
-      waypoints: [
-        { label: 'Pickup', ...waypoints.pickup, dwell_seconds: 0 },
-        { label: 'Drop-off', ...waypoints.dropoff, dwell_seconds: 0 },
-      ],
+      waypoints: waypoints.map((waypointValue, index) => ({
+        label: waypointValue.label?.trim() || `Waypoint ${index + 1}`,
+        x: waypointValue.x,
+        y: waypointValue.y,
+        yaw: waypointValue.yaw,
+        dwell_seconds: 0,
+      })),
     };
   }
 
@@ -817,14 +1029,14 @@
     clearTimeout(previewTimer);
     previewGeneration += 1;
     const generation = previewGeneration;
-    if (!waypoints.pickup || !waypoints.dropoff) {
-      elements['route-preview'].textContent = 'Select both waypoints to preview the route.';
+    if (waypoints.some((waypointValue) => !waypointHasPose(waypointValue))) {
+      elements['route-preview'].textContent = 'Select every waypoint to preview the route.';
       return;
     }
-    const checks = [
-      validateMapPoint(waypoints.pickup, 'Pickup'),
-      validateMapPoint(waypoints.dropoff, 'Drop-off'),
-    ];
+    const checks = waypoints.map((waypointValue, index) => validateMapPoint(
+      waypointValue,
+      waypointValue.label?.trim() || `Waypoint ${index + 1}`,
+    ));
     if (checks.some((check) => !check.valid)) {
       elements['route-preview'].textContent = 'Route preview blocked by an unsafe waypoint.';
       return;
@@ -991,8 +1203,7 @@
       mapPan = { x: 0, y: 0 };
       mapZoom = 1;
       setMapPanMode(false);
-      waypoints.pickup = null;
-      waypoints.dropoff = null;
+      resetMissionWaypoints();
       setTimeout(() => {
         Promise.all([
           refreshMap(true),
@@ -1179,6 +1390,13 @@
     }
 
     const active = state.active_task;
+    const canContinueMission = active?.kind === 'delivery'
+      && ['paused', 'waiting'].includes(active.state);
+    activeMissionTaskId = canContinueMission ? active.id : '';
+    elements['continue-active-mission'].classList.toggle(
+      'hidden',
+      !canContinueMission,
+    );
     if (active) {
       const points = active.payload?.waypoints?.length || 1;
       const repeats = Number(active.payload?.repeats || 1);
@@ -1186,14 +1404,24 @@
       const step = Math.min(count, Number(active.current_step || 0));
       elements['active-task'].textContent = active.name;
       if (active.kind === 'delivery' && active.state === 'waiting') {
-        elements['active-task-detail'].textContent = 'Pickup reached · load the item, then press Continue delivery';
+        const completed = active.payload?.waypoints?.[Math.max(0, step - 1)];
+        const next = active.payload?.waypoints?.[step];
+        elements['active-task-detail'].textContent = (
+          `${completed?.label || `Waypoint ${step}`} reached · waiting for Continue`
+        );
+        elements['continue-active-mission'].textContent = next
+          ? `Continue to ${next.label || `waypoint ${step + 1}`}`
+          : 'Continue waypoint mission';
       } else if (active.kind === 'delivery' && active.state === 'paused') {
         elements['active-task-detail'].textContent = `Paused · next point ${Math.min(step + 1, count)} of ${count}`;
+        elements['continue-active-mission'].textContent = 'Resume waypoint mission';
       } else {
         elements['active-task-detail'].textContent = `${active.state} · point ${Math.min(step + 1, count)} of ${count}`;
       }
       elements['task-progress'].style.width = `${Math.round((step / count) * 100)}%`;
     } else {
+      activeMissionTaskId = '';
+      elements['continue-active-mission'].classList.add('hidden');
       elements['active-task'].textContent = 'None';
       elements['active-task-detail'].textContent = 'Queue is idle';
       elements['task-progress'].style.width = '0%';
@@ -1224,7 +1452,7 @@
     elements['submit-mission'].disabled = latched;
     elements['patrol-queue'].disabled = latched || !selectedPatrolAreaId;
     elements['use-robot-pose'].disabled = (
-      ['patrol', 'keepout', 'initial-pose'].includes(activeTarget) || !robotPose
+      activeTarget !== 'waypoint' || !robotPose
     );
     drawMap();
   }
@@ -1247,14 +1475,14 @@
       const pause = document.createElement('button');
       pause.className = 'delivery-task-action';
       pause.type = 'button';
-      pause.textContent = 'Pause delivery';
+      pause.textContent = 'Pause waypoint mission';
       pause.addEventListener('click', () => pauseDelivery(task.id));
       item.append(pause);
     } else if (task.kind === 'delivery' && task.state === 'pausing') {
       const pausing = document.createElement('button');
       pausing.className = 'delivery-task-action';
       pausing.type = 'button';
-      pausing.textContent = 'Pausing delivery…';
+      pausing.textContent = 'Pausing waypoint mission…';
       pausing.disabled = true;
       item.append(pausing);
     } else if (
@@ -1263,9 +1491,10 @@
       const resume = document.createElement('button');
       resume.className = 'delivery-task-action';
       resume.type = 'button';
-      resume.textContent = task.state === 'waiting'
-        ? 'Continue after pickup'
-        : 'Continue delivery';
+      const nextWaypoint = task.payload?.waypoints?.[task.current_step];
+      resume.textContent = task.state === 'waiting' && nextWaypoint
+        ? `Continue to ${nextWaypoint.label}`
+        : 'Continue waypoint mission';
       resume.addEventListener('click', () => continueDelivery(task.id));
       item.append(resume);
     }
@@ -1315,14 +1544,14 @@
     const apply = document.createElement('button');
     apply.type = 'button';
     apply.className = 'apply-location';
-    const drawing = ['patrol', 'keepout', 'initial-pose'].includes(activeTarget);
+    const drawing = activeTarget !== 'waypoint';
     apply.disabled = drawing;
     apply.textContent = drawing
-      ? 'Choose pickup or drop-off'
-      : `Use as ${activeTarget === 'pickup' ? 'pickup' : 'drop-off'}`;
+      ? 'Choose a waypoint'
+      : `Use for ${selectedWaypointLabel()}`;
     apply.addEventListener('click', () => {
-      setWaypoint(activeTarget, location, location.yaw);
-      showToast(`${location.name} applied to ${activeTarget}.`);
+      setMissionWaypoint(location, location.yaw);
+      showToast(`${location.name} applied to ${selectedWaypointLabel()}.`);
     });
     const remove = document.createElement('button');
     remove.type = 'button';
@@ -1458,7 +1687,7 @@
   async function pauseDelivery(taskId) {
     try {
       await post(`/api/v1/tasks/${encodeURIComponent(taskId)}/pause`);
-      showToast('Delivery pause requested.');
+      showToast('Waypoint mission pause requested.');
       await refreshAll();
     } catch (error) { showToast(error.message); }
   }
@@ -1466,7 +1695,7 @@
   async function continueDelivery(taskId) {
     try {
       await post(`/api/v1/tasks/${encodeURIComponent(taskId)}/continue`);
-      showToast('Delivery continued.');
+      showToast('Waypoint mission continued.');
       await refreshAll();
     } catch (error) { showToast(error.message); }
   }
@@ -1488,18 +1717,15 @@
     }
   }
 
-  function waypoint(form, prefix, label) {
-    const selected = waypoints[prefix];
-    const value = {
-      label,
-      x: selected.x,
-      y: selected.y,
-      yaw: selected.yaw,
-      dwell_seconds: Number(form.get(`${prefix}-dwell`)),
+  function missionWaypointPayload(waypointValue, index) {
+    return {
+      label: waypointValue.label?.trim() || `Waypoint ${index + 1}`,
+      x: waypointValue.x,
+      y: waypointValue.y,
+      yaw: waypointValue.yaw,
+      dwell_seconds: waypointValue.dwell_seconds,
+      continue_mode: waypointValue.continue_mode,
     };
-    const continueMode = form.get(`${prefix}-continue-mode`);
-    if (continueMode) value.continue_mode = continueMode;
-    return value;
   }
 
   function handleGatewayEvent(record) {
@@ -1571,6 +1797,9 @@
   targetButtons.forEach((button) => {
     button.addEventListener('click', () => setActiveTarget(button.dataset.mapTarget));
   });
+  elements['add-map-waypoint'].addEventListener('click', addMissionWaypoint);
+  elements['add-mission-waypoint'].addEventListener('click', addMissionWaypoint);
+  renderMissionWaypoints();
 
   elements['drive-speed'].addEventListener('input', () => {
     elements['drive-speed-value'].value = elements['drive-speed'].value;
@@ -1598,21 +1827,7 @@
     setMapPanMode(!mapPanMode);
   });
 
-  ['initial-pose', 'pickup', 'dropoff'].forEach(syncCustomHeadingVisibility);
-
-  ['pickup', 'dropoff'].forEach((target) => {
-    ['x', 'y'].forEach((field) => {
-      elements[`${target}-${field}`].addEventListener('input', () => syncWaypointFromInputs(target));
-    });
-    elements[`${target}-yaw`].addEventListener('change', () => {
-      syncCustomHeadingVisibility(target);
-      syncWaypointFromInputs(target);
-    });
-    elements[`${target}-yaw-custom`].addEventListener(
-      'input',
-      () => syncWaypointFromInputs(target),
-    );
-  });
+  syncCustomHeadingVisibility('initial-pose');
 
   elements['map-canvas'].addEventListener('pointerdown', (event) => {
     const handDrag = mapPanMode && event.button === 0;
@@ -1748,28 +1963,33 @@
       event.preventDefault();
       return;
     }
-    const label = activeTarget === 'pickup' ? 'Pickup' : 'Drop-off';
+    if (activeTarget !== 'waypoint') return;
+    const label = selectedWaypointLabel();
     const validation = validateMapPoint(point, label);
     if (!validation.valid) {
       setMapMessage(validation.reason);
       return;
     }
-    const yaw = headingValue(activeTarget);
-    if (yaw === null) {
-      setMapMessage('Custom heading must be between -360° and 360°.');
-      return;
+    const yaw = selectedWaypoint()?.yaw;
+    setMissionWaypoint(point, yaw);
+    const nextIndex = waypoints.findIndex(
+      (waypointValue, index) => index > activeWaypointIndex
+        && !waypointHasPose(waypointValue),
+    );
+    if (nextIndex >= 0) {
+      activeWaypointIndex = nextIndex;
+      setActiveTarget('waypoint');
+      renderMissionWaypoints();
+      setMapMessage(`Click the map to place ${selectedWaypointLabel()}.`);
     }
-    const completedTarget = activeTarget;
-    setWaypoint(activeTarget, point, yaw);
-    if (completedTarget === 'pickup' && !waypoints.dropoff) setActiveTarget('dropoff');
     event.preventDefault();
   });
   window.addEventListener('resize', drawMap);
   if (window.ResizeObserver) new ResizeObserver(drawMap).observe(elements['map-stage']);
 
   elements['use-robot-pose'].addEventListener('click', () => {
-    if (!robotPose || ['patrol', 'keepout', 'initial-pose'].includes(activeTarget)) return;
-    setWaypoint(activeTarget, robotPose, robotPose.yaw);
+    if (!robotPose || activeTarget !== 'waypoint') return;
+    setMissionWaypoint(robotPose, robotPose.yaw);
   });
 
   elements['initial-pose-yaw'].addEventListener('change', () => {
@@ -1846,16 +2066,9 @@
   });
 
   elements['clear-waypoints'].addEventListener('click', () => {
-    waypoints.pickup = null;
-    waypoints.dropoff = null;
-    plannedPath = [];
-    ['pickup-x', 'pickup-y', 'dropoff-x', 'dropoff-y'].forEach((id) => { elements[id].value = ''; });
-    elements['pickup-yaw'].value = '0';
-    elements['dropoff-yaw'].value = '0';
-    elements['route-preview'].textContent = 'Select both waypoints to preview the route.';
-    setActiveTarget('pickup');
-    syncAllWaypointValidation();
-    drawMap();
+    resetMissionWaypoints();
+    elements['route-preview'].textContent = 'Select every waypoint to preview the route.';
+    setActiveTarget('waypoint');
   });
 
   elements['patrol-undo'].addEventListener('click', () => {
@@ -2023,11 +2236,11 @@
 
   elements['save-location'].addEventListener('click', async () => {
     const name = elements['location-name'].value.trim();
-    const waypointValue = ['patrol', 'keepout', 'initial-pose'].includes(activeTarget)
-      ? null
-      : waypoints[activeTarget];
+    const waypointValue = activeTarget === 'waypoint'
+      ? selectedWaypoint()
+      : null;
     if (!name) { showToast('Enter a location name first.'); return; }
-    if (!waypointValue) { showToast('Choose and select a pickup or drop-off waypoint first.'); return; }
+    if (!waypointHasPose(waypointValue)) { showToast('Choose and place a waypoint first.'); return; }
     const validation = validateMapPoint(waypointValue, name);
     if (!validation.valid) { showToast(validation.reason); return; }
     try {
@@ -2071,22 +2284,32 @@
 
   elements['delivery-form'].addEventListener('submit', async (event) => {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
     elements['mission-message'].className = 'form-message';
     elements['mission-message'].textContent = '';
     try {
-      if (!waypoints.pickup || !waypoints.dropoff) throw new Error('Select pickup and drop-off on the map first.');
+      if (waypoints.some((waypointValue) => !waypointHasPose(waypointValue))) {
+        throw new Error('Select every waypoint on the map first.');
+      }
       const task = await post('/api/v1/tasks/delivery', {
-        name: form.get('name'),
+        name: elements['mission-name'].value.trim(),
         map: currentMap,
-        pickup: waypoint(form, 'pickup', 'Pickup'),
-        dropoff: waypoint(form, 'dropoff', 'Drop-off'),
+        waypoints: waypoints.map(missionWaypointPayload),
       });
       elements['mission-message'].classList.add('success');
       elements['mission-message'].textContent = `Queued ${task.name}.`;
-      showToast('Delivery added to the mission queue.');
+      showToast('Waypoint mission added to the queue.');
       await refreshAll();
     } catch (error) { elements['mission-message'].textContent = error.message; }
+  });
+
+  elements['continue-active-mission'].addEventListener('click', async () => {
+    if (!activeMissionTaskId) return;
+    elements['continue-active-mission'].disabled = true;
+    try {
+      await continueDelivery(activeMissionTaskId);
+    } finally {
+      elements['continue-active-mission'].disabled = false;
+    }
   });
 
   elements['vision-apply'].addEventListener('click', async () => {

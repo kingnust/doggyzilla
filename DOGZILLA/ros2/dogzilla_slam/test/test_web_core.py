@@ -21,16 +21,27 @@ from dogzilla_slam.web_core import ValidationError
 
 def delivery_request():
     return {
-        'name': 'Lab delivery',
+        'name': 'Lab waypoint mission',
         'map': 'room1',
-        'pickup': {
-            'x': 1,
-            'y': 2,
-            'yaw': 0.5,
-            'dwell_seconds': 4,
-            'continue_mode': 'manual',
-        },
-        'dropoff': {'x': -1, 'y': 3, 'yaw': -0.5},
+        'waypoints': [
+            {
+                'label': 'Loading bay',
+                'x': 1,
+                'y': 2,
+                'yaw': 0.5,
+                'dwell_seconds': 4,
+                'continue_mode': 'manual',
+            },
+            {
+                'label': 'Hallway',
+                'x': 0,
+                'y': 2.5,
+                'yaw': 0,
+                'dwell_seconds': 2,
+                'continue_mode': 'automatic',
+            },
+            {'label': 'Lab', 'x': -1, 'y': 3, 'yaw': -0.5},
+        ],
     }
 
 
@@ -120,16 +131,16 @@ class WebCoreTest(unittest.TestCase):
             'navigation',
         )
 
-    def test_delivery_is_normalized_to_two_labeled_waypoints(self):
+    def test_delivery_normalizes_up_to_ten_operator_controlled_waypoints(self):
         payload = build_delivery_payload(delivery_request())
 
         self.assertEqual(payload['kind'], 'delivery')
-        self.assertEqual(payload['name'], 'Lab delivery')
+        self.assertEqual(payload['name'], 'Lab waypoint mission')
         self.assertEqual(payload['map'], 'room1')
         self.assertEqual(
             payload['waypoints'][0],
             {
-                'label': 'Pickup',
+                'label': 'Loading bay',
                 'x': 1.0,
                 'y': 2.0,
                 'yaw': 0.5,
@@ -137,10 +148,15 @@ class WebCoreTest(unittest.TestCase):
                 'continue_mode': 'manual',
             },
         )
-        self.assertEqual(payload['waypoints'][1]['label'], 'Drop-off')
+        self.assertEqual(payload['waypoints'][1]['label'], 'Hallway')
+        self.assertEqual(payload['waypoints'][2]['label'], 'Lab')
+        self.assertEqual(
+            payload['waypoints'][2]['continue_mode'],
+            'automatic',
+        )
 
         automatic = delivery_request()
-        automatic['pickup'].pop('continue_mode')
+        automatic['waypoints'][0].pop('continue_mode')
         self.assertEqual(
             build_delivery_payload(automatic)['waypoints'][0][
                 'continue_mode'
@@ -149,9 +165,40 @@ class WebCoreTest(unittest.TestCase):
         )
 
         invalid = delivery_request()
-        invalid['pickup']['continue_mode'] = 'sometimes'
+        invalid['waypoints'][0]['continue_mode'] = 'sometimes'
         with self.assertRaisesRegex(ValidationError, 'automatic or manual'):
             build_delivery_payload(invalid)
+
+        with self.assertRaisesRegex(ValidationError, 'between 1 and 10'):
+            build_delivery_payload({'map': 'room1', 'waypoints': []})
+        with self.assertRaisesRegex(ValidationError, 'between 1 and 10'):
+            build_delivery_payload({
+                'map': 'room1',
+                'waypoints': [
+                    {'x': index, 'y': 0}
+                    for index in range(11)
+                ],
+            })
+
+    def test_legacy_pickup_dropoff_delivery_remains_compatible(self):
+        payload = build_delivery_payload({
+            'name': 'Legacy delivery',
+            'map': 'room1',
+            'pickup': {
+                'x': 1,
+                'y': 2,
+                'continue_mode': 'manual',
+            },
+            'dropoff': {'x': 3, 'y': 4},
+        })
+        self.assertEqual(
+            [waypoint['label'] for waypoint in payload['waypoints']],
+            ['Pickup', 'Drop-off'],
+        )
+        self.assertEqual(
+            payload['waypoints'][0]['continue_mode'],
+            'manual',
+        )
 
     def test_unsafe_waypoint_values_are_rejected(self):
         unsafe_values = [
@@ -165,7 +212,7 @@ class WebCoreTest(unittest.TestCase):
         for field, value in unsafe_values:
             with self.subTest(field=field, value=value):
                 request = delivery_request()
-                request['pickup'][field] = value
+                request['waypoints'][0][field] = value
                 with self.assertRaises(ValidationError):
                     build_delivery_payload(request)
 

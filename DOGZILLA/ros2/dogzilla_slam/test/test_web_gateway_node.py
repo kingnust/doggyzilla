@@ -682,7 +682,7 @@ class WebGatewayNodeTest(unittest.TestCase):
                     'map': 'test1',
                     'waypoints': [
                         {
-                            'label': 'Pickup',
+                            'label': 'Loading bay',
                             'x': 2.0,
                             'y': 2.0,
                             'yaw': 0.0,
@@ -690,7 +690,7 @@ class WebGatewayNodeTest(unittest.TestCase):
                             'continue_mode': 'manual',
                         },
                         {
-                            'label': 'Drop-off',
+                            'label': 'Workshop',
                             'x': 3.0,
                             'y': 2.0,
                             'yaw': 0.0,
@@ -727,7 +727,11 @@ class WebGatewayNodeTest(unittest.TestCase):
                 self.assertEqual(waiting['current_step'], 1)
                 self.assertEqual(
                     node._active['checkpoint'],
-                    'pickup-complete',
+                    {
+                        'type': 'waypoint-complete',
+                        'completed_step': 1,
+                        'label': 'Loading bay',
+                    },
                 )
 
                 waypoint_sends = []

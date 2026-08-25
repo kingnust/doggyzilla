@@ -647,12 +647,14 @@ exists, it reports that nothing was stopped and leaves manually started
 services alone. The ordinary `./deploy/dogzilla-map stop` command recognizes a
 managed mission and uses the same web-first order.
 
-Before queuing a delivery, confirm that the displayed scan aligns with the
+Before queuing a waypoint mission, confirm that the displayed scan aligns with the
 saved walls and that localization is stable. On the Pi monitor,
 `./deploy/dogzilla-map rviz` can open RViz for **2D Pose Estimate** while the
 headless mission is running. The browser then previews the real Nav2 path and
-dispatches its validated pickup and drop-off points one at a time. Keep the
-robot supervised and the software emergency stop visible during testing.
+dispatches up to ten validated waypoints one at a time. Each intermediate
+waypoint can continue automatically after its timed wait or hold position
+until the operator presses Continue. Keep the robot supervised and the
+software emergency stop visible during testing.
 
 #### Targeted navigation tuning records
 

@@ -141,35 +141,63 @@ def _validate_common_task(value):
 
 
 def build_delivery_payload(value):
-    """Normalize a two-stop pickup/drop-off delivery request."""
+    """Normalize a one-to-ten stop operator-controlled waypoint mission."""
     common = _validate_common_task(value)
-    if 'pickup' not in value or 'dropoff' not in value:
-        raise ValidationError('delivery requires pickup and dropoff waypoints')
-    pickup = dict(value['pickup']) if isinstance(value['pickup'], dict) else value['pickup']
-    dropoff = dict(value['dropoff']) if isinstance(value['dropoff'], dict) else value['dropoff']
-    if not isinstance(pickup, dict):
-        raise ValidationError('waypoints[0] must be an object')
-    if isinstance(pickup, dict):
-        pickup.setdefault('label', 'Pickup')
-    if isinstance(dropoff, dict):
-        dropoff.setdefault('label', 'Drop-off')
-    continue_mode = pickup.get('continue_mode', 'automatic')
-    if not isinstance(continue_mode, str):
-        raise ValidationError('pickup.continue_mode must be text')
-    continue_mode = continue_mode.strip().lower()
-    if continue_mode not in {'automatic', 'manual'}:
-        raise ValidationError(
-            'pickup.continue_mode must be automatic or manual'
+    waypoints = value.get('waypoints')
+
+    # Accept the original two-field payload so existing clients and saved
+    # integrations continue to work after the dashboard moves to waypoint
+    # lists.
+    if waypoints is None and ('pickup' in value or 'dropoff' in value):
+        if 'pickup' not in value or 'dropoff' not in value:
+            raise ValidationError(
+                'legacy delivery requires pickup and dropoff waypoints'
+            )
+        pickup = (
+            dict(value['pickup'])
+            if isinstance(value['pickup'], dict)
+            else value['pickup']
         )
-    pickup_waypoint = validate_waypoint(pickup, 0)
-    pickup_waypoint['continue_mode'] = continue_mode
+        dropoff = (
+            dict(value['dropoff'])
+            if isinstance(value['dropoff'], dict)
+            else value['dropoff']
+        )
+        if isinstance(pickup, dict):
+            pickup.setdefault('label', 'Pickup')
+        if isinstance(dropoff, dict):
+            dropoff.setdefault('label', 'Drop-off')
+        waypoints = [pickup, dropoff]
+
+    if not isinstance(waypoints, list) or not 1 <= len(waypoints) <= 10:
+        raise ValidationError(
+            'waypoint mission requires between 1 and 10 waypoints'
+        )
+
+    normalized_waypoints = []
+    for index, waypoint in enumerate(waypoints):
+        if not isinstance(waypoint, dict):
+            raise ValidationError(f'waypoints[{index}] must be an object')
+        item = dict(waypoint)
+        item.setdefault('label', f'Waypoint {index + 1}')
+        continue_mode = item.get('continue_mode', 'automatic')
+        if not isinstance(continue_mode, str):
+            raise ValidationError(
+                f'waypoints[{index}].continue_mode must be text'
+            )
+        continue_mode = continue_mode.strip().lower()
+        if continue_mode not in {'automatic', 'manual'}:
+            raise ValidationError(
+                f'waypoints[{index}].continue_mode must be automatic or manual'
+            )
+        normalized = validate_waypoint(item, index)
+        normalized['continue_mode'] = continue_mode
+        normalized_waypoints.append(normalized)
+
     return {
         **common,
         'kind': 'delivery',
-        'waypoints': [
-            pickup_waypoint,
-            validate_waypoint(dropoff, 1),
-        ],
+        'waypoints': normalized_waypoints,
     }
 
 

@@ -186,13 +186,26 @@ input:focus, select:focus { border-color: var(--green-soft); box-shadow: 0 0 0 .
 input[readonly] { color: #b8c9c1; background: #09120f; cursor: default; }
 #mission-name { display: block; width: 100%; margin: .45rem 0 1rem; }
 .waypoint-section { margin-top: 1rem; padding: 1rem; border: 1px solid var(--line); border-radius: .9rem; background: rgba(0, 0, 0, .12); }
+.waypoint-section.selected { border-color: rgba(255, 189, 89, .65); box-shadow: 0 0 0 .15rem rgba(255, 189, 89, .08); }
 .waypoint-title { display: flex; align-items: center; gap: .55rem; margin-bottom: .85rem; font-size: .83rem; font-weight: 800; }
-.waypoint-dot { width: .55rem; height: .55rem; border-radius: 50%; }.waypoint-dot.pickup { background: var(--blue); box-shadow: 0 0 .6rem var(--blue); }.waypoint-dot.dropoff { background: var(--amber); box-shadow: 0 0 .6rem var(--amber); }
+.waypoint-dot { width: .55rem; height: .55rem; border-radius: 50%; }
+.waypoint-dot.mission { flex: 0 0 auto; background: var(--blue); box-shadow: 0 0 .6rem var(--blue); }
 .waypoint-dot.patrol { background: #c78cff; box-shadow: 0 0 .6rem #c78cff; }
 .waypoint-dot.keepout { background: #ff725e; box-shadow: 0 0 .6rem #ff725e; }
 .field-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: .65rem; }
 .field-grid label { display: grid; gap: .35rem; }.field-grid input, .field-grid select { width: 100%; }
 .field-grid .custom-heading { margin-top: 0; }
+.mission-waypoint-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: .85rem; }
+.mission-waypoint-heading .subtle { margin: 0; }
+.mission-waypoint-list { display: grid; gap: .75rem; }
+.mission-waypoint-list .waypoint-section { margin-top: 0; }
+.waypoint-selected { padding: .2rem .42rem; border-radius: .4rem; color: #201300; background: var(--amber); font-size: .58rem; text-transform: uppercase; letter-spacing: .05em; }
+.waypoint-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.waypoint-order-controls { display: flex; gap: .45rem; margin-top: .75rem; }
+.waypoint-order-controls .danger-link { margin-left: auto; }
+.waypoint-final-note { margin: .65rem 0 0; color: var(--green); }
+.waypoint-add { width: 100%; margin-top: .75rem; }
+.mission-panel #submit-mission, .waypoint-continue { width: 100%; font-size: 1rem; }
 
 button { padding: .68rem 1rem; border: 0; border-radius: .65rem; color: var(--text); font-weight: 800; transition: transform .16s ease, opacity .16s ease, background .16s ease; }
 button:hover { transform: translateY(-1px); } button:active { transform: translateY(0); } button:disabled { cursor: not-allowed; opacity: .45; transform: none; }

@@ -2403,7 +2403,7 @@ class DogzillaWebGateway(Node):
         return task
 
     def pause_delivery(self, task_id):
-        """Pause one delivery without discarding its current waypoint."""
+        """Pause one waypoint mission without discarding its current goal."""
         task = self.store.get(task_id)
         if task is None:
             raise KeyError(task_id)
@@ -2417,7 +2417,7 @@ class DogzillaWebGateway(Node):
             is_active = active is not None and active['task_id'] == task_id
             if is_active and active.get('checkpoint'):
                 raise ConflictError(
-                    'delivery is already waiting for operator confirmation'
+                    'mission is already waiting for operator confirmation'
                 )
             if is_active and active.get('pause_requested'):
                 raise ConflictError('delivery pause is already in progress')
@@ -2439,7 +2439,7 @@ class DogzillaWebGateway(Node):
         return self.store.get(task_id)
 
     def continue_delivery(self, task_id):
-        """Resume a paused delivery or release its pickup checkpoint."""
+        """Resume a paused mission or release its waypoint checkpoint."""
         task = self.store.get(task_id)
         if task is None:
             raise KeyError(task_id)
@@ -2753,6 +2753,11 @@ class DogzillaWebGateway(Node):
             pause_requested
             or waypoint.get('continue_mode', 'automatic') == 'manual'
         ):
+            checkpoint = {
+                'type': 'waypoint-complete',
+                'completed_step': completed_steps,
+                'label': waypoint.get('label') or f'Waypoint {completed_steps}',
+            }
             with self._lock:
                 if self._active is None:
                     return
@@ -2763,20 +2768,19 @@ class DogzillaWebGateway(Node):
                     next_state = 'paused'
                     event_type = 'task.paused'
                 else:
-                    self._active['checkpoint'] = 'pickup-complete'
+                    self._active['checkpoint'] = checkpoint
                     next_state = 'waiting'
                     event_type = 'task.waiting'
             task = self.store.update(task_id, state=next_state, error='')
-            self.events.publish(
-                event_type,
-                {
-                    **task,
-                    'checkpoint': 'pickup-complete',
+            event = dict(task)
+            if next_state == 'waiting':
+                event.update({
+                    'checkpoint': checkpoint,
                     'message': (
-                        'Pickup reached. Load the item, then continue delivery.'
+                        f"{checkpoint['label']} reached. Continue when ready."
                     ),
-                },
-            )
+                })
+            self.events.publish(event_type, event)
         elif next_cycle > cycle:
             self.events.publish(
                 'task.patrol_cycle_completed',

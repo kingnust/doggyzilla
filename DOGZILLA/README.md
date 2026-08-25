@@ -54,9 +54,11 @@ measurements and camera calibration required before deployment.
 ## Web mission control
 
 An optional local web dashboard renders the occupancy map and live robot pose,
-uses simple click-only pickup/drop-off selection, previews Nav2 paths, stores
-named locations, monitors task progress, and provides a latched software
-emergency stop. It runs in a separate container with no serial-device access.
+builds click-only waypoint missions with up to ten ordered stops, previews
+Nav2 paths, stores named locations, monitors task progress, and provides a
+latched software emergency stop. Each intermediate stop can continue after a
+timed wait or require an operator to press the prominent Continue button. The
+dashboard runs in a separate container with no serial-device access.
 
 After mapping is saved and stopped, Mission Mode starts Nav2 and the dashboard
 together:

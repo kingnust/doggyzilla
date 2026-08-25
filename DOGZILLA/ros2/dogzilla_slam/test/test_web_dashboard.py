@@ -57,7 +57,13 @@ class WebDashboardTest(unittest.TestCase):
             'robot-mode',
             'active-task',
             'delivery-form',
-            'pickup-continue-mode',
+            'mission-waypoint-list',
+            'mission-waypoint-template',
+            'mission-waypoint-count',
+            'add-mission-waypoint',
+            'add-map-waypoint',
+            'place-waypoint',
+            'continue-active-mission',
             'task-list',
             'estop',
             'reset-estop',
@@ -71,8 +77,6 @@ class WebDashboardTest(unittest.TestCase):
             'localization-message',
             'initial-pose-yaw',
             'initial-pose-yaw-custom',
-            'pickup-yaw-custom',
-            'dropoff-yaw-custom',
             'confirm-initial-pose',
             'stop-initial-pose-matching',
             'route-preview',
@@ -136,18 +140,18 @@ class WebDashboardTest(unittest.TestCase):
     def test_map_editor_uses_clicks_hand_pan_and_custom_headings(self):
         html = (STATIC_DIRECTORY / 'index.html').read_text()
         javascript = (STATIC_DIRECTORY / 'app.js').read_text()
+        stylesheet = (STATIC_DIRECTORY / 'styles.css').read_text()
 
         self.assertIn("addEventListener('click'", javascript)
         self.assertIn("addEventListener('pointermove'", javascript)
         self.assertNotIn('draggable=', html)
-        self.assertIn('<select id="pickup-yaw"', html)
-        self.assertIn('<select id="dropoff-yaw"', html)
+        self.assertIn('data-field="yaw"', html)
         self.assertIn('<select id="initial-pose-yaw"', html)
-        self.assertIn('id="pickup-yaw-custom"', html)
-        self.assertIn('id="dropoff-yaw-custom"', html)
+        self.assertIn('data-field="yaw-custom"', html)
         self.assertIn('id="initial-pose-yaw-custom"', html)
-        self.assertEqual(html.count('<option value="custom">Custom…</option>'), 3)
+        self.assertEqual(html.count('<option value="custom">Custom…</option>'), 2)
         self.assertIn('data-map-target="initial-pose"', html)
+        self.assertIn('data-map-target="waypoint"', html)
         self.assertIn(
             "'/api/v1/localization/initial-pose'",
             javascript,
@@ -156,6 +160,17 @@ class WebDashboardTest(unittest.TestCase):
         self.assertIn('id="stop-initial-pose-matching"', html)
         self.assertIn('North · 90°', html)
         self.assertIn('function headingValue(target)', javascript)
+        self.assertIn('function waypointHeadingValue(select, custom)', javascript)
+        self.assertIn('function addMissionWaypoint()', javascript)
+        self.assertIn('function moveMissionWaypoint(index, offset)', javascript)
+        self.assertIn('waypoints.length >= 10', javascript)
+        self.assertIn('Wait for Continue button', html)
+        self.assertIn('Continue after timed wait', html)
+        self.assertIn('Continue to next waypoint', html)
+        self.assertIn(
+            '.mission-panel #submit-mission, .waypoint-continue { width: 100%',
+            stylesheet,
+        )
         self.assertIn("select.value = 'custom'", javascript)
         self.assertIn('const arrowLength = 25', javascript)
         self.assertIn('context.closePath()', javascript)
@@ -184,10 +199,9 @@ class WebDashboardTest(unittest.TestCase):
         )
         self.assertIn('(screenX - mapView.offsetX) / mapView.scale', javascript)
         self.assertIn('(screenY - mapView.offsetY) / mapView.scale', javascript)
-        self.assertIn(
-            'waypoints[target] = { ...normalizedPoint, yaw: selectedYaw }',
-            javascript,
-        )
+        self.assertIn('waypointValue.x = normalizedPoint.x', javascript)
+        self.assertIn('waypointValue.y = normalizedPoint.y', javascript)
+        self.assertIn('waypointValue.yaw = normalizeAngle', javascript)
         self.assertIn('pointToPolygonDistance(point, zone.polygon)', javascript)
         self.assertIn('mapSnapshot.keepout_clearance_m', javascript)
 
