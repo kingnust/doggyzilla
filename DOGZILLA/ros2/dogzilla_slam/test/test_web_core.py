@@ -300,6 +300,83 @@ class WebCoreTest(unittest.TestCase):
                 {'label': 'Near wall', 'x': 0.65, 'y': 2.35},
             ])
 
+    def test_occupancy_map_scan_score_rejects_a_wrong_room_pose(self):
+        width = 100
+        height = 80
+        resolution = 0.1
+        cells = [0] * (width * height)
+        for column in range(width):
+            cells[column] = 100
+            cells[(height - 1) * width + column] = 100
+        for row in range(height):
+            cells[row * width] = 100
+            cells[row * width + width - 1] = 100
+        for row in range(8, 49):
+            cells[row * width + 61] = 100
+
+        occupancy = OccupancyMap('workshop', minimum_clearance_m=0.0)
+        occupancy.update(
+            frame='map',
+            width=width,
+            height=height,
+            resolution=resolution,
+            origin_x=0.0,
+            origin_y=0.0,
+            origin_yaw=0.0,
+            data=cells,
+        )
+
+        laser_x = 3.2
+        laser_y = 3.1
+        ray_count = 180
+        angle_min = -math.pi
+        angle_increment = 2.0 * math.pi / ray_count
+        ranges = []
+        for index in range(ray_count):
+            angle = angle_min + index * angle_increment
+            distance = 0.10
+            while distance <= 12.0:
+                column = math.floor(
+                    (laser_x + math.cos(angle) * distance) / resolution
+                )
+                row = math.floor(
+                    (laser_y + math.sin(angle) * distance) / resolution
+                )
+                if not (0 <= column < width and 0 <= row < height):
+                    break
+                if cells[row * width + column] >= 50:
+                    break
+                distance += 0.04
+            ranges.append(distance)
+
+        common = {
+            'ranges': ranges,
+            'angle_min': angle_min,
+            'angle_increment': angle_increment,
+            'range_min': 0.10,
+            'range_max': 12.0,
+        }
+        correct = occupancy.score_laser_scan(
+            laser_x=laser_x,
+            laser_y=laser_y,
+            laser_yaw=0.0,
+            **common,
+        )
+        wrong = occupancy.score_laser_scan(
+            laser_x=7.4,
+            laser_y=5.9,
+            laser_yaw=0.65,
+            **common,
+        )
+
+        self.assertGreater(correct['known_endpoints'], 100)
+        self.assertGreater(correct['endpoint_match_ratio'], 0.85)
+        self.assertLess(correct['contradiction_ratio'], 0.05)
+        self.assertGreater(correct['quality'], 0.80)
+        self.assertLess(wrong['endpoint_match_ratio'], 0.45)
+        self.assertGreater(wrong['contradiction_ratio'], 0.08)
+        self.assertLess(wrong['quality'], 0.35)
+
     def test_occupancy_map_generates_safe_serpentine_patrol(self):
         occupancy = OccupancyMap('room1', minimum_clearance_m=0.0)
         cells = [0] * 100

@@ -202,13 +202,85 @@ class WebGatewayNodeTest(unittest.TestCase):
                 for sample in range(1, 21):
                     node._update_localization_progress(
                         started_ns + sample,
-                        (2.0, 2.0, 1.5708),
+                        (2.25, 2.05, 1.70),
+                    )
+                localization_state = node.get_state()[
+                    'configuration'
+                ]['localization']
+                self.assertEqual(localization_state['state'], 'matching')
+                self.assertEqual(localization_state['stable_samples'], 20)
+                self.assertTrue(
+                    localization_state['pose_correction']['within_limit']
+                )
+                self.assertAlmostEqual(
+                    localization_state['pose_correction']['distance_m'],
+                    0.255,
+                    places=3,
+                )
+                self.assertAlmostEqual(
+                    localization_state['pose_correction']['resolved_pose'][
+                        'x'
+                    ],
+                    2.25,
+                )
+
+                rejected_scan = {
+                    'finite_rays': 100,
+                    'known_endpoints': 80,
+                    'matched_endpoints': 16,
+                    'contradicted_rays': 35,
+                    'coverage_ratio': 0.80,
+                    'endpoint_match_ratio': 0.20,
+                    'contradiction_ratio': 0.35,
+                    'mean_endpoint_error_m': 0.25,
+                    'quality': 0.13,
+                }
+                node._update_scan_validation(
+                    started_ns + 100,
+                    metrics=rejected_scan,
+                )
+                localization_state = node.get_state()[
+                    'configuration'
+                ]['localization']
+                self.assertEqual(localization_state['state'], 'matching')
+                self.assertEqual(
+                    localization_state['scan_validation']['state'],
+                    'rejected',
+                )
+                self.assertIn(
+                    'wall agreement',
+                    localization_state['scan_validation']['reason'],
+                )
+
+                verified_scan = {
+                    'finite_rays': 120,
+                    'known_endpoints': 100,
+                    'matched_endpoints': 78,
+                    'contradicted_rays': 5,
+                    'coverage_ratio': 0.8333,
+                    'endpoint_match_ratio': 0.78,
+                    'contradiction_ratio': 0.0417,
+                    'mean_endpoint_error_m': 0.06,
+                    'quality': 0.7475,
+                }
+                for sample in range(1, 11):
+                    node._update_scan_validation(
+                        started_ns + 100 + sample,
+                        metrics=verified_scan,
                     )
                 localization_state = node.get_state()[
                     'configuration'
                 ]['localization']
                 self.assertEqual(localization_state['state'], 'ready')
                 self.assertEqual(localization_state['stable_samples'], 20)
+                self.assertEqual(
+                    localization_state['scan_validation']['state'],
+                    'verified',
+                )
+                self.assertEqual(
+                    localization_state['scan_validation']['good_samples'],
+                    10,
+                )
                 autonomy_updates = node._autonomy_parameter_updates(4, 4)
                 self.assertEqual(
                     autonomy_updates['controller'][0].value,
@@ -270,6 +342,42 @@ class WebGatewayNodeTest(unittest.TestCase):
                 )
                 self.assertEqual(information.base, 0.0)
                 self.assertEqual(information.multiplier, 1.0)
+
+                node.set_initial_pose({
+                    'map': 'test1',
+                    'x': 2.0,
+                    'y': 2.0,
+                    'yaw': 0.0,
+                })
+                correction_started_ns = node._localization_started_ns
+                for sample in range(1, 11):
+                    node._update_localization_progress(
+                        correction_started_ns + sample,
+                        (3.0, 2.0, 0.0),
+                    )
+                correction_state = node.get_state()
+                correction = correction_state['configuration'][
+                    'localization'
+                ]
+                self.assertEqual(
+                    correction['state'],
+                    'reposition-required',
+                )
+                self.assertAlmostEqual(
+                    correction['pose_correction']['distance_m'],
+                    1.0,
+                )
+                self.assertFalse(
+                    correction['pose_correction']['within_limit']
+                )
+                self.assertEqual(
+                    correction['scan_validation']['good_samples'],
+                    0,
+                )
+                self.assertIn(
+                    'set the initial pose again',
+                    correction_state['safety']['task_gate_reason'],
+                )
 
                 with self.assertRaises(ConflictError):
                     node.switch_map({'map': 'room2'})

@@ -968,22 +968,49 @@
     const localizationMethod = localization.method || 'initial-pose';
     const stableSamples = Number(localization.stable_samples || 0);
     const requiredSamples = Number(localization.required_samples || 20);
+    const scanValidation = localization.scan_validation || {};
+    const scanSamples = Number(scanValidation.good_samples || 0);
+    const requiredScanSamples = Number(scanValidation.required_samples || 10);
+    const scanQuality = scanValidation.latest || {};
+    const endpointAgreement = Number(scanQuality.endpoint_match_ratio);
+    const agreementText = Number.isFinite(endpointAgreement)
+      ? `${Math.round(endpointAgreement * 100)}% wall agreement`
+      : 'waiting for a usable LiDAR score';
+    const correction = localization.pose_correction;
+    const correctionText = correction
+      ? `${Number(correction.distance_m).toFixed(2)} m and ${Number(correction.yaw_degrees).toFixed(0)}°`
+      : '0.00 m and 0°';
     elements['localization-setup'].classList.toggle(
       'ready',
       localizationState === 'ready',
     );
     if (localizationState === 'ready') {
       elements['localization-title'].textContent = 'Localization ready';
-      elements['localization-message'].textContent = localizationMethod === 'initial-pose'
-        ? 'The confirmed start pose and LiDAR matching are stable.'
-        : 'Automatic global LiDAR matching is stable.';
-    } else if (localizationState === 'matching') {
-      elements['localization-title'].textContent = localizationMethod === 'initial-pose'
-        ? 'Matching from selected pose'
-        : 'Automatic LiDAR matching';
       elements['localization-message'].textContent = (
-        `Waiting for stable scan alignment · ${stableSamples}/${requiredSamples} samples.`
+        localizationMethod === 'initial-pose'
+          ? `Static-map scan verified · ${agreementText} · refined ${correctionText} from your estimate.`
+          : `Automatic static-map scan verified · ${agreementText}.`
       );
+    } else if (localizationState === 'reposition-required') {
+      elements['localization-title'].textContent = 'Select the start area again';
+      elements['localization-message'].textContent = (
+        `The solution moved ${correctionText} from your estimate, beyond the safe correction limit. Click a closer map position and confirm again.`
+      );
+      setActiveTarget('initial-pose');
+    } else if (localizationState === 'matching') {
+      if (scanValidation.state === 'rejected') {
+        elements['localization-title'].textContent = 'Pose does not match the map yet';
+        elements['localization-message'].textContent = (
+          `${scanValidation.reason}. Pose stability ${stableSamples}/${requiredSamples}; verified scans ${scanSamples}/${requiredScanSamples}.`
+        );
+      } else {
+        elements['localization-title'].textContent = localizationMethod === 'initial-pose'
+          ? 'Refining the selected start area'
+          : 'Automatic LiDAR matching';
+        elements['localization-message'].textContent = (
+          `${agreementText} · pose stability ${stableSamples}/${requiredSamples} · verified scans ${scanSamples}/${requiredScanSamples}.`
+        );
+      }
     } else {
       elements['localization-title'].textContent = 'Initial pose required';
       elements['localization-message'].textContent = (

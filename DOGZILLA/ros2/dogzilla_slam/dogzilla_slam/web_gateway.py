@@ -24,7 +24,7 @@ from rclpy.parameter import Parameter
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.qos import qos_profile_sensor_data
 from rclpy.time import Time
-from sensor_msgs.msg import BatteryState, CompressedImage, JointState
+from sensor_msgs.msg import BatteryState, CompressedImage, JointState, LaserScan
 from std_msgs.msg import Bool, String
 from tf2_ros import Buffer, TransformException, TransformListener
 
@@ -172,6 +172,60 @@ class DogzillaWebGateway(Node):
                 2.0,
             ),
         )
+        self._scan_match_required_samples = self._integer_environment(
+            'DOGZILLA_WEB_SCAN_MATCH_SAMPLES',
+            10,
+            3,
+            50,
+        )
+        self._scan_match_minimum_rays = self._integer_environment(
+            'DOGZILLA_WEB_SCAN_MATCH_MIN_RAYS',
+            40,
+            10,
+            300,
+        )
+        self._scan_match_minimum_coverage = self._float_environment(
+            'DOGZILLA_WEB_SCAN_MATCH_MIN_COVERAGE',
+            0.35,
+            0.05,
+            1.0,
+        )
+        self._scan_match_minimum_endpoints = self._float_environment(
+            'DOGZILLA_WEB_SCAN_MATCH_MIN_ENDPOINTS',
+            0.45,
+            0.05,
+            1.0,
+        )
+        self._scan_match_minimum_quality = self._float_environment(
+            'DOGZILLA_WEB_SCAN_MATCH_MIN_QUALITY',
+            0.40,
+            0.05,
+            1.0,
+        )
+        self._scan_match_maximum_contradictions = self._float_environment(
+            'DOGZILLA_WEB_SCAN_MATCH_MAX_CONTRADICTIONS',
+            0.25,
+            0.0,
+            0.80,
+        )
+        self._scan_match_endpoint_tolerance = self._float_environment(
+            'DOGZILLA_WEB_SCAN_MATCH_TOLERANCE',
+            0.20,
+            0.05,
+            0.50,
+        )
+        self._localization_maximum_correction_m = self._float_environment(
+            'DOGZILLA_WEB_LOCALIZATION_MAX_CORRECTION_M',
+            0.80,
+            0.10,
+            3.0,
+        )
+        self._localization_maximum_correction_rad = self._float_environment(
+            'DOGZILLA_WEB_LOCALIZATION_MAX_CORRECTION_RAD',
+            0.70,
+            0.10,
+            math.pi,
+        )
 
         self._estop_latched = False
         self._active = None
@@ -199,6 +253,11 @@ class DogzillaWebGateway(Node):
         self._localization_pose_samples = 0
         self._localization_last_pose = None
         self._localization_last_stamp_ns = 0
+        self._localization_scan_samples = 0
+        self._localization_last_scan_stamp_ns = 0
+        self._localization_scan_validation = self._empty_scan_validation()
+        self._localization_pose_correction = None
+        self._localization_large_correction_samples = 0
         self._keepout_map_signature = None
         self._vision_frame = None
         self._vision_frame_received = 0.0
@@ -244,6 +303,12 @@ class DogzillaWebGateway(Node):
             Odometry,
             '/odom',
             self._on_odometry,
+            qos_profile_sensor_data,
+        )
+        self.create_subscription(
+            LaserScan,
+            '/scan',
+            self._on_scan,
             qos_profile_sensor_data,
         )
         self.create_subscription(
@@ -769,6 +834,66 @@ class DogzillaWebGateway(Node):
             )
             self._angular_speed = float(message.twist.twist.angular.z)
 
+    def _on_scan(self, message):
+        """Validate fresh LiDAR geometry against the static occupancy map."""
+        stamp_ns = (
+            int(message.header.stamp.sec) * 1_000_000_000
+            + int(message.header.stamp.nanosec)
+        )
+        if stamp_ns <= 0:
+            stamp_ns = self.get_clock().now().nanoseconds
+        with self._lock:
+            if self._localization_state != 'matching':
+                return
+            if stamp_ns <= self._localization_last_scan_stamp_ns:
+                return
+            if (
+                self._localization_started_ns
+                and stamp_ns < self._localization_started_ns
+            ):
+                return
+        frame = str(message.header.frame_id).strip()
+        if not frame:
+            self._update_scan_validation(
+                stamp_ns,
+                reason='LiDAR scan frame is missing',
+            )
+            return
+        try:
+            scan_time = Time.from_msg(message.header.stamp)
+            transform = self._tf_buffer.lookup_transform(
+                'map',
+                frame,
+                scan_time,
+                timeout=Duration(seconds=0.05),
+            )
+        except (TransformException, ValueError) as exc:
+            self._update_scan_validation(
+                stamp_ns,
+                reason=f'waiting for scan-time map transform: {exc}',
+            )
+            return
+        translation = transform.transform.translation
+        rotation = transform.transform.rotation
+        try:
+            metrics = self.occupancy_map.score_laser_scan(
+                laser_x=float(translation.x),
+                laser_y=float(translation.y),
+                laser_yaw=self._quaternion_yaw(rotation),
+                ranges=message.ranges,
+                angle_min=message.angle_min,
+                angle_increment=message.angle_increment,
+                range_min=message.range_min,
+                range_max=message.range_max,
+                endpoint_tolerance_m=(
+                    self._scan_match_endpoint_tolerance
+                ),
+            )
+        except (ConflictError, TypeError, ValueError) as exc:
+            self._update_scan_validation(stamp_ns, reason=str(exc))
+            return
+        self._update_scan_validation(stamp_ns, metrics=metrics)
+
     @staticmethod
     def _json_message(message, label):
         try:
@@ -948,18 +1073,181 @@ class DogzillaWebGateway(Node):
             math.cos(first - second),
         ))
 
+    def _empty_scan_validation(self, reason='waiting for fresh LiDAR scans'):
+        return {
+            'state': 'waiting',
+            'reason': reason,
+            'good_samples': 0,
+            'required_samples': self._scan_match_required_samples,
+            'latest': None,
+            'thresholds': {
+                'minimum_known_endpoints': self._scan_match_minimum_rays,
+                'minimum_coverage_ratio': (
+                    self._scan_match_minimum_coverage
+                ),
+                'minimum_endpoint_match_ratio': (
+                    self._scan_match_minimum_endpoints
+                ),
+                'minimum_quality': self._scan_match_minimum_quality,
+                'maximum_contradiction_ratio': (
+                    self._scan_match_maximum_contradictions
+                ),
+                'endpoint_tolerance_m': (
+                    self._scan_match_endpoint_tolerance
+                ),
+            },
+        }
+
+    def _scan_rejection_reason(self, metrics):
+        if metrics['known_endpoints'] < self._scan_match_minimum_rays:
+            return (
+                f"only {metrics['known_endpoints']} mapped LiDAR endpoints "
+                f'are usable; need {self._scan_match_minimum_rays}'
+            )
+        if metrics['coverage_ratio'] < self._scan_match_minimum_coverage:
+            return (
+                f"map coverage {metrics['coverage_ratio']:.0%} is below "
+                f'{self._scan_match_minimum_coverage:.0%}'
+            )
+        if (
+            metrics['endpoint_match_ratio']
+            < self._scan_match_minimum_endpoints
+        ):
+            return (
+                f"wall agreement {metrics['endpoint_match_ratio']:.0%} is "
+                f'below {self._scan_match_minimum_endpoints:.0%}'
+            )
+        if (
+            metrics['contradiction_ratio']
+            > self._scan_match_maximum_contradictions
+        ):
+            return (
+                f"blocked-ray contradictions "
+                f"{metrics['contradiction_ratio']:.0%} exceed "
+                f'{self._scan_match_maximum_contradictions:.0%}'
+            )
+        if metrics['quality'] < self._scan_match_minimum_quality:
+            return (
+                f"overall scan quality {metrics['quality']:.0%} is below "
+                f'{self._scan_match_minimum_quality:.0%}'
+            )
+        return None
+
+    def _update_scan_validation(self, stamp_ns, metrics=None, reason=None):
+        """Require repeated scan/map agreement before localization is ready."""
+        event = None
+        with self._lock:
+            if self._localization_state != 'matching':
+                return
+            if stamp_ns <= self._localization_last_scan_stamp_ns:
+                return
+            if (
+                self._localization_started_ns
+                and stamp_ns < self._localization_started_ns
+            ):
+                return
+            self._localization_last_scan_stamp_ns = stamp_ns
+            previous = self._localization_scan_validation
+            rejection = reason or (
+                self._scan_rejection_reason(metrics)
+                if metrics is not None else 'LiDAR/map score is unavailable'
+            )
+            if metrics is None:
+                state = 'waiting'
+                self._localization_scan_samples = 0
+            elif rejection:
+                state = 'rejected'
+                self._localization_scan_samples = 0
+            else:
+                state = 'passing'
+                self._localization_scan_samples += 1
+            validation = {
+                **self._empty_scan_validation(rejection or ''),
+                'state': state,
+                'reason': rejection or (
+                    'fresh LiDAR scans agree with the static map'
+                ),
+                'good_samples': self._localization_scan_samples,
+                'latest': dict(metrics) if metrics is not None else None,
+            }
+            self._localization_scan_validation = validation
+            if (
+                state == 'rejected'
+                and (
+                    previous.get('state') != state
+                    or previous.get('reason') != validation['reason']
+                )
+            ):
+                event = dict(validation)
+        self.telemetry.update('localization_quality', validation)
+        if event is not None:
+            self.events.publish('localization.scan_rejected', event)
+        self._finish_localization_if_ready()
+
     def _reset_localization_progress(self, state):
         self._localization_state = state
         self._localization_started_ns = 0
         self._localization_pose_samples = 0
         self._localization_last_pose = None
         self._localization_last_stamp_ns = 0
+        self._localization_scan_samples = 0
+        self._localization_last_scan_stamp_ns = 0
+        self._localization_scan_validation = self._empty_scan_validation()
+        self._localization_pose_correction = None
+        self._localization_large_correction_samples = 0
+
+    def _finish_localization_if_ready(self):
+        with self._lock:
+            if self._localization_state != 'matching':
+                return
+            if self._localization_pose_samples < 20:
+                return
+            if (
+                self._localization_scan_samples
+                < self._scan_match_required_samples
+            ):
+                return
+            correction = self._localization_pose_correction
+            if correction is not None and not correction['within_limit']:
+                return
+            requested = self._localization_requested_pose
+            map_switch_was_pending = self._map_switch_pending
+            self._localization_state = 'ready'
+            self._map_switch_pending = False
+            self._map_switch_target = None
+            self._localization_scan_validation = {
+                **self._localization_scan_validation,
+                'state': 'verified',
+                'reason': 'repeated LiDAR scans agree with the static map',
+            }
+            validation = dict(self._localization_scan_validation)
+            ready = {
+                'map': self.map_name,
+                'pose_samples': self._localization_pose_samples,
+                'scan_samples': self._localization_scan_samples,
+                'scan_quality': validation.get('latest'),
+                'correction': correction,
+                'method': (
+                    'initial-pose'
+                    if requested is not None
+                    else 'automatic-matching'
+                ),
+            }
+        self.telemetry.update('localization_quality', validation)
+        self.events.publish('localization.ready', ready)
+        if map_switch_was_pending:
+            self.events.publish('map.switch_ready', ready)
 
     def _update_localization_progress(self, stamp_ns, pose):
-        """Require distinct, stable localization samples before autonomy."""
+        """Track stable pose refinement without treating stability as truth."""
+        reposition = None
         with self._lock:
             state = self._localization_state
-            if state in {'awaiting-initial-pose', 'ready'}:
+            if state in {
+                'awaiting-initial-pose',
+                'ready',
+                'reposition-required',
+            }:
                 return
             if stamp_ns <= self._localization_last_stamp_ns:
                 return
@@ -972,51 +1260,86 @@ class DogzillaWebGateway(Node):
 
             requested = self._localization_requested_pose
             if requested is not None:
-                plausible = (
-                    math.hypot(
-                        pose[0] - requested['x'],
-                        pose[1] - requested['y'],
-                    ) <= 1.0
-                    and self._angle_distance(
-                        pose[2], requested['yaw']
-                    ) <= 1.05
+                correction_distance = math.hypot(
+                    pose[0] - requested['x'],
+                    pose[1] - requested['y'],
                 )
-                if not plausible:
+                correction_yaw = self._angle_distance(
+                    pose[2], requested['yaw']
+                )
+                within_limit = (
+                    correction_distance
+                    <= self._localization_maximum_correction_m
+                    and correction_yaw
+                    <= self._localization_maximum_correction_rad
+                )
+                self._localization_pose_correction = {
+                    'distance_m': round(correction_distance, 4),
+                    'yaw_rad': round(correction_yaw, 4),
+                    'yaw_degrees': round(math.degrees(correction_yaw), 1),
+                    'within_limit': within_limit,
+                    'warning': (
+                        correction_distance
+                        > self._localization_maximum_correction_m / 2.0
+                        or correction_yaw
+                        > self._localization_maximum_correction_rad / 2.0
+                    ),
+                    'maximum_distance_m': (
+                        self._localization_maximum_correction_m
+                    ),
+                    'maximum_yaw_rad': (
+                        self._localization_maximum_correction_rad
+                    ),
+                    'resolved_pose': {
+                        'x': round(pose[0], 4),
+                        'y': round(pose[1], 4),
+                        'yaw': round(pose[2], 4),
+                    },
+                }
+                if not within_limit:
                     self._localization_pose_samples = 0
                     self._localization_last_pose = pose
-                    return
+                    self._localization_scan_samples = 0
+                    self._localization_scan_validation = (
+                        self._empty_scan_validation(
+                            'pose correction is outside the safe limit'
+                        )
+                    )
+                    self._localization_large_correction_samples += 1
+                    if self._localization_large_correction_samples >= 10:
+                        self._localization_state = 'reposition-required'
+                        reposition = dict(
+                            self._localization_pose_correction
+                        )
+                else:
+                    self._localization_large_correction_samples = 0
 
-            previous = self._localization_last_pose
-            stable = previous is None or (
-                math.hypot(
-                    pose[0] - previous[0],
-                    pose[1] - previous[1],
-                ) <= 0.15
-                and self._angle_distance(pose[2], previous[2]) <= 0.20
+            correction = self._localization_pose_correction
+            if correction is None or correction['within_limit']:
+                previous = self._localization_last_pose
+                stable = previous is None or (
+                    math.hypot(
+                        pose[0] - previous[0],
+                        pose[1] - previous[1],
+                    ) <= 0.15
+                    and self._angle_distance(
+                        pose[2], previous[2]
+                    ) <= 0.20
+                )
+                self._localization_pose_samples = (
+                    self._localization_pose_samples + 1 if stable else 1
+                )
+                self._localization_last_pose = pose
+        if reposition is not None:
+            reposition['reason'] = (
+                'localized pose moved too far from the selected start area'
             )
-            self._localization_pose_samples = (
-                self._localization_pose_samples + 1 if stable else 1
+            self.events.publish(
+                'localization.reposition_required',
+                reposition,
             )
-            self._localization_last_pose = pose
-            if self._localization_pose_samples < 20:
-                return
-
-            map_switch_was_pending = self._map_switch_pending
-            self._localization_state = 'ready'
-            self._map_switch_pending = False
-            self._map_switch_target = None
-            ready = {
-                'map': self.map_name,
-                'pose_samples': self._localization_pose_samples,
-                'method': (
-                    'initial-pose'
-                    if requested is not None
-                    else 'automatic-matching'
-                ),
-            }
-        self.events.publish('localization.ready', ready)
-        if map_switch_was_pending:
-            self.events.publish('map.switch_ready', ready)
+            return
+        self._finish_localization_if_ready()
 
     def _update_map_pose(self):
         try:
@@ -1150,8 +1473,15 @@ class DogzillaWebGateway(Node):
                 )
             if self._localization_state == 'awaiting-initial-pose':
                 return False, 'set and confirm the initial pose on the map'
+            if self._localization_state == 'reposition-required':
+                return False, (
+                    'selected start area did not match; set the initial pose '
+                    'again'
+                )
             if self._localization_state != 'ready':
-                return False, 'waiting for stable LiDAR scan matching'
+                return False, (
+                    'waiting for verified LiDAR-to-map alignment'
+                )
             nav_available = bool(self._graph['nav_available'])
         if not nav_available:
             return False, 'Nav2 navigate_to_pose action is unavailable'
@@ -1184,6 +1514,17 @@ class DogzillaWebGateway(Node):
             active_task_id = self._active['task_id'] if self._active else None
             graph = dict(self._graph)
             estop_latched = self._estop_latched
+            scan_validation = {
+                **self._localization_scan_validation,
+                'thresholds': dict(
+                    self._localization_scan_validation['thresholds']
+                ),
+                'latest': (
+                    dict(self._localization_scan_validation['latest'])
+                    if self._localization_scan_validation['latest']
+                    is not None else None
+                ),
+            }
             localization = {
                 'required': self.require_initial_pose,
                 'state': self._localization_state,
@@ -1195,6 +1536,8 @@ class DogzillaWebGateway(Node):
                 'requested_pose': self._localization_requested_pose,
                 'stable_samples': self._localization_pose_samples,
                 'required_samples': 20,
+                'scan_validation': scan_validation,
+                'pose_correction': self._localization_pose_correction,
             }
         active_task = (
             self.store.get(active_task_id)

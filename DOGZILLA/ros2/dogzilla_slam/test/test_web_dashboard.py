@@ -146,6 +146,10 @@ class WebDashboardTest(unittest.TestCase):
             javascript,
         )
         self.assertIn('`${label} · ${headingDegrees(yaw)}°`', javascript)
+        self.assertIn('localization.scan_validation || {}', javascript)
+        self.assertIn('Pose does not match the map yet', javascript)
+        self.assertIn('Select the start area again', javascript)
+        self.assertIn('Static-map scan verified', javascript)
         self.assertIn('Draw patrol area', html)
         self.assertIn("'/api/v1/patrol-areas/preview'", javascript)
         self.assertIn('Draw keepout', html)

@@ -658,6 +658,217 @@ class OccupancyMap:
             math.floor(local_y / snapshot['resolution']),
         )
 
+    @staticmethod
+    def _nearest_occupied_distance(snapshot, column, row, radius):
+        """Return the nearest occupied-cell distance around one map cell."""
+        best = None
+        resolution = snapshot['resolution']
+        for offset_y in range(-radius, radius + 1):
+            test_row = row + offset_y
+            if not 0 <= test_row < snapshot['height']:
+                continue
+            for offset_x in range(-radius, radius + 1):
+                test_column = column + offset_x
+                if not 0 <= test_column < snapshot['width']:
+                    continue
+                value = snapshot['data'][
+                    test_row * snapshot['width'] + test_column
+                ]
+                if value < snapshot['occupied_threshold']:
+                    continue
+                distance = math.hypot(offset_x, offset_y) * resolution
+                if best is None or distance < best:
+                    best = distance
+        return best
+
+    @classmethod
+    def _ray_crosses_mapped_obstacle(
+        cls,
+        snapshot,
+        *,
+        laser_x,
+        laser_y,
+        angle,
+        distance,
+        range_min,
+        endpoint_tolerance_m,
+    ):
+        """Detect a mapped wall well before the measured LiDAR endpoint."""
+        finish = distance - endpoint_tolerance_m
+        start = max(0.15, range_min)
+        if finish <= start:
+            return False
+        step = max(0.08, snapshot['resolution'] * 1.5)
+        cosine = math.cos(angle)
+        sine = math.sin(angle)
+        sample = start
+        while sample < finish:
+            column, row = cls._world_to_cell(
+                snapshot,
+                laser_x + cosine * sample,
+                laser_y + sine * sample,
+            )
+            if not (
+                0 <= column < snapshot['width']
+                and 0 <= row < snapshot['height']
+            ):
+                return False
+            value = snapshot['data'][row * snapshot['width'] + column]
+            if value >= snapshot['occupied_threshold']:
+                return True
+            sample += step
+        return False
+
+    def score_laser_scan(
+        self,
+        *,
+        laser_x,
+        laser_y,
+        laser_yaw,
+        ranges,
+        angle_min,
+        angle_increment,
+        range_min,
+        range_max,
+        maximum_rays=180,
+        maximum_distance_m=6.0,
+        endpoint_tolerance_m=0.20,
+    ):
+        """Compare a laser scan with the static occupancy map at one pose."""
+        pose = (float(laser_x), float(laser_y), float(laser_yaw))
+        angle_min = float(angle_min)
+        angle_increment = float(angle_increment)
+        range_min = max(0.0, float(range_min))
+        range_max = float(range_max)
+        maximum_rays = int(maximum_rays)
+        maximum_distance_m = float(maximum_distance_m)
+        endpoint_tolerance_m = float(endpoint_tolerance_m)
+        if not all(math.isfinite(value) for value in (*pose, angle_min)):
+            raise ValueError('laser pose and starting angle must be finite')
+        if not math.isfinite(angle_increment) or angle_increment == 0.0:
+            raise ValueError('laser angle increment must be finite and non-zero')
+        if not 16 <= maximum_rays <= 720:
+            raise ValueError('maximum_rays must be between 16 and 720')
+        if not 0.5 <= maximum_distance_m <= 30.0:
+            raise ValueError('maximum_distance_m must be between 0.5 and 30')
+        if not 0.03 <= endpoint_tolerance_m <= 0.75:
+            raise ValueError(
+                'endpoint_tolerance_m must be between 0.03 and 0.75'
+            )
+        values = tuple(ranges)
+        if not values:
+            raise ValueError('laser scan contains no ranges')
+        upper_range = maximum_distance_m
+        if math.isfinite(range_max) and range_max > range_min:
+            upper_range = min(upper_range, range_max)
+        if upper_range <= range_min:
+            raise ValueError('laser range limits are invalid')
+
+        with self._lock:
+            if self._snapshot is None:
+                raise ConflictError('occupancy map is not available yet')
+            snapshot = self._snapshot
+            stride = max(1, math.ceil(len(values) / maximum_rays))
+            search_radius = max(
+                1,
+                math.ceil(
+                    endpoint_tolerance_m / snapshot['resolution']
+                ),
+            )
+            finite_rays = 0
+            known_endpoints = 0
+            matched_endpoints = 0
+            contradicted_rays = 0
+            endpoint_error = 0.0
+            for index in range(0, len(values), stride):
+                try:
+                    distance = float(values[index])
+                except (TypeError, ValueError):
+                    continue
+                if (
+                    not math.isfinite(distance)
+                    or distance < range_min
+                    or distance > upper_range
+                ):
+                    continue
+                finite_rays += 1
+                angle = pose[2] + angle_min + index * angle_increment
+                endpoint_x = pose[0] + math.cos(angle) * distance
+                endpoint_y = pose[1] + math.sin(angle) * distance
+                column, row = self._world_to_cell(
+                    snapshot,
+                    endpoint_x,
+                    endpoint_y,
+                )
+                if not (
+                    0 <= column < snapshot['width']
+                    and 0 <= row < snapshot['height']
+                ):
+                    continue
+                endpoint_value = snapshot['data'][
+                    row * snapshot['width'] + column
+                ]
+                if endpoint_value < 0:
+                    continue
+                known_endpoints += 1
+                obstacle_distance = self._nearest_occupied_distance(
+                    snapshot,
+                    column,
+                    row,
+                    search_radius,
+                )
+                if (
+                    obstacle_distance is not None
+                    and obstacle_distance <= endpoint_tolerance_m
+                ):
+                    matched_endpoints += 1
+                    endpoint_error += obstacle_distance
+                else:
+                    endpoint_error += endpoint_tolerance_m * 1.5
+                if self._ray_crosses_mapped_obstacle(
+                    snapshot,
+                    laser_x=pose[0],
+                    laser_y=pose[1],
+                    angle=angle,
+                    distance=distance,
+                    range_min=range_min,
+                    endpoint_tolerance_m=endpoint_tolerance_m,
+                ):
+                    contradicted_rays += 1
+
+        coverage_ratio = (
+            known_endpoints / finite_rays if finite_rays else 0.0
+        )
+        endpoint_match_ratio = (
+            matched_endpoints / known_endpoints if known_endpoints else 0.0
+        )
+        contradiction_ratio = (
+            contradicted_rays / finite_rays if finite_rays else 1.0
+        )
+        coverage_factor = min(1.0, coverage_ratio / 0.60)
+        quality = (
+            endpoint_match_ratio
+            * max(0.0, 1.0 - contradiction_ratio)
+            * coverage_factor
+        )
+        mean_error = (
+            endpoint_error / known_endpoints
+            if known_endpoints else None
+        )
+        return {
+            'finite_rays': finite_rays,
+            'known_endpoints': known_endpoints,
+            'matched_endpoints': matched_endpoints,
+            'contradicted_rays': contradicted_rays,
+            'coverage_ratio': round(coverage_ratio, 4),
+            'endpoint_match_ratio': round(endpoint_match_ratio, 4),
+            'contradiction_ratio': round(contradiction_ratio, 4),
+            'mean_endpoint_error_m': (
+                round(mean_error, 4) if mean_error is not None else None
+            ),
+            'quality': round(quality, 4),
+        }
+
     def validate_polygon_bounds(self, polygon, label='Polygon'):
         """Reject a polygon with any vertex outside the active map."""
         with self._lock:

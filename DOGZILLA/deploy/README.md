@@ -541,17 +541,25 @@ Mission Mode defaults to headless operation.
 
 By default, the dashboard requires **Set robot start** before the live
 Cartographer trajectory begins. Select the approximate position, choose the
-facing direction, and confirm. Mission dispatch remains locked until twenty
-distinct, stable localization samples arrive. To opt into automatic global
-LiDAR matching instead, start with:
+facing direction, and confirm. The selected pose is a bounded prior, not a
+claim that the location is exact: Cartographer may refine it by up to 0.80 m
+and 0.70 rad. The dashboard shows the resolved offset. A larger persistent
+correction is rejected with **Select the start area again**.
+
+Mission dispatch remains locked until twenty distinct, stable localization
+samples and ten consecutive fresh LiDAR scans agree with the static occupancy
+map. Validation checks mapped scan coverage, wall-endpoint agreement, blocked
+rays, and an overall quality floor. A failed scan resets the consecutive-scan
+count; pose stability alone cannot unlock a mission. These checks do not move
+the robot. To opt into automatic global LiDAR matching instead, start with:
 
 ```bash
 ./deploy/dogzilla-map mission room1 --headless --match
 ```
 
-`--match` explicitly bypasses the initial-pose requirement; it does not prove
-that the resulting location is correct. Mission dispatch still waits for a
-stable map-frame pose.
+`--match` explicitly bypasses the initial-pose requirement. Mission dispatch
+still requires both a stable map-frame pose and the same repeated static-map
+scan verification.
 
 The coordinator refuses to replace an active mapping, drive, navigation,
 vision, perception, or web container. On a free system it starts navigation,
@@ -606,9 +614,10 @@ The camera, perception, and web gateway stay online. Motion is stopped and
 only localization/navigation is restarted because Cartographer loads a
 `.pbstream` at process startup. The gateway clears the previous TF/map state,
 loads only `room2` keepout zones, and blocks new tasks until the new occupancy
-map, a new confirmed initial pose, and 20 stable localization samples arrive.
-Sessions started with `--match` reuse automatic matching after a map switch.
-A failed switch automatically attempts to restore the previous map.
+map, a new confirmed initial pose, 20 stable localization samples, and 10
+consecutive static-map scan checks arrive. Sessions started with `--match`
+reuse automatic matching after a map switch. A failed switch automatically
+attempts to restore the previous map.
 
 Follow both navigation and web logs:
 
