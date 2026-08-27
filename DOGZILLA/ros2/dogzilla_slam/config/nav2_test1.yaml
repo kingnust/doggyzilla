@@ -23,10 +23,12 @@ controller_server:
       # Align to the path before translating, then follow one forward carrot.
       # This avoids DWB's repeated left/right candidate switching on the dog.
       desired_linear_vel: 0.20
-      lookahead_dist: 0.35
-      min_lookahead_dist: 0.20
-      max_lookahead_dist: 0.50
-      lookahead_time: 1.5
+      # A longer carrot prevents gait-scale pose noise from causing zig-zags.
+      lookahead_dist: 0.50
+      min_lookahead_dist: 0.30
+      max_lookahead_dist: 0.65
+      # At the default 0.20 m/s this selects the 0.50 m lookahead above.
+      lookahead_time: 2.5
       rotate_to_heading_angular_vel: 0.22
       transform_tolerance: 0.40
       use_velocity_scaled_lookahead_dist: true

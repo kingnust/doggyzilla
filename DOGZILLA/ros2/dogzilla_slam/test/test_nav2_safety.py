@@ -48,6 +48,11 @@ def test_path_follower_aligns_heading_then_tracks_forward_only():
         'RegulatedPurePursuitController'
     )
     assert follow_path['desired_linear_vel'] == 0.20
+    assert follow_path['lookahead_dist'] == 0.50
+    assert follow_path['min_lookahead_dist'] == 0.30
+    assert follow_path['max_lookahead_dist'] == 0.65
+    assert follow_path['lookahead_time'] == 2.5
+    assert follow_path['use_velocity_scaled_lookahead_dist'] is True
     assert follow_path['rotate_to_heading_angular_vel'] == 0.22
     assert follow_path['use_rotate_to_heading'] is True
     assert follow_path['rotate_to_heading_min_angle'] <= 0.45

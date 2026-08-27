@@ -98,8 +98,22 @@ def generate_launch_description():
             parameters=common_parameters,
             remappings=[
                 ('cmd_vel', '/cmd_vel_nav_raw'),
-                ('cmd_vel_smoothed', '/cmd_vel_nav'),
+                ('cmd_vel_smoothed', '/cmd_vel_nav_smoothed'),
             ],
+            output='screen',
+        ),
+        Node(
+            package='dogzilla_slam',
+            executable='steering_guard',
+            name='dogzilla_steering_guard',
+            parameters=[{
+                'input_topic': '/cmd_vel_nav_smoothed',
+                'output_topic': '/cmd_vel_nav',
+                'deadband_rps': 0.04,
+                'reversal_hold_seconds': 0.25,
+                'neutral_reset_seconds': 0.50,
+                'bypass_angular_rps': 0.50,
+            }],
             output='screen',
         ),
         Node(
