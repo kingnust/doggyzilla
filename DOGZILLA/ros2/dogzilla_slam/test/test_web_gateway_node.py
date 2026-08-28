@@ -38,6 +38,9 @@ class WebGatewayNodeTest(unittest.TestCase):
                 ),
                 'DOGZILLA_WEB_MAP_NAME': 'test1',
                 'DOGZILLA_WEB_PORT': '18082',
+                # This broad integration fixture has no LaserScan/TF source.
+                # Initial-pose search itself is covered in test_web_core.py.
+                'DOGZILLA_WEB_INITIAL_POSE_SEARCH_ENABLED': 'false',
             },
         ):
             rclpy.init()

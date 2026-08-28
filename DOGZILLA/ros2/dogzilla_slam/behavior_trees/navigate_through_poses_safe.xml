@@ -3,7 +3,7 @@
   <BehaviorTree ID="MainTree">
     <RecoveryNode number_of_retries="1" name="NavigateThroughPosesSafely">
       <PipelineSequence name="PlanAndFollowThroughPoses">
-        <RateController hz="1.0">
+        <RateController hz="0.5">
           <ReactiveSequence>
             <RemovePassedGoals input_goals="{goals}" output_goals="{goals}"
               radius="0.25"/>

@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPOSITORY_ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel)"
+PATCH_FILE="${SCRIPT_DIR}/navigation-stability.patch"
+
+usage() {
+    printf '%s\n' \
+        'Usage: candidate-control status|apply|revert' \
+        '' \
+        'This changes source files only. It never builds or starts Docker.'
+}
+
+patch_is_available() {
+    git -C "${REPOSITORY_ROOT}" apply --check "${PATCH_FILE}" \
+        >/dev/null 2>&1
+}
+
+patch_is_applied() {
+    git -C "${REPOSITORY_ROOT}" apply --reverse --check "${PATCH_FILE}" \
+        >/dev/null 2>&1
+}
+
+show_status() {
+    if patch_is_available; then
+        printf '%s\n' 'Navigation stability candidate: prepared, inactive.'
+    elif patch_is_applied; then
+        printf '%s\n' 'Navigation stability candidate: applied to source.'
+    else
+        printf '%s\n' \
+            'Navigation stability candidate: conflict or partial application.' \
+            'Inspect the working tree; no automatic repair was attempted.' >&2
+        return 1
+    fi
+}
+
+case "${1:-}" in
+    status)
+        show_status
+        ;;
+    apply)
+        if patch_is_applied; then
+            printf '%s\n' 'Candidate is already applied; nothing changed.'
+            exit 0
+        fi
+        git -C "${REPOSITORY_ROOT}" apply --check "${PATCH_FILE}"
+        git -C "${REPOSITORY_ROOT}" apply "${PATCH_FILE}"
+        printf '%s\n' \
+            'Candidate applied to source only.' \
+            'Docker and the running robot were not changed.'
+        ;;
+    revert)
+        if patch_is_available; then
+            printf '%s\n' 'Candidate is already inactive; nothing changed.'
+            exit 0
+        fi
+        git -C "${REPOSITORY_ROOT}" apply --reverse --check "${PATCH_FILE}"
+        git -C "${REPOSITORY_ROOT}" apply --reverse "${PATCH_FILE}"
+        printf '%s\n' \
+            'Candidate reverted in source only.' \
+            'Docker and the running robot were not changed.'
+        ;;
+    help|-h|--help|'')
+        usage
+        ;;
+    *)
+        printf 'Unknown command: %s\n' "$1" >&2
+        usage >&2
+        exit 2
+        ;;
+esac

@@ -222,9 +222,31 @@ class DogzillaWebGateway(Node):
         )
         self._localization_maximum_correction_rad = self._float_environment(
             'DOGZILLA_WEB_LOCALIZATION_MAX_CORRECTION_RAD',
-            0.70,
+            math.pi / 2.0,
             0.10,
             math.pi,
+        )
+        self._initial_pose_search_enabled = self._boolean_environment(
+            'DOGZILLA_WEB_INITIAL_POSE_SEARCH_ENABLED',
+            True,
+        )
+        self._initial_pose_search_linear_m = self._float_environment(
+            'DOGZILLA_WEB_INITIAL_POSE_SEARCH_LINEAR_M',
+            1.5,
+            0.25,
+            3.0,
+        )
+        self._initial_pose_search_angular_rad = self._float_environment(
+            'DOGZILLA_WEB_INITIAL_POSE_SEARCH_ANGULAR_RAD',
+            math.pi / 2.0,
+            math.radians(15.0),
+            math.pi,
+        )
+        self._initial_pose_search_minimum_score = self._float_environment(
+            'DOGZILLA_WEB_INITIAL_POSE_SEARCH_MIN_SCORE',
+            0.30,
+            0.10,
+            0.90,
         )
 
         self._estop_latched = False
@@ -257,7 +279,9 @@ class DogzillaWebGateway(Node):
         self._localization_last_scan_stamp_ns = 0
         self._localization_scan_validation = self._empty_scan_validation()
         self._localization_pose_correction = None
+        self._localization_initial_search = None
         self._localization_large_correction_samples = 0
+        self._latest_scan = None
         self._keepout_map_signature = None
         self._vision_frame = None
         self._vision_frame_received = 0.0
@@ -849,7 +873,18 @@ class DogzillaWebGateway(Node):
         )
         if stamp_ns <= 0:
             stamp_ns = self.get_clock().now().nanoseconds
+        frame = str(message.header.frame_id).strip()
         with self._lock:
+            self._latest_scan = {
+                'received_monotonic': time.monotonic(),
+                'stamp_ns': stamp_ns,
+                'frame': frame,
+                'ranges': tuple(message.ranges),
+                'angle_min': float(message.angle_min),
+                'angle_increment': float(message.angle_increment),
+                'range_min': float(message.range_min),
+                'range_max': float(message.range_max),
+            }
             if self._localization_state != 'matching':
                 return
             if stamp_ns <= self._localization_last_scan_stamp_ns:
@@ -859,7 +894,6 @@ class DogzillaWebGateway(Node):
                 and stamp_ns < self._localization_started_ns
             ):
                 return
-        frame = str(message.header.frame_id).strip()
         if not frame:
             self._update_scan_validation(
                 stamp_ns,
@@ -1201,7 +1235,67 @@ class DogzillaWebGateway(Node):
         self._localization_last_scan_stamp_ns = 0
         self._localization_scan_validation = self._empty_scan_validation()
         self._localization_pose_correction = None
+        self._localization_initial_search = None
         self._localization_large_correction_samples = 0
+
+    def _search_initial_pose(self, requested_pose):
+        """Resolve a broad operator estimate using one fresh static-map scan."""
+        if not self._initial_pose_search_enabled:
+            return requested_pose, None
+        with self._lock:
+            scan = dict(self._latest_scan) if self._latest_scan else None
+        if scan is None:
+            raise ConflictError(
+                'waiting for a fresh LiDAR scan before initial-pose search'
+            )
+        age = max(0.0, time.monotonic() - scan['received_monotonic'])
+        if age > 1.5:
+            raise ConflictError(
+                f'latest LiDAR scan is {age:.1f}s old; wait for a fresh scan'
+            )
+        if not scan['frame']:
+            raise ValidationError('LiDAR scan frame is missing')
+        try:
+            transform = self._tf_buffer.lookup_transform(
+                'base_link',
+                scan['frame'],
+                Time(),
+                timeout=Duration(seconds=0.10),
+            )
+        except TransformException as exc:
+            raise ConflictError(
+                f'waiting for base-to-LiDAR calibration transform: {exc}'
+            ) from exc
+        translation = transform.transform.translation
+        rotation = transform.transform.rotation
+        search = self.occupancy_map.search_laser_pose(
+            base_x=requested_pose['x'],
+            base_y=requested_pose['y'],
+            base_yaw=requested_pose['yaw'],
+            laser_offset_x=float(translation.x),
+            laser_offset_y=float(translation.y),
+            laser_offset_yaw=self._quaternion_yaw(rotation),
+            ranges=scan['ranges'],
+            angle_min=scan['angle_min'],
+            angle_increment=scan['angle_increment'],
+            range_min=scan['range_min'],
+            range_max=scan['range_max'],
+            linear_window_m=self._initial_pose_search_linear_m,
+            angular_window_rad=self._initial_pose_search_angular_rad,
+            minimum_score=self._initial_pose_search_minimum_score,
+            endpoint_tolerance_m=self._scan_match_endpoint_tolerance,
+        )
+        if not search['accepted']:
+            raise ValidationError(
+                f"initial-pose search is not confident: {search['reason']}; "
+                'choose a closer area or a more accurate heading'
+            )
+        refined = dict(search['pose'])
+        self.occupancy_map.validate_waypoints([{
+            'label': 'Refined initial pose',
+            **refined,
+        }])
+        return refined, search
 
     def _finish_localization_if_ready(self):
         with self._lock:
@@ -1567,6 +1661,7 @@ class DogzillaWebGateway(Node):
                 'required_samples': 20,
                 'scan_validation': scan_validation,
                 'pose_correction': self._localization_pose_correction,
+                'initial_search': self._localization_initial_search,
             }
         active_task = (
             self.store.get(active_task_id)
@@ -1622,15 +1717,20 @@ class DogzillaWebGateway(Node):
         if not all(math.isfinite(item) for item in (x, y, yaw)):
             raise ValidationError('initial pose values must be finite')
         yaw = math.atan2(math.sin(yaw), math.cos(yaw))
-        pose = {'x': round(x, 4), 'y': round(y, 4), 'yaw': round(yaw, 4)}
+        requested_pose = {
+            'x': round(x, 4),
+            'y': round(y, 4),
+            'yaw': round(yaw, 4),
+        }
         self.occupancy_map.validate_waypoints([{
             'label': 'Initial pose',
-            **pose,
+            **requested_pose,
         }])
         if self._initial_pose_publisher.get_subscription_count() < 1:
             raise ConflictError(
                 'localization manager is not ready to receive the pose yet'
             )
+        pose, initial_search = self._search_initial_pose(requested_pose)
 
         with self._lock:
             if self._active is not None:
@@ -1640,6 +1740,7 @@ class DogzillaWebGateway(Node):
             self._manual_command_until = 0.0
             self._localization_requested_pose = pose
             self._reset_localization_progress('matching')
+            self._localization_initial_search = initial_search
             self._localization_started_ns = (
                 self.get_clock().now().nanoseconds
             )
@@ -1668,6 +1769,8 @@ class DogzillaWebGateway(Node):
         result = {
             'map': self.map_name,
             'pose': pose,
+            'requested_pose': requested_pose,
+            'initial_search': initial_search,
             'state': 'matching',
             'movement_action': 'stop-only',
         }

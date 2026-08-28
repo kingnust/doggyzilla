@@ -4,6 +4,20 @@ This repository contains the Yahboom DOGZILLA software plus a Pi-only ROS 2
 mapping prototype. The mapping runtime is packaged as a reproducible Docker
 image and operated with one host-side command.
 
+The complete developer handoff starts at
+[docs/README.md](docs/README.md). New maintainers should read
+[docs/DEVELOPER_HANDOFF.md](docs/DEVELOPER_HANDOFF.md) and the
+[operations runbook](docs/OPERATIONS_RUNBOOK.md) before changing or deploying
+the robot. The controller/serial boundary, including what is and is not known
+about the embedded firmware, is documented in
+[docs/FIRMWARE_AND_SERIAL.md](docs/FIRMWARE_AND_SERIAL.md).
+
+The current component boundaries, hardware ownership, ROS frames, operational
+status, and source layout are documented in
+[docs/FRAMEWORK.md](docs/FRAMEWORK.md). End-to-end mapping, localization,
+navigation, mission, patrol, vision, keepout, shadow, and deployment flows are
+documented in [docs/PIPELINES.md](docs/PIPELINES.md).
+
 ## Mapping architecture
 
 ```text

@@ -608,7 +608,64 @@ class OccupancyMap:
         self.keepout_clearance_m = keepout_clearance
         self._lock = threading.RLock()
         self._snapshot = None
+        self._occupied_distance_m = None
         self._revision = 0
+
+    @staticmethod
+    def _build_occupied_distance_field(
+        width,
+        height,
+        resolution,
+        data,
+        occupied_threshold,
+    ):
+        """Build a fast chamfer approximation of distance to an obstacle."""
+        diagonal = math.sqrt(2.0)
+        distances = [
+            0.0 if value >= occupied_threshold else math.inf
+            for value in data
+        ]
+
+        for row in range(height):
+            for column in range(width):
+                index = row * width + column
+                best = distances[index]
+                if column:
+                    best = min(best, distances[index - 1] + 1.0)
+                if row:
+                    best = min(best, distances[index - width] + 1.0)
+                    if column:
+                        best = min(
+                            best,
+                            distances[index - width - 1] + diagonal,
+                        )
+                    if column + 1 < width:
+                        best = min(
+                            best,
+                            distances[index - width + 1] + diagonal,
+                        )
+                distances[index] = best
+
+        for row in range(height - 1, -1, -1):
+            for column in range(width - 1, -1, -1):
+                index = row * width + column
+                best = distances[index]
+                if column + 1 < width:
+                    best = min(best, distances[index + 1] + 1.0)
+                if row + 1 < height:
+                    best = min(best, distances[index + width] + 1.0)
+                    if column:
+                        best = min(
+                            best,
+                            distances[index + width - 1] + diagonal,
+                        )
+                    if column + 1 < width:
+                        best = min(
+                            best,
+                            distances[index + width + 1] + diagonal,
+                        )
+                distances[index] = best
+        return tuple(distance * resolution for distance in distances)
 
     def update(
         self,
@@ -639,9 +696,17 @@ class OccupancyMap:
             raise ValueError('map data length does not match its dimensions')
         if any(value < -1 or value > 100 for value in cells):
             raise ValueError('map cells must be between -1 and 100')
+        occupied_distance_m = self._build_occupied_distance_field(
+            width,
+            height,
+            resolution,
+            cells,
+            self.occupied_threshold,
+        )
 
         with self._lock:
             self._revision += 1
+            self._occupied_distance_m = occupied_distance_m
             self._snapshot = {
                 'name': self.map_name,
                 'frame': str(frame) or 'map',
@@ -662,6 +727,357 @@ class OccupancyMap:
                 'data': cells,
                 'runs': _encode_occupancy_runs(cells),
             }
+
+    @staticmethod
+    def _normalized_angle(value):
+        return math.atan2(math.sin(value), math.cos(value))
+
+    @staticmethod
+    def _angle_distance(first, second):
+        return abs(math.atan2(
+            math.sin(first - second),
+            math.cos(first - second),
+        ))
+
+    def search_laser_pose(
+        self,
+        *,
+        base_x,
+        base_y,
+        base_yaw,
+        laser_offset_x,
+        laser_offset_y,
+        laser_offset_yaw,
+        ranges,
+        angle_min,
+        angle_increment,
+        range_min,
+        range_max,
+        linear_window_m=1.5,
+        angular_window_rad=math.pi / 2.0,
+        coarse_linear_step_m=0.25,
+        fine_linear_step_m=0.05,
+        coarse_angular_step_rad=math.radians(15.0),
+        fine_angular_step_rad=math.radians(5.0),
+        minimum_score=0.30,
+        ambiguity_margin=0.02,
+        endpoint_tolerance_m=0.20,
+        maximum_rays=90,
+    ):
+        """Coarse-to-fine scan search around an operator's estimated pose."""
+        requested = (float(base_x), float(base_y), float(base_yaw))
+        laser_offset = (
+            float(laser_offset_x),
+            float(laser_offset_y),
+            float(laser_offset_yaw),
+        )
+        linear_window_m = float(linear_window_m)
+        angular_window_rad = float(angular_window_rad)
+        coarse_linear_step_m = float(coarse_linear_step_m)
+        fine_linear_step_m = float(fine_linear_step_m)
+        coarse_angular_step_rad = float(coarse_angular_step_rad)
+        fine_angular_step_rad = float(fine_angular_step_rad)
+        minimum_score = float(minimum_score)
+        ambiguity_margin = float(ambiguity_margin)
+        endpoint_tolerance_m = float(endpoint_tolerance_m)
+        maximum_rays = int(maximum_rays)
+        numeric = (
+            *requested,
+            *laser_offset,
+            linear_window_m,
+            angular_window_rad,
+            coarse_linear_step_m,
+            fine_linear_step_m,
+            coarse_angular_step_rad,
+            fine_angular_step_rad,
+            minimum_score,
+            ambiguity_margin,
+            endpoint_tolerance_m,
+        )
+        if not all(math.isfinite(value) for value in numeric):
+            raise ValueError('initial-pose search values must be finite')
+        if not 0.25 <= linear_window_m <= 3.0:
+            raise ValueError('linear_window_m must be between 0.25 and 3')
+        if not math.radians(15.0) <= angular_window_rad <= math.pi:
+            raise ValueError('angular_window_rad must be between 15 and 180 degrees')
+        if not 0.05 <= fine_linear_step_m <= coarse_linear_step_m <= 0.5:
+            raise ValueError('linear search steps are invalid')
+        if not (
+            math.radians(2.0)
+            <= fine_angular_step_rad
+            <= coarse_angular_step_rad
+            <= math.radians(45.0)
+        ):
+            raise ValueError('angular search steps are invalid')
+        if not 0.05 <= minimum_score <= 1.0:
+            raise ValueError('minimum_score must be between 0.05 and 1')
+        if not 0.0 <= ambiguity_margin <= 0.25:
+            raise ValueError('ambiguity_margin must be between 0 and 0.25')
+        if not 0.05 <= endpoint_tolerance_m <= 0.5:
+            raise ValueError('endpoint_tolerance_m must be between 0.05 and 0.5')
+        if not 24 <= maximum_rays <= 360:
+            raise ValueError('maximum_rays must be between 24 and 360')
+
+        values = tuple(ranges)
+        if not values:
+            raise ValueError('laser scan contains no ranges')
+        range_min = max(0.0, float(range_min))
+        range_max = float(range_max)
+        angle_min = float(angle_min)
+        angle_increment = float(angle_increment)
+        if not math.isfinite(angle_increment) or angle_increment == 0.0:
+            raise ValueError('laser angle increment must be finite and non-zero')
+        if not math.isfinite(range_max) or range_max <= range_min:
+            raise ValueError('laser range limits are invalid')
+
+        stride = max(1, math.ceil(len(values) / maximum_rays))
+        rays = []
+        for index in range(0, len(values), stride):
+            try:
+                distance = float(values[index])
+            except (TypeError, ValueError):
+                continue
+            if (
+                math.isfinite(distance)
+                and range_min <= distance <= range_max
+            ):
+                rays.append((
+                    angle_min + index * angle_increment,
+                    distance,
+                ))
+        if len(rays) < 24:
+            raise ValueError('too few finite LiDAR rays for initial-pose search')
+
+        with self._lock:
+            if self._snapshot is None or self._occupied_distance_m is None:
+                raise ConflictError('occupancy map is not available yet')
+            snapshot = self._snapshot
+            occupied_distance_m = self._occupied_distance_m
+
+        def candidate_score(x, y, yaw):
+            column, row = self._world_to_cell(snapshot, x, y)
+            if not (
+                0 <= column < snapshot['width']
+                and 0 <= row < snapshot['height']
+            ):
+                return None
+            cell_index = row * snapshot['width'] + column
+            if snapshot['data'][cell_index] != 0:
+                return None
+            if occupied_distance_m[cell_index] < snapshot['minimum_clearance_m']:
+                return None
+
+            cosine = math.cos(yaw)
+            sine = math.sin(yaw)
+            laser_x = x + cosine * laser_offset[0] - sine * laser_offset[1]
+            laser_y = y + sine * laser_offset[0] + cosine * laser_offset[1]
+            laser_yaw = yaw + laser_offset[2]
+            known = 0
+            agreement = 0.0
+            for ray_angle, distance in rays:
+                angle = laser_yaw + ray_angle
+                endpoint_x = laser_x + math.cos(angle) * distance
+                endpoint_y = laser_y + math.sin(angle) * distance
+                endpoint_column, endpoint_row = self._world_to_cell(
+                    snapshot,
+                    endpoint_x,
+                    endpoint_y,
+                )
+                if not (
+                    0 <= endpoint_column < snapshot['width']
+                    and 0 <= endpoint_row < snapshot['height']
+                ):
+                    continue
+                endpoint_index = (
+                    endpoint_row * snapshot['width'] + endpoint_column
+                )
+                if snapshot['data'][endpoint_index] < 0:
+                    continue
+                known += 1
+                distance_to_wall = occupied_distance_m[endpoint_index]
+                if distance_to_wall <= endpoint_tolerance_m:
+                    agreement += max(
+                        0.0,
+                        1.0 - distance_to_wall / endpoint_tolerance_m,
+                    )
+            if not known:
+                return None
+            coverage = known / len(rays)
+            score = agreement / known * min(1.0, coverage / 0.50)
+            return score
+
+        def stepped_values(window, step):
+            count = int(math.floor(window / step + 1e-9))
+            return [index * step for index in range(-count, count + 1)]
+
+        evaluated = {}
+
+        def evaluate(x, y, yaw):
+            yaw = self._normalized_angle(yaw)
+            key = (round(x, 4), round(y, 4), round(yaw, 4))
+            if key in evaluated:
+                return
+            score = candidate_score(x, y, yaw)
+            if score is not None:
+                evaluated[key] = {
+                    'x': x,
+                    'y': y,
+                    'yaw': yaw,
+                    'score': score,
+                }
+
+        linear_offsets = stepped_values(
+            linear_window_m,
+            coarse_linear_step_m,
+        )
+        angular_offsets = stepped_values(
+            angular_window_rad,
+            coarse_angular_step_rad,
+        )
+        for offset_x in linear_offsets:
+            for offset_y in linear_offsets:
+                if math.hypot(offset_x, offset_y) > linear_window_m + 1e-9:
+                    continue
+                for offset_yaw in angular_offsets:
+                    evaluate(
+                        requested[0] + offset_x,
+                        requested[1] + offset_y,
+                        requested[2] + offset_yaw,
+                    )
+        if not evaluated:
+            raise ValidationError(
+                'initial-pose search contains no safe mapped candidates'
+            )
+
+        coarse_best = sorted(
+            evaluated.values(),
+            key=lambda item: item['score'],
+            reverse=True,
+        )[:4]
+        fine_linear_offsets = stepped_values(
+            coarse_linear_step_m,
+            fine_linear_step_m,
+        )
+        fine_angular_offsets = stepped_values(
+            coarse_angular_step_rad,
+            fine_angular_step_rad,
+        )
+        for seed in coarse_best:
+            for offset_x in fine_linear_offsets:
+                for offset_y in fine_linear_offsets:
+                    x = seed['x'] + offset_x
+                    y = seed['y'] + offset_y
+                    if math.hypot(
+                        x - requested[0],
+                        y - requested[1],
+                    ) > linear_window_m + 1e-9:
+                        continue
+                    for offset_yaw in fine_angular_offsets:
+                        yaw = seed['yaw'] + offset_yaw
+                        if self._angle_distance(
+                            yaw,
+                            requested[2],
+                        ) > angular_window_rad + 1e-9:
+                            continue
+                        evaluate(x, y, yaw)
+
+        ranked = sorted(
+            evaluated.values(),
+            key=lambda item: item['score'],
+            reverse=True,
+        )
+        best = ranked[0]
+        requested_score = candidate_score(*requested)
+        distinct_runner = next((
+            item
+            for item in ranked[1:]
+            if (
+                math.hypot(item['x'] - best['x'], item['y'] - best['y'])
+                >= 0.30
+                or self._angle_distance(item['yaw'], best['yaw'])
+                >= math.radians(15.0)
+            )
+        ), None)
+        runner_score = (
+            distinct_runner['score'] if distinct_runner is not None else 0.0
+        )
+        ambiguous = best['score'] - runner_score < ambiguity_margin
+
+        best_cosine = math.cos(best['yaw'])
+        best_sine = math.sin(best['yaw'])
+        laser_x = (
+            best['x']
+            + best_cosine * laser_offset[0]
+            - best_sine * laser_offset[1]
+        )
+        laser_y = (
+            best['y']
+            + best_sine * laser_offset[0]
+            + best_cosine * laser_offset[1]
+        )
+        metrics = self.score_laser_scan(
+            laser_x=laser_x,
+            laser_y=laser_y,
+            laser_yaw=best['yaw'] + laser_offset[2],
+            ranges=values,
+            angle_min=angle_min,
+            angle_increment=angle_increment,
+            range_min=range_min,
+            range_max=range_max,
+            maximum_rays=min(180, maximum_rays * 2),
+            endpoint_tolerance_m=endpoint_tolerance_m,
+        )
+        accepted = (
+            best['score'] >= minimum_score
+            and metrics['quality'] >= minimum_score
+            and metrics['contradiction_ratio'] <= 0.35
+            and not ambiguous
+        )
+        if ambiguous:
+            reason = 'multiple separated map poses match this scan'
+        elif best['score'] < minimum_score or metrics['quality'] < minimum_score:
+            reason = 'no candidate has enough scan-to-map agreement'
+        elif metrics['contradiction_ratio'] > 0.35:
+            reason = 'the best candidate contradicts too many mapped walls'
+        else:
+            reason = 'one unambiguous scan-to-map pose was found'
+        return {
+            'accepted': accepted,
+            'reason': reason,
+            'pose': {
+                'x': round(best['x'], 4),
+                'y': round(best['y'], 4),
+                'yaw': round(best['yaw'], 4),
+            },
+            'score': round(best['score'], 4),
+            'requested_score': (
+                round(requested_score, 4)
+                if requested_score is not None else None
+            ),
+            'improvement': (
+                round(best['score'] - requested_score, 4)
+                if requested_score is not None else None
+            ),
+            'runner_score': round(runner_score, 4),
+            'ambiguous': ambiguous,
+            'evaluated_candidates': len(evaluated),
+            'linear_window_m': linear_window_m,
+            'angular_window_degrees': round(
+                math.degrees(angular_window_rad),
+                1,
+            ),
+            'coarse_linear_step_m': coarse_linear_step_m,
+            'fine_linear_step_m': fine_linear_step_m,
+            'coarse_angular_step_degrees': round(
+                math.degrees(coarse_angular_step_rad),
+                1,
+            ),
+            'fine_angular_step_degrees': round(
+                math.degrees(fine_angular_step_rad),
+                1,
+            ),
+            'scan_metrics': metrics,
+        }
 
     def available(self):
         with self._lock:

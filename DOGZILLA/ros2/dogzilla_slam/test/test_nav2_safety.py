@@ -54,6 +54,7 @@ def test_path_follower_aligns_heading_then_tracks_forward_only():
     assert follow_path['lookahead_time'] == 2.5
     assert follow_path['use_velocity_scaled_lookahead_dist'] is True
     assert follow_path['rotate_to_heading_angular_vel'] == 0.22
+    assert follow_path['transform_tolerance'] == 0.50
     assert follow_path['use_rotate_to_heading'] is True
     assert follow_path['rotate_to_heading_min_angle'] <= 0.45
     assert follow_path['allow_reversing'] is False
@@ -82,6 +83,10 @@ def test_recovery_tree_cannot_command_spin_or_backup():
         assert 'Spin' not in tags
         assert 'BackUp' not in tags
         assert len(root.findall('.//ClearEntireCostmap')) == 2
+
+        rate_controller = root.find('.//RateController')
+        assert rate_controller is not None
+        assert float(rate_controller.attrib['hz']) == 0.5
 
     configuration = _configuration()
     behaviors = configuration['behavior_server']['ros__parameters']
@@ -114,18 +119,32 @@ def test_launch_installs_and_selects_safe_navigation_tree():
     assert "'default_nav_through_poses_bt_xml': (" in launch
 
 
-def test_localization_limits_background_work_on_the_pi():
+def test_candidate_limits_background_work_and_tf_load_on_the_pi():
     localization = (
         PACKAGE_ROOT / 'config' / 'dogzilla_localization.lua'
     ).read_text(encoding='utf-8')
 
-    assert 'options.pose_publish_period_sec = 0.02' in localization
-    assert 'MAP_BUILDER.num_background_threads = 4' in localization
-    assert 'POSE_GRAPH.optimize_every_n_nodes = 10' in localization
+    assert 'options.pose_publish_period_sec = 0.05' in localization
+    assert 'options.trajectory_publish_period_sec = 0.20' in localization
+    assert 'options.submap_publish_period_sec = 2.0' in localization
+    assert 'MAP_BUILDER.num_background_threads = 2' in localization
+    assert 'POSE_GRAPH.optimize_every_n_nodes = 30' in localization
+    assert 'POSE_GRAPH.constraint_builder.sampling_ratio = 0.10' in localization
+    assert 'POSE_GRAPH.global_sampling_ratio = 0.02' in localization
     assert (
-        'POSE_GRAPH.optimization_problem.ceres_solver_options.num_threads = 4'
+        'POSE_GRAPH.optimization_problem.ceres_solver_options.num_threads = 2'
         in localization
     )
+
+
+def test_candidate_replanning_and_transform_tolerances_match():
+    configuration = _configuration()
+    assert configuration['planner_server']['ros__parameters'][
+        'expected_planner_frequency'
+    ] == 0.5
+    for name in ('local_costmap', 'global_costmap'):
+        parameters = configuration[name][name]['ros__parameters']
+        assert parameters['transform_tolerance'] == 0.50
 
 
 def test_localization_waits_for_initial_pose_unless_match_is_explicit():

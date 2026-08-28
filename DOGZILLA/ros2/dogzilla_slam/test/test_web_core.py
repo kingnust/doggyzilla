@@ -46,6 +46,75 @@ def delivery_request():
 
 
 class WebCoreTest(unittest.TestCase):
+    def test_initial_pose_search_refines_position_and_heading(self):
+        width = 120
+        height = 80
+        resolution = 0.1
+        cells = [0] * (width * height)
+        for column in range(width):
+            cells[column] = 100
+            cells[(height - 1) * width + column] = 100
+        for row in range(height):
+            cells[row * width] = 100
+            cells[row * width + width - 1] = 100
+
+        occupancy = OccupancyMap(
+            'room',
+            minimum_clearance_m=0.18,
+        )
+        occupancy.update(
+            frame='map',
+            width=width,
+            height=height,
+            resolution=resolution,
+            origin_x=0.0,
+            origin_y=0.0,
+            origin_yaw=0.0,
+            data=cells,
+        )
+
+        true_x = 6.0
+        true_y = 3.0
+        ray_count = 72
+        angle_increment = 2.0 * math.pi / ray_count
+        ranges = []
+        for index in range(ray_count):
+            angle = -math.pi + index * angle_increment
+            cosine = math.cos(angle)
+            sine = math.sin(angle)
+            distances = []
+            if cosine > 1e-9:
+                distances.append((11.95 - true_x) / cosine)
+            elif cosine < -1e-9:
+                distances.append((0.05 - true_x) / cosine)
+            if sine > 1e-9:
+                distances.append((7.95 - true_y) / sine)
+            elif sine < -1e-9:
+                distances.append((0.05 - true_y) / sine)
+            ranges.append(min(value for value in distances if value > 0.0))
+
+        result = occupancy.search_laser_pose(
+            base_x=5.25,
+            base_y=3.50,
+            base_yaw=math.radians(25.0),
+            laser_offset_x=0.0,
+            laser_offset_y=0.0,
+            laser_offset_yaw=0.0,
+            ranges=ranges,
+            angle_min=-math.pi,
+            angle_increment=angle_increment,
+            range_min=0.1,
+            range_max=20.0,
+        )
+
+        self.assertTrue(result['accepted'], result)
+        self.assertLess(abs(result['pose']['x'] - true_x), 0.11)
+        self.assertLess(abs(result['pose']['y'] - true_y), 0.11)
+        self.assertLess(abs(result['pose']['yaw']), math.radians(6.0))
+        self.assertEqual(result['linear_window_m'], 1.5)
+        self.assertEqual(result['angular_window_degrees'], 90.0)
+        self.assertGreater(result['evaluated_candidates'], 1000)
+
     def test_patrol_requires_complete_non_actuating_hazard_coverage(self):
         status = {
             'state': 'ready',

@@ -1,0 +1,171 @@
+diff --git a/DOGZILLA/ros2/dogzilla_slam/behavior_trees/navigate_to_pose_safe.xml b/DOGZILLA/ros2/dogzilla_slam/behavior_trees/navigate_to_pose_safe.xml
+--- a/DOGZILLA/ros2/dogzilla_slam/behavior_trees/navigate_to_pose_safe.xml
++++ b/DOGZILLA/ros2/dogzilla_slam/behavior_trees/navigate_to_pose_safe.xml
+@@ -3,7 +3,7 @@
+   <BehaviorTree ID="MainTree">
+     <RecoveryNode number_of_retries="1" name="NavigateSafely">
+       <PipelineSequence name="PlanAndFollow">
+-        <RateController hz="1.0">
++        <RateController hz="0.5">
+           <ComputePathToPose goal="{goal}" path="{path}"
+             planner_id="GridBased"/>
+         </RateController>
+diff --git a/DOGZILLA/ros2/dogzilla_slam/behavior_trees/navigate_through_poses_safe.xml b/DOGZILLA/ros2/dogzilla_slam/behavior_trees/navigate_through_poses_safe.xml
+--- a/DOGZILLA/ros2/dogzilla_slam/behavior_trees/navigate_through_poses_safe.xml
++++ b/DOGZILLA/ros2/dogzilla_slam/behavior_trees/navigate_through_poses_safe.xml
+@@ -3,7 +3,7 @@
+   <BehaviorTree ID="MainTree">
+     <RecoveryNode number_of_retries="1" name="NavigateThroughPosesSafely">
+       <PipelineSequence name="PlanAndFollowThroughPoses">
+-        <RateController hz="1.0">
++        <RateController hz="0.5">
+           <ReactiveSequence>
+             <RemovePassedGoals input_goals="{goals}" output_goals="{goals}"
+               radius="0.25"/>
+diff --git a/DOGZILLA/ros2/dogzilla_slam/config/dogzilla_localization.lua b/DOGZILLA/ros2/dogzilla_slam/config/dogzilla_localization.lua
+--- a/DOGZILLA/ros2/dogzilla_slam/config/dogzilla_localization.lua
++++ b/DOGZILLA/ros2/dogzilla_slam/config/dogzilla_localization.lua
+@@ -7,21 +7,23 @@
+ local options = include "dogzilla_2d.lua"
+ 
+ TRAJECTORY_BUILDER.pure_localization_trimmer = {
+-  max_submaps_to_keep = 3,
++  max_submaps_to_keep = 2,
+ }
+ 
+--- Keep localization responsive without starving Nav2 on the four-core Pi.
+-options.pose_publish_period_sec = 0.02
+-options.trajectory_publish_period_sec = 0.10
+-options.submap_publish_period_sec = 1.0
+-MAP_BUILDER.num_background_threads = 4
+-POSE_GRAPH.optimize_every_n_nodes = 10
+-POSE_GRAPH.constraint_builder.sampling_ratio = 0.20
+-POSE_GRAPH.global_sampling_ratio = 0.05
++-- Keep scan-time TF fresh while leaving two CPU cores for Nav2 and vision.
++-- The MS200 publishes at 10 Hz; pose TF at 20 Hz is sufficient interpolation
++-- headroom without the active profile's 50 Hz scheduling overhead.
++options.pose_publish_period_sec = 0.05
++options.trajectory_publish_period_sec = 0.20
++options.submap_publish_period_sec = 2.0
++MAP_BUILDER.num_background_threads = 2
++POSE_GRAPH.optimize_every_n_nodes = 30
++POSE_GRAPH.constraint_builder.sampling_ratio = 0.10
++POSE_GRAPH.global_sampling_ratio = 0.02
+ POSE_GRAPH.constraint_builder.min_score = 0.55
+ POSE_GRAPH.constraint_builder.global_localization_min_score = 0.58
+ POSE_GRAPH.optimization_problem.huber_scale = 1e1
+-POSE_GRAPH.max_num_final_iterations = 25
+-POSE_GRAPH.optimization_problem.ceres_solver_options.num_threads = 4
++POSE_GRAPH.max_num_final_iterations = 15
++POSE_GRAPH.optimization_problem.ceres_solver_options.num_threads = 2
+ 
+ return options
+diff --git a/DOGZILLA/ros2/dogzilla_slam/config/nav2_test1.yaml b/DOGZILLA/ros2/dogzilla_slam/config/nav2_test1.yaml
+--- a/DOGZILLA/ros2/dogzilla_slam/config/nav2_test1.yaml
++++ b/DOGZILLA/ros2/dogzilla_slam/config/nav2_test1.yaml
+@@ -30,7 +30,7 @@ controller_server:
+       # At the default 0.20 m/s this selects the 0.50 m lookahead above.
+       lookahead_time: 2.5
+       rotate_to_heading_angular_vel: 0.22
+-      transform_tolerance: 0.40
++      transform_tolerance: 0.50
+       use_velocity_scaled_lookahead_dist: true
+       min_approach_linear_velocity: 0.05
+       approach_velocity_scaling_dist: 0.60
+@@ -55,6 +55,7 @@ local_costmap:
+       publish_frequency: 1.0
+       global_frame: odom
+       robot_base_frame: base_link
++      transform_tolerance: 0.50
+       use_sim_time: false
+       rolling_window: true
+       width: 3
+@@ -100,6 +101,7 @@ global_costmap:
+       publish_frequency: 0.5
+       global_frame: map
+       robot_base_frame: base_link
++      transform_tolerance: 0.50
+       use_sim_time: false
+       footprint: '[[0.13, 0.0725], [0.13, -0.0725], [-0.13, -0.0725], [-0.13, 0.0725]]'
+       footprint_padding: 0.03
+@@ -145,7 +147,7 @@ map_server:
+ 
+ planner_server:
+   ros__parameters:
+-    expected_planner_frequency: 1.0
++    expected_planner_frequency: 0.5
+     use_sim_time: false
+     planner_plugins: [GridBased]
+     GridBased:
+@@ -181,7 +183,7 @@ behavior_server:
+     wait:
+       plugin: nav2_behaviors/Wait
+     global_frame: odom
+     robot_base_frame: base_link
+-    transform_tolerance: 0.40
++    transform_tolerance: 0.50
+ 
+ bt_navigator:
+   ros__parameters:
+diff --git a/DOGZILLA/ros2/dogzilla_slam/test/test_nav2_safety.py b/DOGZILLA/ros2/dogzilla_slam/test/test_nav2_safety.py
+--- a/DOGZILLA/ros2/dogzilla_slam/test/test_nav2_safety.py
++++ b/DOGZILLA/ros2/dogzilla_slam/test/test_nav2_safety.py
+@@ -53,6 +53,7 @@ def test_path_follower_aligns_heading_then_tracks_forward_only():
+     assert follow_path['lookahead_time'] == 2.5
+     assert follow_path['use_velocity_scaled_lookahead_dist'] is True
+     assert follow_path['rotate_to_heading_angular_vel'] == 0.22
++    assert follow_path['transform_tolerance'] == 0.50
+     assert follow_path['use_rotate_to_heading'] is True
+     assert follow_path['rotate_to_heading_min_angle'] <= 0.45
+     assert follow_path['allow_reversing'] is False
+@@ -88,6 +89,10 @@ def test_recovery_tree_cannot_command_spin_or_backup():
+         assert 'BackUp' not in tags
+         assert len(root.findall('.//ClearEntireCostmap')) == 2
+ 
++        rate_controller = root.find('.//RateController')
++        assert rate_controller is not None
++        assert float(rate_controller.attrib['hz']) == 0.5
++
+     configuration = _configuration()
+     behaviors = configuration['behavior_server']['ros__parameters']
+     assert behaviors['behavior_plugins'] == ['wait']
+@@ -113,18 +118,32 @@ def test_launch_installs_and_selects_safe_navigation_tree():
+     assert "'default_nav_through_poses_bt_xml': (" in launch
+ 
+ 
+-def test_localization_limits_background_work_on_the_pi():
++def test_candidate_limits_background_work_and_tf_load_on_the_pi():
+     localization = (
+         PACKAGE_ROOT / 'config' / 'dogzilla_localization.lua'
+     ).read_text(encoding='utf-8')
+ 
+-    assert 'options.pose_publish_period_sec = 0.02' in localization
+-    assert 'MAP_BUILDER.num_background_threads = 4' in localization
+-    assert 'POSE_GRAPH.optimize_every_n_nodes = 10' in localization
++    assert 'options.pose_publish_period_sec = 0.05' in localization
++    assert 'options.trajectory_publish_period_sec = 0.20' in localization
++    assert 'options.submap_publish_period_sec = 2.0' in localization
++    assert 'MAP_BUILDER.num_background_threads = 2' in localization
++    assert 'POSE_GRAPH.optimize_every_n_nodes = 30' in localization
++    assert 'POSE_GRAPH.constraint_builder.sampling_ratio = 0.10' in localization
++    assert 'POSE_GRAPH.global_sampling_ratio = 0.02' in localization
+     assert (
+-        'POSE_GRAPH.optimization_problem.ceres_solver_options.num_threads = 4'
++        'POSE_GRAPH.optimization_problem.ceres_solver_options.num_threads = 2'
+         in localization
+     )
+ 
+ 
++def test_candidate_replanning_and_transform_tolerances_match():
++    configuration = _configuration()
++    assert configuration['planner_server']['ros__parameters'][
++        'expected_planner_frequency'
++    ] == 0.5
++    for name in ('local_costmap', 'global_costmap'):
++        parameters = configuration[name][name]['ros__parameters']
++        assert parameters['transform_tolerance'] == 0.50
++
++
+ def test_localization_waits_for_initial_pose_unless_match_is_explicit():
+     localization_launch = (
+         PACKAGE_ROOT / 'launch' / 'localization.launch.py'

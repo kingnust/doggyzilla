@@ -1,0 +1,133 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" role="img" aria-labelledby="title description">
+  <title id="title">DOGZILLA S2 four-layer autonomy pipeline</title>
+  <desc id="description">Four large areas show hardware, perception, SLAM and localization, and navigation and control. Sensor data flows right and guarded velocity commands return to the hardware.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#07111f"/>
+      <stop offset="1" stop-color="#10233e"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="160%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000000" flood-opacity="0.28"/>
+    </filter>
+    <marker id="arrow" markerWidth="14" markerHeight="14" refX="10" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#72d8ff"/>
+    </marker>
+    <marker id="soft-arrow" markerWidth="14" markerHeight="14" refX="10" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#a3b9ca"/>
+    </marker>
+    <marker id="control-arrow" markerWidth="14" markerHeight="14" refX="10" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#83e6ad"/>
+    </marker>
+    <style>
+      .title { font: 700 56px Arial, Helvetica, sans-serif; fill: #f6fbff; }
+      .subtitle { font: 400 24px Arial, Helvetica, sans-serif; fill: #a9bed2; }
+      .layer { font: 700 18px Arial, Helvetica, sans-serif; letter-spacing: 2px; }
+      .card-title { font: 700 31px Arial, Helvetica, sans-serif; fill: #ffffff; }
+      .item { font: 400 22px Arial, Helvetica, sans-serif; fill: #d7e3ee; }
+      .note { font: 400 18px Arial, Helvetica, sans-serif; fill: #aec1d1; }
+      .label { font: 700 18px Arial, Helvetica, sans-serif; letter-spacing: 1px; fill: #eaf7ff; }
+      .dark-label { font: 700 18px Arial, Helvetica, sans-serif; letter-spacing: 1px; fill: #06111e; }
+      .operator { font: 700 19px Arial, Helvetica, sans-serif; fill: #72d8ff; letter-spacing: 1.5px; }
+      .operator-detail { font: 400 20px Arial, Helvetica, sans-serif; fill: #e2edf6; }
+    </style>
+  </defs>
+
+  <rect width="1920" height="1080" fill="url(#background)"/>
+  <circle cx="1765" cy="80" r="270" fill="#245d83" opacity="0.12"/>
+  <circle cx="110" cy="1020" r="300" fill="#17644d" opacity="0.09"/>
+
+  <text x="82" y="82" class="title">DOGZILLA S2 system pipeline</text>
+  <text x="84" y="124" class="subtitle">Four operational layers from physical sensors to autonomous movement</text>
+
+  <g filter="url(#shadow)">
+    <rect x="1410" y="118" width="400" height="96" rx="22" fill="#17385d" stroke="#4facdf" stroke-width="2"/>
+  </g>
+  <text x="1610" y="157" class="operator" text-anchor="middle">OPERATOR / WEB UI</text>
+  <text x="1610" y="190" class="operator-detail" text-anchor="middle">Map, goals, delivery and patrol</text>
+  <path d="M1610 214 L1610 276" fill="none" stroke="#72d8ff" stroke-width="5" marker-end="url(#arrow)"/>
+
+  <path d="M705 285 C705 232 905 240 1090 240 L1510 240 C1540 240 1545 260 1545 278" fill="none" stroke="#a3b9ca" stroke-width="4" stroke-dasharray="10 9" marker-end="url(#soft-arrow)"/>
+  <rect x="934" y="213" width="330" height="52" rx="26" fill="#243a50"/>
+  <text x="1099" y="246" class="label" text-anchor="middle">LIVE OBSTACLES + ALERTS</text>
+
+  <g filter="url(#shadow)">
+    <rect x="70" y="300" width="380" height="430" rx="28" fill="#192d48" stroke="#3c668d" stroke-width="2"/>
+    <rect x="530" y="300" width="380" height="430" rx="28" fill="#15324e" stroke="#4384ae" stroke-width="2"/>
+    <rect x="990" y="300" width="380" height="430" rx="28" fill="#193d5b" stroke="#54bdec" stroke-width="3"/>
+    <rect x="1450" y="300" width="400" height="430" rx="28" fill="#183a32" stroke="#4cc189" stroke-width="3"/>
+  </g>
+
+  <rect x="92" y="326" width="174" height="40" rx="20" fill="#274966"/>
+  <text x="179" y="352" class="layer" fill="#8edfff" text-anchor="middle">01 HARDWARE</text>
+  <text x="100" y="414" class="card-title">Physical robot</text>
+  <circle cx="104" cy="474" r="6" fill="#72d8ff"/>
+  <text x="126" y="482" class="item">MS200 LiDAR</text>
+  <circle cx="104" cy="530" r="6" fill="#72d8ff"/>
+  <text x="126" y="538" class="item">Monocular camera</text>
+  <circle cx="104" cy="586" r="6" fill="#72d8ff"/>
+  <text x="126" y="594" class="item">IMU, battery and joints</text>
+  <circle cx="104" cy="642" r="6" fill="#72d8ff"/>
+  <text x="126" y="650" class="item">Controller and 12 servos</text>
+  <text x="100" y="700" class="note">Sensors provide feedback;</text>
+  <text x="100" y="722" class="note">servos execute safe motion.</text>
+
+  <rect x="552" y="326" width="190" height="40" rx="20" fill="#24506d"/>
+  <text x="647" y="352" class="layer" fill="#8edfff" text-anchor="middle">02 PERCEPTION</text>
+  <text x="560" y="414" class="card-title">Sensor processing</text>
+  <circle cx="564" cy="474" r="6" fill="#72d8ff"/>
+  <text x="586" y="482" class="item">LiDAR driver → /scan</text>
+  <circle cx="564" cy="530" r="6" fill="#72d8ff"/>
+  <text x="586" y="538" class="item">Camera frame processing</text>
+  <circle cx="564" cy="586" r="6" fill="#72d8ff"/>
+  <text x="586" y="594" class="item">People and hazard detection</text>
+  <circle cx="564" cy="642" r="6" fill="#72d8ff"/>
+  <text x="586" y="650" class="item">IMU calibration</text>
+  <text x="560" y="700" class="note">Produces observations, not</text>
+  <text x="560" y="722" class="note">movement commands.</text>
+
+  <rect x="1012" y="326" width="252" height="40" rx="20" fill="#24688b"/>
+  <text x="1138" y="352" class="layer" fill="#b4ebff" text-anchor="middle">03 SLAM + LOCALIZATION</text>
+  <text x="1020" y="414" class="card-title">Map and robot pose</text>
+  <circle cx="1024" cy="474" r="6" fill="#72d8ff"/>
+  <text x="1046" y="482" class="item">Cartographer scan matching</text>
+  <circle cx="1024" cy="530" r="6" fill="#72d8ff"/>
+  <text x="1046" y="538" class="item">Build map or localize</text>
+  <circle cx="1024" cy="586" r="6" fill="#72d8ff"/>
+  <text x="1046" y="594" class="item">map → odom → base_link</text>
+  <circle cx="1024" cy="642" r="6" fill="#72d8ff"/>
+  <text x="1046" y="650" class="item">PBStream + PGM/YAML</text>
+  <text x="1020" y="700" class="note">SLAM maps; localization reuses</text>
+  <text x="1020" y="722" class="note">the saved map during missions.</text>
+
+  <rect x="1472" y="326" width="264" height="40" rx="20" fill="#236348"/>
+  <text x="1604" y="352" class="layer" fill="#9bf0c0" text-anchor="middle">04 NAVIGATION + CONTROL</text>
+  <text x="1480" y="414" class="card-title">Plan and move safely</text>
+  <circle cx="1484" cy="474" r="6" fill="#83e6ad"/>
+  <text x="1506" y="482" class="item">Web mission safety gates</text>
+  <circle cx="1484" cy="530" r="6" fill="#83e6ad"/>
+  <text x="1506" y="538" class="item">Nav2 path and costmaps</text>
+  <circle cx="1484" cy="586" r="6" fill="#83e6ad"/>
+  <text x="1506" y="594" class="item">Obstacles and keepouts</text>
+  <circle cx="1484" cy="642" r="6" fill="#83e6ad"/>
+  <text x="1506" y="650" class="item">Smoother, guard, safe_base</text>
+  <text x="1480" y="700" class="note">Only this layer requests motion;</text>
+  <text x="1480" y="722" class="note">safe_base owns final execution.</text>
+
+  <path d="M450 515 L520 515" fill="none" stroke="#72d8ff" stroke-width="6" marker-end="url(#arrow)"/>
+  <path d="M910 515 L980 515" fill="none" stroke="#72d8ff" stroke-width="6" marker-end="url(#arrow)"/>
+  <path d="M1370 515 L1440 515" fill="none" stroke="#72d8ff" stroke-width="6" marker-end="url(#arrow)"/>
+
+  <path d="M1650 740 L1650 810 C1650 846 1615 852 1575 852 L280 852 C235 852 225 820 225 778 L225 740" fill="none" stroke="#83e6ad" stroke-width="6" marker-end="url(#control-arrow)"/>
+  <rect x="740" y="817" width="500" height="70" rx="35" fill="#83e6ad"/>
+  <text x="990" y="860" class="dark-label" text-anchor="middle">GUARDED VELOCITY → ROBOT LEGS</text>
+
+  <g filter="url(#shadow)">
+    <rect x="370" y="930" width="1180" height="82" rx="24" fill="#112b43" stroke="#365e80" stroke-width="2"/>
+  </g>
+  <text x="418" y="965" class="label">PERSISTENT DATA</text>
+  <text x="418" y="994" class="item">Saved maps  •  tasks  •  keepout zones  •  calibration  •  logs  •  alert photos</text>
+  <path d="M1180 730 L1180 920" fill="none" stroke="#66839a" stroke-width="4" marker-end="url(#soft-arrow)"/>
+  <path d="M1610 730 C1610 905 1470 910 1420 925" fill="none" stroke="#66839a" stroke-width="4" marker-end="url(#soft-arrow)"/>
+
+  <text x="960" y="1052" class="note" text-anchor="middle">Closed loop: sense → understand → locate → plan → move → sense again</text>
+</svg>
